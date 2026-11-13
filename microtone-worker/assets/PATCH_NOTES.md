@@ -13,7 +13,7 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 - The engine is the same bits everywhere now. It carries its own mathematics instead of the browser's, so a song renders to the identical file in Chrome, Firefox, Safari, the desktop app and the player libraries, whatever the machine.
 - Microtone Touch and the desktop app run the same engine.
 - The `taudplay` JavaScript library is version 5.0.0 and runs this engine too, with the API it had; `libtaudplay`, the C library, is no longer a port of the engine but its source.
-- Fixed: a note lying between two 4096ths of an octave, which the built-in tuning systems now write, could fall into the gap between two keyboard zones of a sampled instrument and play its base sample instead; a zone, a layer's range and an operator's range now run through the whole of their last step.
+- Fixed: a note whose pitch does not end in 0 in hex, which the built-in tuning systems now write, could fall into the gap between two keyboard zones of a sampled instrument and play its base sample instead; a zone, a layer's range and an operator's range now run through the whole of their last step.
 
 **FM instruments are computed at 192 kHz inside, so a hard-driven patch no longer aliases.** A deep modulation makes partials far above what the output can hold, and they used to fold back into the audible range as tones that belong to no harmonic of the note.
 
@@ -22,13 +22,23 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 - An operator's own filter keeps the cutoff you set; an OPL or a PSG instrument used as an operator still runs on its chip's own clock.
 - An FM instrument costs about four times the processor per operator that it did, so a song made mostly of FM instruments is heavier than before; songs without them are not affected.
 
-**An instrument's pitches are as fine as its notes now: 65536 steps to the octave.** A detune, a keyboard zone's or a layer's pitch range, a fixed pitch, the pitch-pan centre and an FM operator's ratio all keep sixteenths of a 4096-TET step, so they can sit exactly on a degree of the song's tuning system instead of up to 0.15 cent beside it.
+**An instrument's pitches are as fine as its notes now: 65536 steps to the octave.** A detune, a keyboard zone's or a layer's pitch range, a fixed pitch, the pitch-pan centre and an FM operator's ratio are all held to the step, so they can sit exactly on a degree of the song's tuning system instead of up to 0.15 cent beside it.
 
-- The pitch boxes count those 65536 steps, as the note column does: in hex (`$50000` is C4) or as a plain decimal number. Cents and ratios go straight onto the nearest step, so typing `5/4` lands within 0.002 cent of a just major third, and the cents boxes show a hundredth of a cent where a pitch falls between two 4096ths.
+- The pitch boxes count those 65536 steps, as the note column does: in hex (`$50000` is C4) or as a plain decimal number. Cents and ratios go straight onto the nearest step, so typing `5/4` lands within 0.002 cent of a just major third.
 - A fixed-pitch layer or a fixed-frequency operator can sit below C0 (`−$10000` is an octave below it), and an operator's ratio can reach past eight octaves.
-- The top of a pitch range is the last step inside it: a note name or a press of + or − takes the whole of a 4096th, as before (`C-4` as a top is `$5000F`), and a typed step count is taken as it is.
+- The top of a pitch range is the last step inside it: a note name or a press of + or − takes the last of the sixteen steps its note word names, as before (`C-4` as a top is `$5000F`), and a typed step count is taken as it is.
 - Reordering, duplicating or removing layers, operators and zones, copying or importing an instrument, renumbering it, and undo all keep each pitch's fine part with it.
-- The song's tuning base note stays on the 4096-step grid.
+- The chord maker's raw offset counts the same steps (`$10000` is an octave), and so does Find & Change's note: five digits, as the raw note column shows a note (`50000` is C-4).
+- Transpose's raw mode counts them too, in one field instead of the two the tuning system's units need, with the cents it makes shown beside it.
+- Bank cleanup, deleting a sample, deleting an instrument that a layered instrument uses, and giving an instrument a stereo sample keep the fine pitch of every zone and layer that remains; the keyboard-zone map and the range readouts draw and name the fine edges.
+- Motif programs written in TML 2 keep their instruments' pitches this finely too: detunes, ratios, the ends of a range, an OPL partner's pitch and a waveform's tuning. Re-tuning writes its corrections to the same resolution and measures each note at the exact pitch the song plays it, so Huygens' Clock and Eighteenfold Euphonic DisOrder, rebuilt this way, sit closer to their tunings. A TML 1 program builds as it always did.
+- A layer's detune and an operator's ratio show their exact value beside the cents in the same five-digit hex.
+- Every pitch shown in cents reads to a thousandth of a cent — a detune, a layer in the chord stack, the chord maker's notes, the notation maker's degrees, Transpose's raw shift, the song's tuning — so two neighbouring steps never read alike, and a pitch on a whole note word reads as finely as the ones beside it (`$095C0` is 701.953 cents).
+- In a TML 2 program, `word()` gives a note's pitch in the same steps, as a whole number: `word('C4')` is `$50000` in a format-3 song.
+- The manual, the Note Effects reference and the Taud specifications now count pitch in 65536 steps throughout. Effect arguments are unchanged: a pitch slide or an arpeggio moves sixteen steps for each unit of its argument, as it always has.
+- The same documents describe the pattern cell every project has — 8-bit volumes, a fine note, a full panning column, two effects — as the format, and the older, narrower cell after it as the legacy format.
+- Fixed: the command palette's volume and panning hints, the Volume and Pan dialogs and the `M` hint still gave the old 0–63 ranges; they now give the ones every project has had since the previous release.
+- The song's tuning base note stays a whole note word: its pitch always ends in 0.
 
 **FM Easy Mode writes the whole multiplier into the operator's ratio.** ×3, ×5 and every other whole number to ×31 is within 0.002 cent of exact, on every kind of operator: an OPL or PSG instrument used as an operator takes ×3 as readily as a sine, which it could not before.
 

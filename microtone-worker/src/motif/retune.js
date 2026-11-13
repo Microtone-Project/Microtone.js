@@ -11,6 +11,7 @@
 
 import { parsePatchesBlob, writePatchesBlob } from "../../core/engine/inst.js";
 import { buildIxmpSection } from "../doc/bankmerge.js";
+import { patchDetune, patchDetuneFields, pitchPatchesOf } from "../doc/pitchedit.js";
 import { measureWords } from "./zonetune.js";
 
 const UNITS_PER_CENT = 4096 / 1200;
@@ -34,8 +35,14 @@ function zoneKey(doc, slot, word, vol) {
  * `uses`: Map slot → array of {word, vol}. Returns a report; edits doc.ixmp and
  * the Ixmp section in place. `pause` (awaited between measurements) lets a
  * page draw while this runs; `progress(done, total)` counts measurements.
+ *
+ * `fine` (a TML 2 build): a correction is written to the sixteenth of a unit,
+ * the patch's detune field and its `IPit` extension (file format §9.18), and
+ * the doc's section follows; otherwise to the unit, as it always was. `wide`
+ * measures a note in a format-3 cell, so a note between two units sounds
+ * where the song plays it.
  */
-export async function retune(doc, uses, { passes = 2, log = () => {}, pause = null, progress = null } = {}) {
+export async function retune(doc, uses, { passes = 2, log = () => {}, pause = null, progress = null, fine = false, wide = false } = {}) {
   const report = [];
   let done = 0;
   let total = 0;
@@ -55,7 +62,7 @@ export async function retune(doc, uses, { passes = 2, log = () => {}, pause = nu
         members.sort((a, b) => a.word - b.word);
         const rep = members[members.length >> 1];
         if (pause) await pause();
-        const [m] = measureWords(doc, slot, [rep.word], rep.vol);
+        const [m] = measureWords(doc, slot, [rep.word], rep.vol, wide);
         progress?.(++done, total);
         if (!Number.isFinite(m.cents)) continue;
         if (pass === passes - 1) report.push({ slot, key, word: rep.word, cents: m.cents });
@@ -75,21 +82,37 @@ export async function retune(doc, uses, { passes = 2, log = () => {}, pause = nu
       if (!bySlot.has(L)) bySlot.set(L, []);
       bySlot.get(L).push([idx, -mean]);
     }
+    const touched = [];
     for (const e of doc.ixmp) {
       const L = e.instId & 0x3ff;
       const fixes = bySlot.get(L);
       if (!fixes) continue;
       const patches = parsePatchesBlob(e.blob);
+      if (fine) {
+        // Each zone starts from the pitch it has now, its extension included.
+        const live = doc.instruments[L].extraPatches ?? [];
+        patches.forEach((p, i) => {
+          if (live[i]) { p.dLo = live[i].dLo; p.dHi = live[i].dHi; p.dDetune = live[i].dDetune; }
+        });
+      }
       for (const [idx, cents] of fixes) {
         const p = patches[idx];
-        const d0 = (p.sampleDetune << 16) >> 16;
-        const d1 = Math.max(-0x8000, Math.min(0x7fff, d0 + Math.round(cents * UNITS_PER_CENT)));
-        p.sampleDetune = d1 & 0xffff;
+        if (fine) {
+          Object.assign(p, patchDetuneFields(patchDetune(p) + cents * UNITS_PER_CENT));
+        } else {
+          const d0 = (p.sampleDetune << 16) >> 16;
+          const d1 = Math.max(-0x8000, Math.min(0x7fff, d0 + Math.round(cents * UNITS_PER_CENT)));
+          p.sampleDetune = d1 & 0xffff;
+        }
         log(`pass ${pass}: slot ${L} zone ${idx}: ${cents >= 0 ? "+" : ""}${cents.toFixed(1)} c`);
       }
       e.blob = writePatchesBlob(patches);
+      touched.push({ slot: L, patches, groups: { patches: pitchPatchesOf(patches) } });
     }
+    // The zones' extensions, against the patch lists as they now stand.
+    const ipit = fine ? doc.pitchExtPayloadAfter(touched) : undefined;
     doc.setSection("Ixmp", buildIxmpSection(doc.ixmp));
+    if (ipit !== undefined) doc.setPitchExtPayload(ipit);
     doc._resetInstrumentCache();
   }
   return report;

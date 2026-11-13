@@ -3,6 +3,7 @@
 // one-button sibling for something the person only has to read.
 
 import { actionRow } from "./actions.js";
+import { mapSpinner } from "./spinner.js";
 
 export function showModal({ title, fields = [], okLabel = "OK", body = null }) {
   return new Promise((resolve) => {
@@ -31,6 +32,8 @@ export function showModal({ title, fields = [], okLabel = "OK", body = null }) {
     form.className = "modal-form";
     const inputs = {};
     const deps = [];
+    const shows = [];
+    const mapped = new Set();
     for (const f of fields) {
       const label = document.createElement("label");
       label.className = "modal-field";
@@ -62,6 +65,9 @@ export function showModal({ title, fields = [], okLabel = "OK", body = null }) {
         if (f.min !== undefined) input.min = f.min;
         if (f.max !== undefined) input.max = f.max;
         if (f.placeholder) input.placeholder = f.placeholder;
+        // `map`: a spinner mapping (spinmaps.js) — the box shows the value in
+        // its own units and the dialog resolves the STORED value it settled on.
+        if (f.map) { mapSpinner(input, f.map, f.value ?? 0); mapped.add(f.name); }
       }
       input.name = f.name;
       inputs[f.name] = input;
@@ -69,7 +75,29 @@ export function showModal({ title, fields = [], okLabel = "OK", body = null }) {
       // and hit down one edge; everything else leads with its caption.
       if (f.type === "checkbox") label.append(input, caption);
       else label.append(caption, input);
+      // `ann: (value) => string` is a live readout beside the control — what
+      // the number in it means in another unit (the cents a step count is).
+      // It reads the value being typed as the field will read it.
+      if (f.ann) {
+        const ann = document.createElement("span");
+        ann.className = "modal-ann dim";
+        const current = () => {
+          if (!f.map) return input.value;
+          const typed = f.map.fromDisplay(input.value);
+          return Number.isFinite(typed) ? typed : input.rawValue;
+        };
+        const sync = () => { ann.textContent = f.ann(current()); };
+        sync();
+        input.addEventListener("input", sync);
+        input.addEventListener("change", sync);
+        label.append(ann);
+      }
       form.appendChild(label);
+      // `shownWhen: {field, is?, not?}` is enabledWhen's stronger twin: the
+      // field (and its hint) is not there at all while the other field's
+      // answer makes it meaningless — two fields that one replaces.
+      const show = f.shownWhen ? { label, hint: null, on: f.shownWhen } : null;
+      if (show) shows.push(show);
       // `enabledWhen: {field, is?, not?}` greys a control out while another
       // field's answer makes it meaningless — pitch glissando quantises onto
       // the notation's grid, so there is nothing left for a dither to round.
@@ -99,6 +127,7 @@ export function showModal({ title, fields = [], okLabel = "OK", body = null }) {
         };
         hint.textContent = text();
         form.appendChild(hint);
+        if (show) show.hint = hint;
         if (f.hints || typeof f.hint === "function") {
           const sync = () => { hint.textContent = text(); };
           input.addEventListener("change", sync);
@@ -118,6 +147,18 @@ export function showModal({ title, fields = [], okLabel = "OK", body = null }) {
       src.addEventListener("change", sync);
       sync();
     }
+    for (const d of shows) {
+      const src = inputs[d.on.field];
+      if (!src) continue;
+      const sync = () => {
+        const v = src.type === "checkbox" ? src.checked : src.value;
+        const on = d.on.is !== undefined ? v === d.on.is : v !== d.on.not;
+        d.label.hidden = !on;
+        if (d.hint) d.hint.hidden = !on;
+      };
+      src.addEventListener("change", sync);
+      sync();
+    }
     dlg.appendChild(form);
     const { row, proceed: ok, cancel } = actionRow({ cancel: true, proceed: okLabel });
     dlg.appendChild(row);
@@ -132,7 +173,8 @@ export function showModal({ title, fields = [], okLabel = "OK", body = null }) {
       e.preventDefault();
       const values = {};
       for (const [name, input] of Object.entries(inputs)) {
-        values[name] = input.type === "checkbox" ? input.checked : input.value;
+        values[name] = input.type === "checkbox" ? input.checked
+          : mapped.has(name) ? input.rawValue : input.value;
       }
       finish(values);
     });
@@ -143,10 +185,13 @@ export function showModal({ title, fields = [], okLabel = "OK", body = null }) {
       if (e.key === "Enter" && e.target.tagName !== "BUTTON") { e.preventDefault(); ok.click(); }
     });
     dlg.showModal();
-    const first = Object.values(inputs)[0];
+    // The first field that is THERE: one a `shownWhen` has taken away cannot
+    // hold the caret.
+    const firstAt = fields.findIndex((f) => !inputs[f.name]?.closest(".modal-field")?.hidden);
+    const first = firstAt >= 0 ? inputs[fields[firstAt].name] : null;
     if (first) first.focus();
     // `select: true` on the first field: its text starts selected, to be typed over
-    if (first && fields[0]?.select) first.select?.();
+    if (first && fields[firstAt]?.select) first.select?.();
   });
 }
 

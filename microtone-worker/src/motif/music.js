@@ -37,6 +37,7 @@ import { chainOf } from "./chain.js";
 import { readIpaSyllable, xsampaToIpa, consonantId, vowelOf } from "./syllable.js";
 import { FormantPatch, SEMIVOWELS, CONSONANTS, FORMANT_DEFAULT_REF } from "../../core/engine/formant.js";
 import { readLyrics, timingByteOf } from "../doc/lyrics.js";
+import { fitOffset, splitOffset, splitNote, OFFSET_EXT_MIN, OFFSET_EXT_MAX } from "../doc/pitchedit.js";
 import { LYRIC_MAX_SYLLABLES, LYRIC_CONVERGE_MAX } from "../../core/format/lyric-section.js";
 
 export const KEY_OFF = 0x0001;
@@ -321,7 +322,12 @@ export class Score {
         inst.wave = o.wave;
         inst.length = o.length ?? 256;
       } else {
-        inst.block = kind === "opl" ? this.oplOf(o.opl, `${what}'s opl`) : this.psgOf(o.psg, `${what}'s psg`);
+        if (kind === "opl") {
+          // The partner's pitch beyond the unit rides in the `IPit` base group.
+          const { block, partnerExt } = this.oplOf(o.opl, `${what}'s opl`);
+          inst.block = block;
+          inst.pitchBase = partnerExt ? [0, 0, partnerExt] : null;
+        } else inst.block = this.psgOf(o.psg, `${what}'s psg`);
       }
       if (has("envelope")) inst.envelope = this.envelopeOf(o.envelope, o.sustain ?? null, what);
       else if (has("sustain")) throw fail(`${what}: sustain needs an envelope`);
@@ -394,8 +400,13 @@ export class Score {
       if (o.detune !== undefined) throw fail(`${what}: a fixed-pitch layer has no detune`);
       fixed = this.tuning.word(asInt(o.fixed, `${what}'s fixed pitch`));
     }
+    // TML 2 keeps an instrument's pitches at 65536-TET (file format §9.18):
+    // a value in 4096-TET units carrying sixteenths, which the build splits
+    // into the record's field and its `IPit` extension. TML 1 rounds to the
+    // unit, as it always has — its bytes are a promise.
+    const cents = ((o.detune ?? 0) * 4096) / 1200;
     return {
-      ref, gain: o.gain ?? 0, detune: Math.round(((o.detune ?? 0) * 4096) / 1200), fixed,
+      ref, gain: o.gain ?? 0, detune: this.version >= 2 ? fitOffset(cents) : Math.round(cents), fixed,
       pitchStart, pitchEnd, volStart, volEnd,
     };
   }
@@ -415,7 +426,14 @@ export class Score {
       const fixed = this.tuning.word(asInt(o.fixed, `${what}'s fixed pitch`));
       return { ref, level: o.level ?? 0, detune: fixed, fixed: true, pitchStart, pitchEnd, volStart, volEnd };
     }
-    // the operator's frequency ratio is its detune field: +4096 is an octave
+    // the operator's frequency ratio is its detune field: +4096 is an octave.
+    // TML 2 writes it to the sixteenth of a unit — ×3 within 0.002 cent — and
+    // past ±8 octaves with the extension's octaves (§9.18); TML 1 rounds.
+    if (this.version >= 2) {
+      const value = 4096 * Math.log2(o.ratio ?? 1) + ((o.detune ?? 0) * 4096) / 1200;
+      if (value < OFFSET_EXT_MIN || value > OFFSET_EXT_MAX) throw fail(`${what}'s ratio is out of range`);
+      return { ref, level: o.level ?? 0, detune: fitOffset(value), fixed: false, pitchStart, pitchEnd, volStart, volEnd };
+    }
     const units = Math.round(4096 * Math.log2(o.ratio ?? 1)) + Math.round(((o.detune ?? 0) * 4096) / 1200);
     if (units < -0x8000 || units > 0x7fff) throw fail(`${what}'s ratio is out of range`);
     return { ref, level: o.level ?? 0, detune: units, fixed: false, pitchStart, pitchEnd, volStart, volEnd };
@@ -460,13 +478,17 @@ export class Score {
     });
     // the AdLib driver keeps the hi-hat's channel seven semitones above the cymbal's
     const pitch = o.partner_pitch ?? (kind === 5 ? 700 : kind === 6 ? -700 : 0);
-    return encodeOplPatch({
+    const partner = kind === 5 || kind === 6 ? (pitch * 4096) / 1200 : 0;
+    // TML 2: to the sixteenth, the field and its extension byte (§9.18).
+    const { field: partnerField, ext: partnerExt } = this.version >= 2 ? splitOffset(partner)
+      : { field: Math.round(partner), ext: 0 };
+    return { partnerExt, block: encodeOplPatch({
       kind, deepTremolo: o.deep_tremolo ?? false, deepVibrato: o.deep_vibrato ?? false,
       nts: o.note_select ?? false, lowFnum: o.low_fnum ?? false, feedback: o.feedback ?? 0, cntA, cntB,
       partnerMult: partnered ? (o.partner_multiple ?? 1) : 0,
-      partnerDetune: kind === 5 || kind === 6 ? Math.round((pitch * 4096) / 1200) : 0,
+      partnerDetune: partnerField,
       ops,
-    });
+    }) };
   }
 
   /** A `psg` record → the 54-byte patch block (TAUD_FILE_FORMAT.md §7.9). An
@@ -568,6 +590,13 @@ export class Score {
       const w = this.tuning.word(asInt(o.reference, `${what}'s reference`));
       if (w < 0x20 || w > 0x7fff) throw fail(`${what}'s reference is a pitch up to the note word $7FFF`);
       p.refNote = w;
+      // TML 2: a reference between two units keeps its sixteenths in the
+      // `IPit` base group (§9.18); the block holds the unit.
+      if (this.version >= 2 && !Number.isInteger(w)) {
+        const { field, ext } = splitNote(w);
+        p.refNote = field;
+        p.refExt = ext;
+      }
     }
     if (p.refNote === 0 && !p.slots.some((s) => s.cons !== 0)) throw fail(`${what} says nothing: it has no vowel and no consonant`);
     let formantSource;
@@ -1168,7 +1197,13 @@ export function musicBuiltins(score, { version = 1, base = null } = {}) {
     new Builtin("note_name", "pitch", (_, p) => T().nameOf(pitch(p))),
     new Builtin("degree", "name", (_, nm) => T().degree(asString(nm, "the degree name"))),
     new Builtin("period", "", () => T().n),
-    new Builtin("word", "pitch", (_, p) => T().word(pitch(p))),
+    // As the pattern grid stores the pitch: TML 2 in a format-3 song gives
+    // the whole 65536-TET pitch ($50000 is C4); TML 1 keeps the 4096-TET
+    // units it always returned, sixteenths and all.
+    new Builtin("word", "pitch", (_, p) => {
+      const w = T().word(pitch(p));
+      return v2 && score.wide ? Math.round(w * 16) : w;
+    }),
     new Builtin("midi", "key", (_, k) => {
       asInt(k, "the MIDI key");
       if (k < 0 || k > 127) throw fail(`a MIDI key is 0…127, not ${k}`);

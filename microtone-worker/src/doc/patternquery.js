@@ -6,7 +6,7 @@
 //
 // The item's own vocabulary, kept verbatim:
 //
-//   term       one test on one column — `volume ≥ $30`, `note in $4000‥$4FFF`
+//   term       one test on one column — `volume ≥ $30`, `note in $40000‥$4FFFF`
 //   condition  one or more terms, ANDed together
 //   predicate  one or more conditions, ORed together
 //   action     one write to one column: SET / ADD / MULTIPLY-AND-ADD / CLEAR
@@ -71,7 +71,9 @@ export const NOTE_MIN = 0x0020;
 // be tested but not written (there is no writing a row number).
 
 export const FIELDS = [
-  { id: "note", kind: "note", hex: true, digits: 4 },
+  // Five digits: a note is written in 65536-TET steps, as the grid's raw
+  // note column shows it ($50000 is C-4).
+  { id: "note", kind: "note", hex: true, digits: 5 },
   { id: "inst", kind: "num", hex: true, digits: 2, min: 0, max: 0xff },
   { id: "vol", kind: "num", hex: true, digits: 2, min: 0 },
   { id: "volop", kind: "vpop" },
@@ -655,10 +657,11 @@ export function parseFieldValue(id, text) {
   if (f.kind === "note") {
     const named = parseNoteName(s);
     if (named !== null) return named;
-    // A hex point is sixteenths of a unit, as a wide cell holds them:
-    // $5155.5 = $5155 and 5/16.
-    const m = /^(\$|0x|0X)?([0-9a-fA-F]{1,4})\.([0-9a-fA-F])$/.exec(s);
-    if (m) return parseInt(m[2], 16) + parseInt(m[3], 16) / 16;
+    // A number counts 65536-TET steps, as the grid's raw note column writes
+    // a pitch — `50000` (hex, the column's base) or `#327680` is C-4 — and
+    // comes back in 4096-TET units carrying sixteenths, as a note is held.
+    const steps = parseScalar(s, true);
+    return steps === null ? null : steps / 16;
   }
   if (f.kind === "fxop" && /^[0-9A-Za-z]$/.test(s)) {
     const op = parseInt(s, 36);
@@ -673,10 +676,10 @@ export function parseMultiplier(text) {
   return Number.isFinite(v) ? v : null;
 }
 
-/** Canonical text for a value in a field's own base: `$30`, `-12`, `C-4`'s
- *  word as `$5000`, an effect as its base-36 letter. The UI adds the note NAME
- *  beside it — that needs the song's notation, which this module has no
- *  business knowing. */
+/** Canonical text for a value in a field's own base: `$30`, `-12`, C-4 as
+ *  `$50000` (a note in 65536-TET steps, never with a point), an effect as its
+ *  base-36 letter. The UI adds the note NAME beside it — that needs the song's
+ *  notation, which this module has no business knowing. */
 export function formatFieldValue(id, value, wide) {
   const f = fieldById(id);
   if (!f || value === null || value === undefined) return "";
@@ -684,12 +687,9 @@ export function formatFieldValue(id, value, wide) {
   if (f.kind === "vpop") return VP_OPS[value] ?? String(value);
   if (!f.hex) return String(value);
   const digits = fieldDigits(id, wide);
-  const neg = value < 0;
-  const mag = Math.abs(value);
-  const whole = Math.floor(mag);
-  // A note's sixteenths, as one hex digit after the point ($5155.5).
-  const frac = mag - whole > 0 ? "." + Math.round((mag - whole) * 16).toString(16).toUpperCase() : "";
-  return (neg ? "-$" : "$") + whole.toString(16).toUpperCase().padStart(digits, "0") + frac;
+  // A note in 65536-TET steps: its sixteenths are the last digit.
+  const n = Math.round(f.kind === "note" ? value * 16 : value);
+  return (n < 0 ? "-$" : "$") + Math.abs(n).toString(16).toUpperCase().padStart(digits, "0");
 }
 
 // ── a query as a whole ─────────────────────────────────────────────────────

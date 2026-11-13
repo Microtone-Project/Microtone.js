@@ -1965,6 +1965,15 @@ body.dragsorting { cursor: grabbing; user-select: none; }
    under the pointer just because a select above it changed. */
 .modal-field.modal-disabled { opacity: 0.45; }
 .modal-field.modal-disabled > .modal-label { color: var(--dim); }
+/* A field another field's answer REPLACES (modal.js `shownWhen`) is not there
+   at all; the row's own `display: flex` would otherwise win over [hidden]. */
+.modal-form .modal-field[hidden], .modal .modal-hint[hidden] { display: none; }
+/* A mapped field (modal.js `map`) reads a figure in its own units — a pitch in
+   65536-TET steps — and gets the room a long one needs. */
+.modal-form .mt-spin:has(> input[data-mt-spin]) { width: 9rem; }
+/* The live readout beside a control (modal.js `ann`): the same figure in
+   another unit, so it reads as a number does. */
+.modal-form .modal-ann { flex: 0 0 auto; white-space: nowrap; font-family: var(--mono-font); }
 /* The explanation that used to live in brackets inside the label. Indented to
    clear the checkbox column so it reads as belonging to the field above it. */
 .modal .modal-hint {

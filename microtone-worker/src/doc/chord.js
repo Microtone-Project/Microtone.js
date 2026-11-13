@@ -10,7 +10,8 @@
 //   key    N degrees of the CURRENT project notation (24-TET has more
 //          options than 12-TET, by construction)
 //   ratio  a raw playback ratio, 2.0 = an octave up   ┐ the two manual
-//   units  a raw 4096-TET offset, e.g. 0x100          ┘ input styles
+//   units  a raw offset (held in 4096-TET units; the  ┘ input styles
+//          field types it in 65536-TET steps, 0x10000 = an octave)
 // — plus a per-note `oct` (×2^n) that every mode shares, so voicing a chord
 // never means hunting through the interval list for "a fifth, two octaves up".
 // Modes are per note: note 1 can be a just fifth while note 2 counts
@@ -1033,7 +1034,8 @@ export function voiceRatio(voice, preset) {
  *  through the ordinary note-cell glyph painter, so the reading is the same one
  *  the pattern grid gives. */
 export function voiceNote(voice, preset) {
-  return Math.min(Math.max(Math.round(MIDDLE_C + voiceUnits(voice, preset)), 0x20), 0xffff);
+  // To the 65536-TET step, as a format-3 note is written.
+  return Math.min(Math.max(Math.round((MIDDLE_C + voiceUnits(voice, preset)) * 16) / 16, 0x20), 0xffff + 15 / 16);
 }
 
 export const activeVoices = (voices) => (voices ?? []).filter((v) => v && v.on !== false);

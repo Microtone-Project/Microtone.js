@@ -106,8 +106,8 @@
         const detAnn = rows()[0].querySelector(".meta-det-ann");
         const detG = detAnn?.querySelector(".note-glyph");
         check("the detune readout is a note glyph", !!detG && detG.textContent.length > 0);
-        check("…with the raw units still beside it as text",
-          /·\s*-?\d+/.test(detAnn.textContent));
+        check("…with the raw value beside it, five hex digits of 65536-TET steps",
+          /·\s*−?\$[0-9A-F]{5,6}$/.test(detAnn.textContent));
         check("the layer range is spelled too",
           !!rows()[0].querySelector(".meta-rng-ann .note-glyph"));
         const { noteGlyph } = await win.eval('import("/src/ui/components/noteglyph.js")');

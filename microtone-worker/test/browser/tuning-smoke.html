@@ -79,8 +79,8 @@ window.addEventListener("error", (e) => log("ERROR: " + e.message));
   check("typing 412 retunes to A4 @ 412", store.song.tuningFreq === 412);
   const ann3 = [...pv.root.querySelectorAll("p")]
     .map((p) => p.textContent).find((s) => s.includes("A4 ="));
-  check("the readout reports 412.00 Hz, ~113.83 cents flat",
-    !!ann3 && ann3.includes("412.00") && ann3.includes("-113.83"));
+  check("the readout reports 412.00 Hz, ~113.831 cents flat",
+    !!ann3 && ann3.includes("412.00") && ann3.includes("-113.831"));
 
   // ── undo/redo ──
   store.undo.undo();

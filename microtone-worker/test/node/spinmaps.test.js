@@ -6,7 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  MIX_DB_MAP, ATTEN_DB_MAP, sfResoDbMap, centsMap, pitchHexMap, hexMap,
+  MIX_DB_MAP, ATTEN_DB_MAP, sfResoDbMap, centsMap, widePitchMap, hexMap,
 } from "../../src/ui/spinmaps.js";
 import {
   hzSpinnerMap, hzOfCents, centsOfHz, formatHz, parseHzText,
@@ -61,25 +61,30 @@ test("dB: a mix octet, an attenuation octet (0 = unset), SoundFont centibels", (
   assert.equal(sfResoDbMap({ flat: false }).toDisplay(0xffff), "96.0 dB");
 });
 
-test("cents: a detune over 4096-TET units, a degree of the song's notation a press", () => {
+test("cents: a detune at 65536-TET, a degree of the song's notation a press", () => {
   const m = centsMap(tet12, -0x8000, 0x7fff);
-  assert.equal(m.toDisplay(4096), "1200.0 ¢");
-  assert.equal(m.fromDisplay("700"), Math.round((700 * 4096) / 1200));
-  assert.equal(m.fromDisplay("3/2"), Math.round(4096 * Math.log2(1.5)));
-  assert.equal(m.fromDisplay("$100"), 256, "hex is 4096-TET units");
+  const steps = (u) => u * 16;
+  assert.equal(m.toDisplay(4096), "1200.000 ¢");
+  // every pitch in cents to a thousandth: a whole 4096th reads as finely as
+  // the steps around it ($095C0 once read 702.0 between 701.93 and 701.97)
+  assert.deepEqual([0x95bf, 0x95c0, 0x95c1].map((n) => m.toDisplay(n / 16)), ["701.935 ¢", "701.953 ¢", "701.971 ¢"]);
+  assert.equal(steps(m.fromDisplay("700")), Math.round((700 * 65536) / 1200), "a plain number is cents, onto the 65536 grid");
+  assert.equal(steps(m.fromDisplay("3/2")), Math.round(65536 * Math.log2(1.5)));
+  assert.equal(steps(m.fromDisplay("$100")), 0x100, "hex is 65536-TET steps");
+  assert.ok(Number.isNaN(m.fromDisplay("no")), "text that names nothing keeps the field's value");
   const up = m.step(0, 1);
   assert.ok(up > 0 && Math.abs(up - 4096 / 12) < 1, `one 12-TET step up (${up})`);
   assert.equal(centsMap(tet12, -10, 10).fromDisplay("1200"), 10, "kept within the field's range");
 });
 
-test("hex: a note word (typed as hex or a note name) and a plain address", () => {
-  const p = pitchHexMap(tet12);
-  assert.equal(p.toDisplay(0x5000), "$5000");
-  assert.equal(p.fromDisplay("$5000"), 0x5000);
-  assert.equal(p.fromDisplay("5000"), 0x5000, "a note field's digits are hex");
+test("hex: a pitch in 65536-TET steps (typed as hex, a decimal or a note name) and a plain address", () => {
+  const p = widePitchMap(tet12, { min: 0, max: 0xffff + 15 / 16 });
+  assert.equal(p.toDisplay(0x5000), "$50000");
+  assert.equal(p.fromDisplay("$50000"), 0x5000);
+  assert.equal(p.fromDisplay("327680"), 0x5000, "a plain number is a decimal count of steps");
   assert.equal(p.fromDisplay("C-4"), ANCHOR_NOTE);
   assert.equal(p.fromDisplay("0"), 0, "a range end may sit below every note");
-  assert.equal(p.fromDisplay("FFFF"), 0xffff);
+  assert.equal(p.fromDisplay("$FFFFF"), 0xffff + 15 / 16);
   assert.ok(p.step(0x5000, 1) > 0x5000);
   const a = hexMap(6, 0, 8388607);
   assert.equal(a.toDisplay(0x1f00), "$001F00");

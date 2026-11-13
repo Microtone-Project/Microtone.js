@@ -18,12 +18,15 @@ import {
   setInstFieldOp, setMetaRecordOp, setMetaLayersOp, withPitchExtOp, importBankOp, renumberInstrumentOp,
 } from "../../src/doc/ops.js";
 import { metaLayers, metaRecordOf, moveLayer, patchLayer, duplicateLayer, removeLayer } from "../../src/doc/metaedit.js";
+import { patchLow, patchHigh, patchDetune, patchLowFields, patchHighFields, patchDetuneFields, pitchPatchesOf } from "../../src/doc/pitchedit.js";
 import {
   layerDetune, layerLow, layerHigh, layerDetuneFields, layerLowFields, layerHighFields,
   instDetune, splitOffset, baseExtWith, HIGH_FRACTION,
 } from "../../src/doc/pitchedit.js";
 import { planCreateMeta, planDuplicateInstruments, planImport, planEasyFm } from "../../src/doc/bankmerge.js";
-import { planRenumberInstrument } from "../../src/doc/cleanup.js";
+import { planRenumberInstrument, planDeleteSample, planDeleteInstruments } from "../../src/doc/cleanup.js";
+import { cleanupBankOp, deleteInstrumentOp, setInstPatchesOp, rebindBaseStereoPatchOp } from "../../src/doc/ops.js";
+import { makeInstPatch, writePatchesBlob } from "../../core/engine/inst.js";
 import {
   easyDecode, easyNewModel, easyPatchOp, easyRackOf, easySplitRatio, easyJoinRatio, easyFineRange,
   easyMultiplierUnits, easyRatioOf, easyOscOf,
@@ -202,6 +205,92 @@ test("a duplicate, an import into another project and a renumber carry the entry
   assert.equal(layerDetune(doc.instruments[slot].metaLayers[1]), 2400 + 11 / 16, "and back");
 });
 
+// ── edits that reshape a list: the survivors keep their extensions ─────────
+
+/** A demo with many sampled instruments, and two of them on different samples. */
+function twoSampled() {
+  const doc = new Document(parseTaud(readFileSync(
+    new URL("../../assets/demo_projects/Temjin_speaki.taud", import.meta.url))));
+  const list = sampled(doc);
+  const key = (s) => `${doc.instruments[s].samplePtr}:${doc.instruments[s].sampleLength}`;
+  return { doc, a: list[0], b: list.find((s) => key(s) !== key(list[0])) };
+}
+
+/** A sampled instrument of a demo with three zones, each pitched to the
+ *  sixteenth: [0] and [2] on its own sample, [1] on `other`'s. */
+function zoned() {
+  const { doc, a: slot, b: otherSlot } = twoSampled();
+  const inst = doc.instruments[slot], other = doc.instruments[otherSlot];
+  const zone = (src, lo, hi, det) => Object.assign(makeInstPatch({
+    volumeStart: 0, volumeEnd: 63, samplePtr: src.samplePtr, sampleLength: src.sampleLength,
+    loopStart: src.sampleLoopStart, loopEnd: src.sampleLoopEnd, samplingRate: src.samplingRate,
+    loopMode: src.loopMode & 7,
+  }), patchLowFields(lo), patchHighFields(hi), patchDetuneFields(det));
+  const patches = [
+    zone(inst, 0x20, 0x4fff + 7 / 16, 3 / 16),
+    zone(other, 0x4fff + 8 / 16, 0x5fff + 15 / 16, -5 / 16),
+    zone(inst, 0x6000, 0xffff + 15 / 16, 100 + 9 / 16),
+  ];
+  const undo = new UndoStack(doc);
+  undo.apply(withPitchExtOp(setInstPatchesOp(slot, writePatchesBlob(patches)), slot, { patches: pitchPatchesOf(patches) }));
+  return { doc, undo, slot, other };
+}
+const zones = (doc, slot) => (doc.instruments[slot].extraPatches ?? []).map((p) => [patchLow(p), patchHigh(p), patchDetune(p)]);
+
+test("zones pitched to the sixteenth keep it through a reload", () => {
+  const { doc, slot } = zoned();
+  const want = [[0x20, 0x4fff + 7 / 16, 3 / 16], [0x4fff + 8 / 16, 0x5fff + 15 / 16, -5 / 16], [0x6000, 0xffff + 15 / 16, 100 + 9 / 16]];
+  assert.deepEqual(zones(doc, slot), want);
+  assert.deepEqual(zones(reload(doc), slot), want);
+});
+
+test("deleting a sample drops its zones; the zones left keep their extensions", () => {
+  const { doc, undo, slot, other } = zoned();
+  const plan = planDeleteSample(doc, { ptr: other.samplePtr, len: other.sampleLength });
+  assert.ok(!plan.error, plan.error);
+  undo.apply(cleanupBankOp(plan));
+  assert.deepEqual(zones(reload(doc), slot), [[0x20, 0x4fff + 7 / 16, 3 / 16], [0x6000, 0xffff + 15 / 16, 100 + 9 / 16]]);
+  undo.undo();
+  assert.equal(zones(doc, slot).length, 3, "and undo puts all three back");
+  assert.equal(zones(doc, slot)[1][2], -5 / 16);
+});
+
+test("adopting a stereo sample adds the base stereo zone; the others keep theirs, and it mirrors the detune's", () => {
+  const { doc, undo, slot } = zoned();
+  const inst = doc.instruments[slot];
+  const { field, ext } = splitOffset(-7 - 3 / 16);
+  undo.apply(withPitchExtOp(setInstFieldOp(slot, "sampleDetune", field & 0xffff), slot, { base: baseExtWith(inst, 0, ext) }));
+  const op = rebindBaseStereoPatchOp(doc, slot, {
+    samplePtr: inst.samplePtr, sampleLength: inst.sampleLength, playStart: 0,
+    loopStart: inst.sampleLoopStart, loopEnd: inst.sampleLoopEnd, samplingRate: inst.samplingRate,
+    sampleDetune: inst.sampleDetune, loopMode: inst.loopMode & 7,
+  }, [inst.samplePtr + 1], 0);
+  undo.apply(op);
+  const z = zones(reload(doc), slot);
+  assert.equal(z.length, 4);
+  assert.deepEqual(z.slice(0, 3).map((x) => x[2]), [3 / 16, -5 / 16, 100 + 9 / 16], "the zones that were there");
+  assert.equal(z[3][2], -7 - 3 / 16, "the stereo zone plays the instrument's own detune, sixteenths and all");
+  assert.equal(instDetune(reload(doc).instruments[slot]), -7 - 3 / 16, "…which the instrument keeps");
+});
+
+test("deleting an instrument a stack layers repacks the stack; its other layers keep their extensions", () => {
+  const { doc, a, b } = twoSampled();
+  const p = planCreateMeta(doc, [{ slot: a, count: 1 }, { slot: b, count: 2 }], "Stack");
+  importBankOp(p).apply(doc);
+  const slot = p.insts.find((it) => it.topLevel).destSlot;
+  const undo = new UndoStack(doc);
+  let layers = metaLayers(doc.instruments[slot]);
+  layers = layers.map((l, i) => ({ ...l, ...layerDetuneFields(l, 100 * i + (i + 1) / 16) }));
+  writeLayers(undo, doc, slot, layers);
+  const childA = layers[0].instIdx & 0x3ff;
+  const del = planDeleteInstruments(doc, [childA]);
+  assert.ok(!del.error, del.error);
+  undo.apply(deleteInstrumentOp(del));
+  const back = reload(doc).instruments[slot].metaLayers;
+  assert.equal(back.length, 2);
+  assert.deepEqual(back.map(layerDetune), [100 + 2 / 16, 200 + 3 / 16]);
+});
+
 // ── FM Easy Mode: the multiplier in the ratio ───────────────────────────────
 
 test("a ratio splits into the nearest multiplier and a detune whose reach keeps it", () => {
@@ -300,7 +389,7 @@ test("a pitch field is 65536-TET steps: hex and decimal count them, never a hex 
   assert.equal(steps(c.fromDisplay("$100")), 0x100, "hex counts 65536-TET steps");
   assert.equal(steps(c.fromDisplay("-$100")), -0x100);
   assert.ok(Number.isNaN(c.fromDisplay("nonsense")), "text that names nothing keeps the value");
-  assert.equal(c.toDisplay(1 / 16), "0.02 ¢");
+  assert.equal(c.toDisplay(1 / 16), "0.018 ¢");
 });
 
 test("an Easy operator's detune goes past halfway to the next multiplier; the row reads it from there", () => {

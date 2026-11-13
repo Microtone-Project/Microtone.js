@@ -81,7 +81,7 @@ test("column ranges and digit counts follow the cell width (§5.5)", () => {
   assert.deepEqual(fieldRange("elev", true), { min: -128, max: 127 });
   assert.equal(fieldDigits("pan", true), 3, "a 9-bit angle needs three digits");
   assert.equal(fieldDigits("pan", false), 2);
-  assert.equal(fieldDigits("note", false), 4);
+  assert.equal(fieldDigits("note", false), 5, "a note is five digits of 65536-TET steps, as the raw column shows it");
 });
 
 test("operators follow the field KIND: only numbers can be ordered", () => {
@@ -457,7 +457,11 @@ test("column values are typed in the column's own base", () => {
   assert.equal(parseFieldValue("elev", "1f"), null, "a decimal field takes digits only");
   // Notes take a name or a word; effects take their base-36 letter.
   assert.equal(parseFieldValue("note", "C-4"), MIDDLE_C);
-  assert.equal(parseFieldValue("note", "5000"), MIDDLE_C);
+  assert.equal(parseFieldValue("note", "50000"), MIDDLE_C, "a note counts 65536-TET steps, as the raw column writes it");
+  assert.equal(parseFieldValue("note", "$51555"), 0x5155 + 5 / 16);
+  assert.equal(parseFieldValue("note", "#327680"), MIDDLE_C, "…in decimal with a #");
+  assert.equal(parseFieldValue("note", "-$1000"), -0x100, "a transpose down a sixteenth of an octave");
+  assert.equal(parseFieldValue("note", "$5155.5"), null, "no hex point");
   assert.equal(parseFieldValue("fx1", "S"), 0x1c);
   assert.equal(parseFieldValue("fx1", "G"), 0x10);
   assert.equal(parseFieldValue("fx1", "1"), 0x01);
@@ -472,7 +476,9 @@ test("column values are typed in the column's own base", () => {
 test("formatFieldValue speaks each column's own dialect", () => {
   assert.equal(formatFieldValue("vol", 0x30, false), "$30");
   assert.equal(formatFieldValue("pan", 0x180, true), "$180");
-  assert.equal(formatFieldValue("note", MIDDLE_C, false), "$5000");
+  assert.equal(formatFieldValue("note", MIDDLE_C, true), "$50000");
+  assert.equal(formatFieldValue("note", 0x5155 + 5 / 16, true), "$51555", "the sixteenths are the last digit, never a point");
+  assert.equal(formatFieldValue("note", -0x100, true), "-$01000");
   assert.equal(formatFieldValue("row", 12, false), "12");
   assert.equal(formatFieldValue("elev", -20, true), "-20");
   assert.equal(formatFieldValue("fx1", 0x1c, false), "S");

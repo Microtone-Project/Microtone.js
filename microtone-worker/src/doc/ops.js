@@ -15,7 +15,7 @@ import {
   applyPitchExt,
 } from "../../core/engine/inst.js";
 import { TaudPlayData } from "../../core/engine/state.js";
-import { pitchTableOf } from "../../core/format/pitch-ext-section.js";
+import { pitchTableOf, pitchPatchesOf } from "../../core/format/pitch-ext-section.js";
 import { imixCarryFolds } from "../../core/format/imix-section.js";
 import { swapLyricsSection } from "./lyricedit.js";
 import { CUE_EMPTY, MAX_VOICES, NUM_VOICES, NUM_CUES, NUM_CUES_64 } from "../../core/format/taud-const.js";
@@ -1199,21 +1199,28 @@ export function syncBaseStereoPatchOp(doc, slot, changes, gestureId = null) {
 export function rebindBaseStereoPatchOp(doc, slot, fields, chanPtrs, chanMode = 0) {
   const inst = doc.instruments[slot & 0x3ff];
   const idx = baseStereoPatchIndex(inst);
+  // Adding or dropping a patch changes the list's length, so the patch group
+  // of the instrument's `IPit` entry (§9.18) goes with the new list: every
+  // other patch keeps its own, and the base stereo patch mirrors the
+  // instrument's detune extension as it mirrors its detune.
+  const withExt = (patches) => withPitchExtOp(
+    setInstPatchesOp(slot, patches.length ? writePatchesBlob(patches) : null, undefined),
+    slot, { patches: pitchPatchesOf(patches) });
   if (chanPtrs.length > 0) {
     const mirrored = {
       ...fields, hasChanBlock: true, chanCount: 1 + chanPtrs.length,
       chanMode, chanPtrs: [...chanPtrs],
+      ...("sampleDetune" in fields ? { dDetune: inst.dSampleDetune || 0 } : {}),
     };
     const patches = idx >= 0
       ? inst.extraPatches.map((p, i) => (i === idx ? { ...p, ...mirrored } : p))
       : [...(inst.extraPatches ?? []), makeInstPatch({
           pitchStart: 0, pitchEnd: 0xffff, volumeStart: 0, volumeEnd: 63, ...mirrored,
         })];
-    return setInstPatchesOp(slot, writePatchesBlob(patches), undefined);
+    return withExt(patches);
   }
   if (idx < 0) return null;
-  const patches = inst.extraPatches.filter((_, i) => i !== idx);
-  return setInstPatchesOp(slot, patches.length ? writePatchesBlob(patches) : null, undefined);
+  return withExt(inst.extraPatches.filter((_, i) => i !== idx));
 }
 
 function captureIxmpState(doc) {

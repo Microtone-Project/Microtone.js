@@ -9,18 +9,28 @@ import { TaudEngine } from "../../core/engine/engine.js";
 import { SAMPLING_RATE, TRACKER_CHUNK } from "../../core/engine/constants.js";
 import { loadIntoEngine } from "../../core/audio/offline-render.js";
 import { setRandomSource, makeSeededRandom } from "../../core/engine/rng.js";
+import { widenPattern } from "../doc/upgrade.js";
 
 const hzOf = (word) => 261.6255653 * 2 ** ((word - 0x5000) / 4096);
 
-/** One-pattern song: `word` on instrument `inst` at row 0, held 64 rows. */
-function heldNoteDoc(bank, inst, word, vol) {
-  const pat = new Uint8Array(512);
+/** One-pattern song: `word` on instrument `inst` at row 0, held 64 rows.
+ *  `wide`: a format-3 cell, whose note keeps the sixteenths of a unit a
+ *  format-3 song plays (§5.5) — the narrow cell would play the unit below. */
+function heldNoteDoc(bank, inst, word, vol, wide = false) {
+  let pat = new Uint8Array(512);
   for (let r = 0; r < 64; r++) { pat[r * 8 + 3] = 0xc0; pat[r * 8 + 4] = 0xc0; }
-  pat[0] = word & 0xff; pat[1] = word >>> 8; pat[2] = inst; pat[3] = vol;
+  const unit = Math.floor(word);
+  pat[0] = unit & 0xff; pat[1] = unit >>> 8; pat[2] = inst; pat[3] = vol;
+  if (wide) {
+    pat = widenPattern(pat);
+    pat[13] = (pat[13] & 0x0f) | ((Math.round((word - unit) * 16) & 15) << 4); // the fine nibble
+  }
   const cue = new Uint16Array(64).fill(0x7fff);
   cue[0] = 0;
   return {
-    is64Channel: false, fmtVer: 2, sampleInstImage: bank.sampleInstImage, ixmp: bank.ixmp, meta: {},
+    is64Channel: false, fmtVer: wide ? 3 : 2, sampleInstImage: bank.sampleInstImage, ixmp: bank.ixmp, meta: {},
+    // The instruments' pitch extensions (§9.18), as the song will play them.
+    pitchExt: typeof bank.pitchExt === "function" ? bank.pitchExt() : bank.pitchExt ?? null,
     songs: [{ numVoices: 1, bpm: 120, tickRate: 6, tuningBaseNote: 0x5c00, tuningFreq: 440, globalFlags: 0,
       globalVolume: 255, mixingVolume: 128, surroundModel: 0, patterns: [pat], cues: [cue] }],
   };
@@ -69,10 +79,11 @@ export function trackPitch(x, a, z, f0) {
   return est[est.length >> 1];
 }
 
-/** Cents error of `inst` playing each of `words` (note words), at volume `vol`. */
-export function measureWords(bank, inst, words, vol = 50) {
+/** Cents error of `inst` playing each of `words` (note words), at volume `vol`
+ *  (`wide`: in format-3 cells, so a note's sixteenths are played). */
+export function measureWords(bank, inst, words, vol = 50, wide = false) {
   return words.map((word) => {
-    const x = renderMono(heldNoteDoc(bank, inst, word, vol), 1.6);
+    const x = renderMono(heldNoteDoc(bank, inst, word, vol, wide), 1.6);
     const a = Math.round(0.35 * SAMPLING_RATE), z = Math.round(1.5 * SAMPLING_RATE);
     const f = trackPitch(x, a, z, hzOf(word));
     return { word, cents: 1200 * Math.log2(f / hzOf(word)) };

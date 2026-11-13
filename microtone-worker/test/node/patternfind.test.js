@@ -138,7 +138,7 @@ test("a query typed the way the dialog types it walks the same cells", () => {
   // `$5400` and `C-4`-style names both go through parseFieldValue, and the
   // column's base is HEX — the whole point of compiling before walking.
   const typed = compileQuery({
-    predicate: [[{ field: "note", op: "eq", a: "5400" }, { field: "inst", op: "eq", a: "3" }]],
+    predicate: [[{ field: "note", op: "eq", a: "54000" }, { field: "inst", op: "eq", a: "3" }]],
     actions: [],
   });
   assert.deepEqual(typed.predicate, [[

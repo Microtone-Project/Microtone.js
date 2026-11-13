@@ -162,11 +162,11 @@ The types the entries name:
 | list | A list — or a range, read as the list of its numbers |
 | record | A record |
 | function | A function: `fn(…) => …`, a function named with `fn name`, or a builtin's name (`map(xs, abs)`). Its entry says what it is called with and what it must return |
-| pitch | A whole number of steps of the song's notation (§7.2), usually written `'C4'`. Any whole number is a pitch; one that becomes a note must lie on the pattern grid (4096-TET note words $0020–$FFFF: in 12-TET, C♯−1 to B14) |
+| pitch | A whole number of steps of the song's notation (§7.2), usually written `'C4'`. Any whole number is a pitch; one that becomes a note must lie on the pattern grid — 65536-TET pitches `$00200`–`$FFFFF` (note words `$0020`–`$FFFF` in a legacy-format song): in 12-TET, C♯−1 to B14 |
 | row | A whole number naming a row of the song: 0 up to the song's length in rows less 1. A row outside the song is an error |
 | end row | A whole number naming the row a span of rows stops *before* (it is not included). It may lie past the song's end: the span stops there |
 | rows | A whole number of rows: a length, or a distance to move |
-| volume | A number, 0–63 in a format-2 song and 0–255 in a format-3 one. It need not be whole: the lane's trim is applied and the result rounded when the song is compiled (§11, step 3) |
+| volume | A number, 0–255 (0–63 in a legacy-format song). It need not be whole: the lane's trim is applied and the result rounded when the song is compiled (§11, step 3) |
 | effect | A one-character string: a digit or a letter (`"S"` and `"s"` are the same effect) or a symbol (`":"`), as the Note Effects reference spells them |
 | effect argument | A whole number, $0000–$FFFF, as the grid writes it |
 | lane | A lane: the name its `lane` declaration gives it, or an item of `lanes()` |
@@ -273,7 +273,7 @@ song { title: "…", tuning: "31-TET", tempo: 120, speed: 6, bars: 64, bar_rows:
 | `title`, `composer`, `copyright` | empty | The project's name, author and copyright |
 | `message` | empty | The Project message |
 | `surround` | `"stereo"` | `"stereo"`, `"planar"` (the circle) or `"spatial"` (the sphere) |
-| `format` | 2; 3 for a surround song | 3 is the wide cell (TAUD_FILE_FORMAT.md §5.5), for surround songs only |
+| `format` | 3 | The pattern cell (TAUD_FILE_FORMAT.md §5.5). 2 builds the legacy format (§5.6): volumes and pans of six bits, notes on whole note words, one effect column |
 | `global_volume`, `mixing_volume` | 128, 128 | The song's two volumes, 0–255 |
 | `seed` | 1 | The seed every random choice is keyed to (§10) |
 | `soundfont` | the bundled GeneralUser GS | The soundfont the instruments come from: a file name, which the app asks for when it is first needed and the command line finds next to the `.tml` |
@@ -331,7 +331,7 @@ Every instrument also takes:
 | `min_fadeout` | — | Every zone fades out at least this fast (in the engine's fadeout units, which a soundfont's release becomes at the song's tempo) |
 | `fadeout` | — | Every layer and zone fades out at exactly this rate |
 | `nna` | — | The New Note Action: `"off"`, `"cut"`, `"continue"` or `"fade"` |
-| `envelope` | — | (A waveform, an OPL, a PSG or a formant instrument.) Its volume envelope: up to 25 `[seconds, volume]` points, the last held; at most 15.75 s between two points. The volumes are the song's: 0–63 in a format-2 song, 0–255 in a format-3 one |
+| `envelope` | — | (A waveform, an OPL, a PSG or a formant instrument.) Its volume envelope: up to 25 `[seconds, volume]` points, the last held; at most 15.75 s between two points. The volumes are the song's: 0–255 (0–63 in a legacy-format song) |
 | `sustain` | — | (One with an envelope.) The point it holds while the key is down (`sustain: 1`), or a range of points it loops through (`sustain: 1..3`) |
 | `percussion` | `false` | (Layers, an FM rack, an OPL, a PSG or a formant instrument.) Marks the instrument as percussion |
 | `strict` | `false` | (Layers.) Strict layering: a layer whose own zones do not cover a note stays silent for it, rather than falling back to its base sample (TAUD_FILE_FORMAT.md §7.5) |
@@ -345,10 +345,12 @@ Every instrument also takes:
 | `gain` | 0 | Its level, in decibels |
 | `detune` | 0 | Its detune, in cents |
 | `notes` | every pitch | The pitches it answers: a range such as `'C3'..'C5'` |
-| `vols` | every volume | The volumes it answers, in the song's units (0–63, or 0–255 in a format-3 song). The instrument keeps them in steps of four in a format-3 song: each end answers the whole step its volume falls in, so `64..127` answers 64 to 127 and `65..126` the same |
+| `vols` | every volume | The volumes it answers, in the song's units (0–255; 0–63 in a legacy-format song). The instrument keeps them in steps of four (a legacy-format song's volumes are those steps): each end answers the whole step its volume falls in, so `64..127` answers 64 to 127 and `65..126` the same |
 | `fixed` | — | A pitch it always plays, whatever note triggers it — a click, a breath, a noise bed (no `detune` then) |
 
 A layer over a layered instrument stands in for all of that instrument's layers (a layer cannot hold a metainstrument): each keeps its own layer, with the two gains and the two detunes added and the two ranges narrowed to where they overlap. So `layers: [{ inst: PIANO }, { inst: STRINGS, gain: -6 }]` stacks two soundfont presets whatever they are made of. A metainstrument holds at most 25 layers.
+
+An instrument's pitches are kept as finely as the song's notes: a detune, a ratio, a fixed pitch and the ends of a range land on the nearest 65536th of an octave, which the project carries in its pitch extensions (TAUD_FILE_FORMAT.md §9.18). `detune: 7.3` is 7.3 cents to within a hundredth, and a range ending on a 31-TET note ends exactly there; a range whose top is a whole note word — a pitch whose last hex digit is 0, as every 12-TET C is — runs through the sixteen steps that word names.
 
 **FM racks.** `fm` is a record of `operators` — a list of 1–16 — and an `algorithm`. Each operator is a record:
 
@@ -356,8 +358,8 @@ A layer over a layered instrument stands in for all of that instrument's layers 
 |---|---|---|
 | `inst` | — | **Required.** The instrument it reads: one sample or one chip — a `wave`, usually, or an `opl` or `psg` instrument — not a metainstrument, nor a formant instrument |
 | `level` | 0 | Its output level, in decibels |
-| `ratio` | 1 | Its frequency ratio: 2 an octave up, 3.5 a minor seventh above that |
-| `detune` | 0 | Added to the ratio, in cents |
+| `ratio` | 1 | Its frequency ratio: 2 an octave up, 3.5 a minor seventh above that. It is kept to the nearest 65536th of an octave, so `ratio: 3` is three times the key to within 0.002 cent |
+| `detune` | 0 | Added to the ratio, in cents. The two together may reach past eight octaves either way |
 | `fixed` | — | A pitch it always plays, whatever note triggers it — a **fixed-frequency** operator, the DX7's FIXED mode: a modulator that keeps a formant or a noise band in one place on every key (no `ratio` or `detune` then) |
 | `notes`, `vols` | everything | The pitches and volumes it plays for; outside them it is silent (key scaling, velocity-switched brightness) |
 
@@ -612,7 +614,7 @@ Where a row lies within its bar, counted from 0. **Returns** a whole number, 0 t
 
 ### 8.2 Phrases, cells, and how music is put together
 
-A **phrase** is a piece of music: the **cells** it writes, on lanes and rows, and the rows it spans, from its first row up to (not including) the row where it ends — a melody of eight two-row notes spans 16 rows, though the key-off after its last note lies on the row after. A cell is what one row of one lane holds: a note, an instrument, a volume-column command, a panning-column command and one effect (two in a format-3 song).
+A **phrase** is a piece of music: the **cells** it writes, on lanes and rows, and the rows it spans, from its first row up to (not including) the row where it ends — a melody of eight two-row notes spans 16 rows, though the key-off after its last note lies on the row after. A cell is what one row of one lane holds: a note, an instrument, a volume-column command, a panning-column command and two effects (one in a legacy-format song).
 
 When phrases are put together — the lines of a block, or the arguments of `stack` — their cells **MERGE** row by row. Two cells that give one field two different values are a mistake in the program and stop the build, naming the lane, the bar and the row, with one exception: a note wins over a key-off, note cut or note fade on its row. So a phrase can end with a key-off on the row where the next phrase begins with a note. The volume column holds a volume or a command (a slide, a fine slide), not both: a note's volume and a slide on its row are a clash too.
 
@@ -635,7 +637,7 @@ A note. **Returns** music spanning its row.
 | `fx` | effect | `none` | An effect on the note's row |
 | `arg` | effect argument | `0` | The effect's argument; ignored without `fx` |
 | `inst` | instrument | `none` | The instrument it plays; none plays the lane's |
-| `pos` | direction | `none` | Where it sounds, in a format-3 song only (an error in any other) |
+| `pos` | direction | `none` | Where it sounds (an error in a legacy-format song) |
 | `delay` | whole number, 0–15 | `0` | Ticks to wait before striking it (`S $Dx`); above 0 it takes the effect column, so it cannot go with `fx` |
 
 #### `keyoff(lane, row)`, `cut(lane, row)`, `fade(lane, row)`
@@ -649,7 +651,7 @@ A key-off (the note is let go: its envelopes release), a note cut (it stops at o
 
 #### `fx(lane, row, op, arg)`, `fx2(lane, row, op, arg)`
 
-An effect with no note: in the effect column, or with `fx2` in the second effect column (a format-3 song only). `fx(lane, row, "S", $7300)` is `S $7300`. **Returns** music spanning its row.
+An effect with no note: in the effect column, or with `fx2` in the second effect column (not in a legacy-format song). `fx(lane, row, "S", $7300)` is `S $7300`. **Returns** music spanning its row.
 
 | Argument | Type | Default | |
 |---|---|---|---|
@@ -676,7 +678,7 @@ The panning column's SET. **Returns** music spanning its row.
 |---|---|---|---|
 | `lane` | lane | required | The lane |
 | `row` | row | required | The row |
-| `pan` | whole number, 0–63; or a direction | required | In a format-2 song, the note's pan, from 0 far left to 63 far right. In a format-3 song, a direction (`dir(az, el)`) |
+| `pan` | a direction; or whole number, 0–63 | required | A direction (`dir(az, el)`). In a legacy-format song, the note's pan, from 0 far left to 63 far right |
 
 #### `vol_fine(lane, row, delta)`
 
@@ -686,7 +688,7 @@ A one-shot volume change on the row's first tick, up when `delta` is positive an
 |---|---|---|---|
 | `lane` | lane | required | The lane |
 | `row` | row | required | The row |
-| `delta` | whole number, −31–31 (format 2) or −127–127 (format 3) | required | How much the volume changes |
+| `delta` | whole number, −127–127 (−31–31 in a legacy-format song) | required | How much the volume changes |
 
 #### `vol_slide(lane, row, per_tick)`
 
@@ -696,7 +698,7 @@ A volume slide on every tick of the row after its first, up when `per_tick` is p
 |---|---|---|---|
 | `lane` | lane | required | The lane |
 | `row` | row | required | The row |
-| `per_tick` | whole number, −63–63 (format 2) or −255–255 (format 3) | required | How much the volume changes on each tick |
+| `per_tick` | whole number, −255–255 (−63–63 in a legacy-format song) | required | How much the volume changes on each tick |
 
 #### `glide(lane, row, pitch, speed)`
 
@@ -707,11 +709,11 @@ A tone portamento: the sounding note glides to `pitch` with no new attack (`G` w
 | `lane` | lane | required | The lane |
 | `row` | row | required | Where the glide starts |
 | `pitch` | pitch | required | Where it goes |
-| `speed` | whole number, 1–$FFFF | required | How fast, as `G`'s argument: 4096-TET units a tick. `glide_speed()` works one out |
+| `speed` | whole number, 1–$FFFF | required | How fast, as `G`'s argument: note-word units (sixteen 65536-TET steps each) a tick. `glide_speed()` works one out |
 
 #### `glide_speed(from, to, rows)`
 
-The `G` speed that covers `from` → `to` in `rows` rows at the song's speed: the distance in 4096-TET units over the ticks that glide (`rows × (speed − 1)`), rounded up, and at least 1. The song's `speed` must be 2 or more. **Returns** a whole number, 1–$FFFF.
+The `G` speed that covers `from` → `to` in `rows` rows at the song's speed: the distance in note-word units (its steps ÷ 16) over the ticks that glide (`rows × (speed − 1)`), rounded up, and at least 1. The song's `speed` must be 2 or more. **Returns** a whole number, 1–$FFFF.
 
 | Argument | Type | Default | |
 |---|---|---|---|
@@ -981,8 +983,8 @@ A cell reads as a record holding only the fields the cell has:
 | `vol` | number | The volume column sets a volume |
 | `vol_cmd` | `true` | The volume column holds a command (a slide or fine slide) instead |
 | `fx`, `arg` | effect, whole number | The effect column is used: its effect, as a capital letter or a symbol, and argument |
-| `fx2`, `arg2` | effect, whole number | The second effect column is used (format 3) |
-| `pos` | direction | The panning column places the note (format 3). A format-2 pan is not shown |
+| `fx2`, `arg2` | effect, whole number | The second effect column is used |
+| `pos` | direction | The panning column places the note. A legacy-format song's pan is not shown |
 
 #### `cells(music, lane)`
 
@@ -1053,7 +1055,7 @@ Takes no arguments. **Returns** the number of steps in one period of the song's 
 
 #### `word(pitch)`
 
-**Returns** the pitch's 4096-TET note word, as the pattern grid stores it: a whole number, $0020–$FFFF. A pitch off the grid is an error.
+**Returns** the pitch as the pattern grid stores it, a whole number: its 65536-TET pitch, `$00200`–`$FFFFF` (`word('C4')` is `$50000`); in a legacy-format song its note word, `$0020`–`$FFFF`. A pitch off the grid is an error.
 
 | Argument | Type | Default | |
 |---|---|---|---|
@@ -1096,7 +1098,7 @@ Takes no arguments. **Returns** the number of steps in one period of the song's 
 
 #### `dir(az, el)`
 
-A position for a format-3 song. **Returns** a direction: a record with `az`, the azimuth as the engine counts it (0–511, a full turn; 128 is ahead), and `el`, the elevation (−128–127; 128 would be straight up).
+A position for the panning column. **Returns** a direction: a record with `az`, the azimuth as the engine counts it (0–511, a full turn; 128 is ahead), and `el`, the elevation (−128–127; 128 would be straight up).
 
 | Argument | Type | Default | |
 |---|---|---|---|
@@ -1669,13 +1671,13 @@ A build turns the song's music into a project in these steps:
 
 1. **Place.** Every cell the program places for certain, then each fitted part against them (§8.6). Each lane's cells are then read in row order — the order the following steps see them in.
 2. **Compile.** Each lane's cells in each cue become one pattern of 64 rows (rows past the cue's length stay empty). Patterns with identical bytes are shared, and a lane with nothing in a cue leaves that cue empty. A lyric instrument's number is written only where a lane comes to it, not on the notes that sing its lyrics on (§7.3). Patterns are named `"<label> <section>"`, numbered when names repeat. Every cue shorter than 64 rows carries its length, and the last cue stops the song.
-3. **Volumes.** Each volume a lane sets becomes `clamp(round(v × trim + round(noise(lane index, row in its pattern) × jitter)), 1, max)` — `max` being 63 in format 2 and 255 in format 3 — except that a volume of 0 stays 0. The jitter depends on the row's place in its pattern, not in the song, so a repeated phrase still shares one pattern.
+3. **Volumes.** Each volume a lane sets becomes `clamp(round(v × trim + round(noise(lane index, row in its pattern) × jitter)), 1, max)` — `max` being 255 (63 in a legacy-format song) — except that a volume of 0 stays 0. The jitter depends on the row's place in its pattern, not in the song, so a repeated phrase still shares one pattern.
 4. **Pans.** Each lane with a `pan` gets `S $8xxx` on the song's first row, in a pattern of its own when its first pattern is used anywhere else.
 5. **Bank.** The soundfont presets are built into a bank by Microtone's soundfont converter, at the song's tempo (a soundfont's release times become fadeouts per tick). Instruments from packs are imported as the Instruments view imports a bank — only those the program names, with whatever their layers need — waveforms become new samples, OPL and PSG instruments new records of their own, formant instruments records of their own over a new cycle of their waveform (identical cycles shared) or naming their chip — a lyric instrument's lyrics written beside it as the Lyrics tab writes them — and metainstruments new records over the instruments they are made of. This is where each instrument gets its slot (§7.3).
 6. **Instruments.** `keep_layers`, `nna` and `fadeout` are applied.
 7. **Cleanup.** Every zone of every instrument that no note in the song can reach is removed with its samples, as Housekeeping does — and, when `keep_layers` left some layers behind, every instrument nothing plays.
 8. **Adjustments.** `min_fadeout`, then `layer_gain`, then the mixing chains (§7.7), each a block of the project's that its instruments name.
-9. **Re-tuning** (when the song asks for it). Soundfont samples are tuned for twelve-tone music, a few cents either way — nothing in a piano, a fifth of a step in 31-TET. For each combination of zones the song's notes trigger, a held note is rendered, its pitch measured, and those zones' detune moved by the error; three passes, so the last measures the result. Layers a note sounds together move together, so a deliberately detuned pair keeps its spread.
+9. **Re-tuning** (when the song asks for it). Soundfont samples are tuned for twelve-tone music, a few cents either way — nothing in a piano, a fifth of a step in 31-TET. For each combination of zones the song's notes trigger, a held note is rendered at the pitch the song plays it, its pitch measured, and those zones' detune moved by the error, to the nearest 65536th of an octave; three passes, so the last measures the result. Layers a note sounds together move together, so a deliberately detuned pair keeps its spread.
 10. **Source.** The program itself is saved in the project, in a `PMtf` section (TAUD_FILE_FORMAT.md §9.14), so that the Motif view can show it, and build it again.
 
 The project is new and unsaved when the build finishes; save it like any other.
@@ -1726,3 +1728,10 @@ Additions that leave every program building as it did:
 | 2026-10-29 | The transient shaper in a mixing chain, `transient_shaper_1`, and the expander / gate, `expander` (§7.7) |
 | 2026-11-04 | `chord_line`, a melody or bass line made from a chord progression (§8.8; TML 2) |
 | 2026-11-05 | Lyric instruments, `lyrics` (§7.3) |
+
+Changes to what a TML 2 program builds (a TML 1 program builds as it did):
+
+| Date | |
+|---|---|
+| 2026-11-13 | `word()` returns a note's 65536-TET pitch as a whole number (`$50000` is C4), where it returned the note word with the four bits below it as a fraction (a legacy-format song still gets the note word); a pitch may reach `$FFFFF` |
+| 2026-11-13 | An instrument's pitches — a detune, a ratio, a fixed pitch, a range's ends, an OPL partner's pitch, a formant reference, a waveform's tuning, a re-tuned zone — are kept to the nearest 65536th of an octave (TAUD_FILE_FORMAT.md §9.18) rather than the nearest 4096th, and an operator's `ratio` and `detune` together may reach past eight octaves. Re-tuning measures a note at the pitch the song plays it |

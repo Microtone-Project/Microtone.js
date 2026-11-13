@@ -8,7 +8,7 @@
 
 import { META_MIX_GAIN } from "../../core/engine/tables.js";
 import { ANCHOR_NOTE, stepNoteInTable } from "../../core/tuning/pitchtables.js";
-import { parseFieldValue, parseNoteName } from "../doc/patternquery.js";
+import { parseNoteName } from "../doc/patternquery.js";
 import { parseNumberText, parsePitchText } from "./components/spinner.js";
 import { t } from "./i18n.js";
 
@@ -89,11 +89,15 @@ export function sfResoDbMap({ flat = true } = {}) {
 export const centsOfUnits = (units) => (units * 1200) / UNITS_PER_OCTAVE;
 export const unitsOfCents = (cents) => (cents * UNITS_PER_OCTAVE) / 1200;
 
-/** A detune in 4096-TET units as cents: to a tenth on a whole unit, to a
- *  hundredth when it carries sixteenths (a 65536-TET step is 0.018 cent). */
+/** Every pitch shown in cents is shown to a thousandth of a cent: a
+ *  65536-TET step is 0.018 cent, so neighbouring steps never read alike, and
+ *  a whole 4096th reads as exactly as one between two ($095C0 is 701.953,
+ *  never 702.0). */
+export const CENTS_DIGITS = 3;
+
+/** A detune in 4096-TET units (carrying sixteenths) as cents. */
 export function centsText(units) {
-  const c = centsOfUnits(units);
-  return `${c.toFixed(Number.isInteger(units) ? 1 : 2)} ¢`;
+  return `${centsOfUnits(units).toFixed(CENTS_DIGITS)} ¢`;
 }
 
 // ── 65536-TET steps ────────────────────────────────────────────────────────
@@ -121,32 +125,51 @@ export const stepsText = (units) => String(Math.round(units * STEPS_PER_UNIT) + 
 const unitsOfFineCents = (c) => Math.round((c * STEPS_PER_OCTAVE) / 1200) / STEPS_PER_UNIT;
 
 /**
- * A detune in cents over signed 4096-TET units, kept within [min, max], each
- * press a degree of the song's own pitch table (measured from middle C, as the
- * layer table's detune is). Typing takes cents, `700c`, `3/2` and `$100`.
- *
- * `fine`: the field is a 65536-TET value (file format §9.18). A plain number
- * is cents, as the box shows; `700c` and `3/2` land straight on the nearest
- * 65536-TET step, and hex counts those steps (`$100` is sixteen 4096ths).
- * Text that names no pitch keeps the value the field held.
+ * A detune in cents over signed 4096-TET units carrying sixteenths — a
+ * 65536-TET value (file format §9.18) — kept within [min, max], each press a
+ * degree of the song's own pitch table (measured from middle C, as the layer
+ * table's detune is). A plain number is cents, as the box shows; `700c` and
+ * `3/2` land straight on the nearest 65536-TET step, and hex counts those
+ * steps (`$100` is sixteen 4096ths). Text that names no pitch keeps the value
+ * the field held.
  */
-export function centsMap(preset, min = -0x8000, max = 0x7fff, fine = false) {
-  const q = (u) => (fine ? Math.round(u * STEPS_PER_UNIT) / STEPS_PER_UNIT : Math.round(u));
-  const clampU = (u) => clampN(q(u), min, max);
+export function centsMap(preset, min = -0x8000, max = 0x7fff) {
+  const clampU = (u) => clampN(Math.round(u * STEPS_PER_UNIT) / STEPS_PER_UNIT, min, max);
   return {
     toDisplay: (u) => centsText(u),
-    fromDisplay: fine
-      ? (text) => {
-        const c = parsePitchText(text, "cents", STEPS_PER_OCTAVE);
-        return Number.isFinite(c) ? clampU(unitsOfFineCents(c)) : NaN;
-      }
-      : (text) => {
-        const c = parsePitchText(text, "cents");
-        return clampU(Number.isFinite(c) ? unitsOfCents(c) : 0);
-      },
+    fromDisplay: (text) => {
+      const c = parsePitchText(text, "cents", STEPS_PER_OCTAVE);
+      return Number.isFinite(c) ? clampU(unitsOfFineCents(c)) : NaN;
+    },
     step: (u, dir) => clampU(stepNoteInTable(clampN(ANCHOR_NOTE + u, 0x20, 0xffff + 15 / 16), preset, dir) - ANCHOR_NOTE),
-    fine,
+    fine: true,
   };
+}
+
+/**
+ * A raw pitch offset as a count of 65536-TET steps — the Transpose dialog's
+ * Raw field. The stored value IS the step count: a plain number is taken as
+ * it stands, hex counts steps (`$1000` is a sixteenth of an octave), and `700c`
+ * and `3/2` land on the nearest step. One press is one step. Text that names
+ * no pitch keeps the value the field held.
+ */
+export function stepsMap(min = -STEPS_PER_OCTAVE * 16, max = STEPS_PER_OCTAVE * 16) {
+  const clampS = (n) => clampN(Math.round(n), min, max) + 0;
+  return {
+    toDisplay: (n) => String(clampS(n)),
+    fromDisplay: (text) => {
+      const n = parsePitchText(text, "units", STEPS_PER_OCTAVE);
+      return Number.isFinite(n) ? clampS(n) : NaN;
+    },
+    step: (n, dir) => clampS(n + dir),
+    inputMode: "text",
+  };
+}
+
+/** A count of 65536-TET steps as signed cents: `+700.000 ¢`. */
+export function stepsCentsText(steps) {
+  const c = (Math.round(steps) * 1200) / STEPS_PER_OCTAVE;
+  return `${c < 0 ? "−" : "+"}${Math.abs(c).toFixed(CENTS_DIGITS)} ¢`;
 }
 
 /**
@@ -160,7 +183,7 @@ export function fineCentsMap(min = 0, max = 0xffff) {
   const clampU = (u) => clampN(u, min, max);
   const ofCents = (c) => Math.round((c * UNITS_PER_OCTAVE * 16) / 1200) / 16;
   return {
-    toDisplay: (u) => ((u * 1200) / UNITS_PER_OCTAVE).toFixed(2),
+    toDisplay: (u) => centsOfUnits(u).toFixed(CENTS_DIGITS),
     fromDisplay: (text) => {
       const c = parsePitchText(text, "cents", UNITS_PER_OCTAVE * 16);
       return Number.isFinite(c) ? clampU(ofCents(c)) : NaN;
@@ -173,25 +196,6 @@ export function fineCentsMap(min = 0, max = 0xffff) {
 // ── hexadecimal ────────────────────────────────────────────────────────────
 
 const hexText = (v, digits) => "$" + (v >>> 0).toString(16).toUpperCase().padStart(digits, "0");
-
-/**
- * A note word (a pitch range's end, the pitch-pan centre) as `$xxxx`: typed as
- * hex (`$5000`, `5000`), as a note name (`C-4`), stepped by degrees of the
- * song's own pitch table. [min, max] is the field's range — a range end may be
- * 0 or $FFFF, past every note the table holds.
- */
-export function pitchHexMap(preset, min = 0, max = 0xffff) {
-  const clampW = (w) => clampN(Math.round(w), min, max);
-  return {
-    toDisplay: (w) => hexText(w & 0xffff, 4),
-    fromDisplay: (text) => {
-      const v = parseFieldValue("note", text);
-      return v === null ? clampW(ANCHOR_NOTE) : clampW(v);
-    },
-    step: (w, dir) => clampW(stepNoteInTable(clampN(w, 0x20, 0xffff), preset, dir)),
-    inputMode: "text",
-  };
-}
 
 /**
  * A pitch — a fixed note, a range bound, the pitch-pan centre — as its

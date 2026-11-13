@@ -1,6 +1,6 @@
 // Chord maker (item 89) — the UI over doc/chord.js. Six note slots, each an
 // independent pitch offset expressed in whichever of the four idioms suits it
-// (just ratio · notation degrees · playback ratio · raw 4096-TET), mixed into
+// (just ratio · notation degrees · playback ratio · raw 65536-TET steps), mixed into
 // one sample: the Amiga trick of baking a chord into the waveform because the
 // lane can only play one note.
 //
@@ -28,6 +28,7 @@ import { t } from "../i18n.js";
 import { actionRow } from "../components/actions.js";
 import { lampButton } from "../components/lampbutton.js";
 import { parsePitchText } from "../components/spinner.js";
+import { CENTS_DIGITS } from "../spinmaps.js";
 import { setIconLabel } from "../icons.js";
 import { uiDpr, toLayout } from "../zoom.js";
 
@@ -193,7 +194,10 @@ export function openChordMaker(store, { data, dataR = null, rate, name = "" }) {
         v().ratio = r ?? 1;
         touch();
       });
-      q(".cv-units").addEventListener("input", () => { v().units = parseUnits(q(".cv-units").value); touch(); });
+      q(".cv-units").addEventListener("input", () => {
+        const u = parseUnits(q(".cv-units").value);
+        if (u !== null) { v().units = u; touch(); }
+      });
       q(".cv-oct").addEventListener("input", () => { v().oct = clampInt(q(".cv-oct").value, -4, 4); touch(); });
       q(".cv-gain").addEventListener("input", () => {
         const g = Number(q(".cv-gain").value);
@@ -214,11 +218,13 @@ export function openChordMaker(store, { data, dataR = null, rate, name = "" }) {
       const n = Number(s);
       return Number.isFinite(n) && n > 0 ? n : null;
     }
-    /** "256", "0x100" / "$100" (how the note words themselves read), "700c",
-     *  "3/2" — every spelling a pitch field takes, as whole 4096-TET units. */
+    /** The raw field counts 65536-TET steps, as every pitch field does:
+     *  "4096", "$1000" / "0x1000" (a sixteenth of an octave), "700c" and "3/2"
+     *  land straight on a step. Answers the offset in the chord's own 4096-TET
+     *  units (carrying sixteenths), or null for text that names no pitch. */
     function parseUnits(str) {
-      const n = parsePitchText(str, "units");
-      return Number.isFinite(n) ? Math.round(n) : 0;
+      const n = parsePitchText(str, "units", 65536);
+      return Number.isFinite(n) ? Math.round(n) / 16 : null;
     }
     function clampInt(str, lo, hi) {
       const n = parseInt(str, 10);
@@ -236,7 +242,7 @@ export function openChordMaker(store, { data, dataR = null, rate, name = "" }) {
         q(".cv-ji").value = v.ji;
         setIfIdle(q(".cv-step"), String(v.step));
         setIfIdle(q(".cv-ratio"), String(round4(v.ratio)));
-        setIfIdle(q(".cv-units"), String(v.units));
+        setIfIdle(q(".cv-units"), String(Math.round(v.units * 16) + 0));
         setIfIdle(q(".cv-oct"), String(v.oct));
         setIfIdle(q(".cv-gain"), String(v.gainDb));
         q(".cv-ji").hidden = v.mode !== "ji";
@@ -271,7 +277,7 @@ export function openChordMaker(store, { data, dataR = null, rate, name = "" }) {
       // barely distinguishable from a C at this size in the UI font.
       read.textContent = t("chord.voiceRead", {
         ratio: voiceRatio(v, preset).toFixed(4),
-        cents: signed(centsOf(units), 1),
+        cents: signed(centsOf(units), CENTS_DIGITS),
       }) + (Math.abs(delta) >= 1 ? t("chord.voiceOffGrid", { delta: signed(centsOf(delta), 0) }) : "");
       read.title = Math.abs(delta) >= 1 ? t("chord.offGridTitle") : t("chord.onGridTitle");
     }

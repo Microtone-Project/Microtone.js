@@ -86,14 +86,14 @@ A file whose magic does not match is **INVALID**.
 0b kk x vvvvv
 ```
 
-- `vvvvv` — **format version**, 1 to 3.
+- `vvvvv` — **format version**, 1 to 3. Versions 1 and 2 are the **legacy format** ([§5.6](#5-6-legacy-format-the-8-byte-cell)).
   - **1** — legacy cue sheet: 20 lanes, 12-bit pattern numbers, 32 bytes per cue.
   - **2** — extended cue sheet (2026-07-01): 32 lanes, 15-bit pattern numbers, 64 bytes per cue with sign-bit instruction words.
-  - **3** — the wide pattern cell (2026-07-31): 16 bytes per cell, 65536-TET pitch, 8-bit volume, spherical panning column, a second effect ([§5.5](#5-5-format-version-3-the-wide-cell)). Cue sheets are as version 2.
+  - **3** — the current format (2026-07-31): the 16-byte pattern cell of [§5.5](#5-5-the-pattern-cell) — 65536-TET pitch, 8-bit volume, spherical panning column, a second effect. Cue sheets are as version 2.
 - `x` (`$20`) — the Project Data carries an `xHDR` section, which the reader **MUST** also parse. If this bit is clear but an `xHDR` section is present, the file is **INVALID**.
 - `kk` — container kind, per the table in [§1](#container-kinds).
 
-A version-2 reader **MUST** accept version-1 files and translate their cue images into the version-2 layout on load (see [§6.3](#6-3-legacy-version-1-cue-sheet)). Writers **SHOULD** emit version 3; an editor **SHOULD** widen a version-1 or version-2 file to version 3 as it opens it ([§5.5](#upgrading-a-version-2-song)).
+A version-2 reader **MUST** accept version-1 files and translate their cue images into the version-2 layout on load (see [§6.3](#6-3-legacy-version-1-cue-sheet)). Writers **SHOULD** emit version 3; an editor **SHOULD** upgrade a legacy file to it as it opens it ([§5.6](#upgrading-a-legacy-song)).
 
 Version numbers above 3 are unassigned; a decoder that does not recognise a version **MUST** stop rather than guess.
 
@@ -131,7 +131,7 @@ Present in `.taud` and `.tpif`; the entry count is the header's song count. Each
 | 5 | `U16` | Number of patterns; **0 is INVALID**. Decompressed pattern bin length = `numPatterns × 512` |
 | 7 | `U8` | Initial BPM, low 8 bits, biased by −25 (`$00` = 25 BPM, `$FF` = 280 BPM) |
 | 8 | `U8` | bit 7 = BPM bit 8; bits 0…6 = initial tick rate (**0 is INVALID**) |
-| 9 | `U16` | Tuning base note, 1…65533 — a 4096-TET note word; 0 = "use the tracker default" |
+| 9 | `U16` | Tuning base note, 1…65533 — a note word ([note words](#note-words)); 0 = "use the tracker default" |
 | 11 | `F32` | Frequency in Hz at the base note; 0 = "use the tracker default" |
 | 15 | `U8` | Global behaviour flags (below) |
 | 16 | `U8` | Song global volume, 0…255 |
@@ -158,7 +158,7 @@ This byte is the file-level form of effect `1` and is applied before the first r
 
 | Bits | Field | Values |
 |---|---|---|
-| `ff` (0…1) | Tone mode | 0 = linear 4096-TET pitch slides, 1 = Amiga period slides, 2 = linear-frequency (Hz) slides, 3 = **RESERVED** |
+| `ff` (0…1) | Tone mode | 0 = linear pitch slides (in note-word units), 1 = Amiga period slides, 2 = linear-frequency (Hz) slides, 3 = **RESERVED** |
 | `rrr` (2…4) | Interpolation | 0 = default (windowed sinc), 1 = none, 2 = Amiga 500, 3 = Amiga 1200, 4 = SNES 4-tap Gaussian, 5 = NES DPCM simulation |
 | 5…7 | — | **RESERVED** |
 
@@ -191,82 +191,23 @@ Well-known declarations:
 
 ## 5. Pattern bin
 
-A song's pattern bin decompresses to `numPatterns × 64 × cellSize` bytes: one image per pattern, back to back. A Taud pattern is **single-lane** — 64 rows — which is why a cue names one pattern *per lane* rather than one pattern for the whole song. `cellSize` is fixed by the file's format version: **8 bytes** in versions 1 and 2, **16 bytes** in version 3 ([§5.5](#5-5-format-version-3-the-wide-cell)), so a v3 pattern image is 1024 bytes and a given pattern bin holds half as many patterns for the same number of bytes.
+A song's pattern bin decompresses to `numPatterns × 64 × 16` bytes: one 1024-byte image per pattern, back to back, each 64 rows of the 16-byte cell of [§5.5](#5-5-the-pattern-cell). A Taud pattern is **single-lane** — 64 rows — which is why a cue names one pattern *per lane* rather than one pattern for the whole song. A file in the legacy format (versions 1 and 2) has an 8-byte cell instead ([§5.6](#5-6-legacy-format-the-8-byte-cell)), so its pattern image is 512 bytes and the same bin holds twice as many patterns.
 
-### Pattern cell
-
-| Offset | Type | Field |
-|---|---|---|
-| 0 | `U16` | Note word |
-| 2 | `U8` | Instrument, 0…255; 0 = no instrument change |
-| 3 | `U8` | Volume column: bits 0…5 value, bits 6…7 selector |
-| 4 | `U8` | Panning column: bits 0…5 value, bits 6…7 selector |
-| 5 | `U8` | Effect opcode — a base-36 digit value (`0`…`9` = `$00`…`$09`, `A`…`Z` = `$0A`…`$23`), OR, in `$A0`…`$FE`, an ASCII-symbol opcode: the byte minus `$80` is the effect's own character, e.g. `:` (`$3A`) is `$BA` |
-| 6 | `U16` | Effect argument |
-
-Rendered by a tracker's display, one row reads:
-
-```
-rr || NOTE | Ins | E.Vol | E.Pan | EE.ffff |
-63 || FFFF |  FF | 3 3F  | 3 3F  | FF FFFF |
-```
-
-### Note words
-
-Notes are **4096 tone-equal temperament**: 4096 steps to the octave, with `$1000` per octave. `$5000` is C4 (middle C); `$1000` is C0 and `$F000` is C14. The playable range is `$0020`…`$FFFF`. Values `$0000`…`$001F` are reserved for sentinels:
-
-| Value | Name | Meaning |
-|---|---|---|
-| `$0000` | — | No note event on this row |
-| `$0001` | Key off | Release the sustain region; the release stage of the envelope plays |
-| `$0002` | Note cut | Silence the voice immediately |
-| `$0003` | Note fade | Begin the fadeout without releasing sustain |
-| `$0004` | Fast fade | Fast fadeout (~0.3 s) — the SoundFont *exclusiveClass* choke |
-| `$0005`–`$000F` | — | **RESERVED** |
-| `$0010`–`$001F` | Int0…IntF | Interrupt markers 0…15: produce no sound, latch a host-visible flag carrying the row's `: $xxxx` as its 0…65535 argument ([Engine Spec §14](TAUD_ENGINE_SPEC.md#14-interrupts-and-the-host-interface)) |
-
-Actual sounding pitch also depends on the instrument's sampling rate and detune; the note word alone is not a frequency. See the Engine Specification.
-
-### Volume and panning columns
-
-Both columns share one encoding: a 6-bit value plus a 2-bit selector.
-
-| Selector | Name | Volume column | Panning column |
-|---|---|---|---|
-| 0 | SET | Set note volume to *value* (0…63) | Set note pan to *value* scaled to 0…255 |
-| 1 | SLIDE UP | Slide volume up by *value* per tick | Slide note pan right by *value* per tick |
-| 2 | SLIDE DOWN | Slide volume down by *value* per tick | Slide note pan left by *value* per tick |
-| 3 | FINE | One-shot delta on tick 0: bit 5 = direction (set = up/right), bits 0…4 = magnitude | Same |
-
-A FINE selector with a value of 0 is therefore a **no-op**, and that is the canonical "this column is empty" encoding: byte `$C0`. Converters and editors write `$C0` into both columns of an untouched cell, so a cell with no volume or pan intent does not disturb running state.
-
-Both columns address the **per-note** axis of their quantity, never the per-lane one: the volume column writes `note_vol` and the panning column writes `note_pan`, while `channel_vol` belongs to M / N and `channel_pan` to S $80xx / P / X / 4 / Z (TAUD_NOTE_EFFECTS.md §3, §3a). A pan column SET therefore places the note within the lane rather than moving the lane, and composes with a set-pan effect on the same row instead of losing to it.
-
-The panning column's SET is a front-arc value even in a surround song — six bits cannot express a full turn. Effects `S $8xxx` and `X` are the commands that place a source anywhere on the circle or the sphere. Format version 3 lifts that limit; see below.
-
-### 5.5 Format version 3 — the wide cell
-
-Version 3 doubles the pattern cell to **16 bytes** so that the narrowest fields in the format stop being narrow: the note gains four bits of pitch (65536-TET), the volume column becomes eight bits, and the panning column carries a whole spherical position rather than a front-arc sixth of one.
-
-It is a **whole-file** property, because the version byte is. Every song in a v3 file uses the wide cell, whatever its surround model: the model ([§4](#immutable-song-flags-byte-28)) says only how the panning column reads, and a stereo song simply never reads the spatial fields.
-
-**When it is written.** Version 3 is the format a writer **SHOULD** emit, for every song. A reader **MUST** accept any well-formed v3 file. There is no downgrade: the wide cell can express pitches, positions, volumes and second effects that the 8-byte cell cannot, so a conversion back to version 2 would be lossy and is **NOT** defined. (An exporter to another format — a module — may still read a v3 song the version-2 way, by the inverse of the table in [Upgrading a version-2 song](#upgrading-a-version-2-song), and say what it could not carry.)
-
-#### The wide cell
+### 5.5 The pattern cell
 
 | Offset | Type | Field |
 |---|---|---|
-| 0 | `U16` | Note word — the pitch's top sixteen bits |
+| 0 | `U16` | Note word — the pitch's top sixteen bits ([note words](#note-words)) |
 | 2 | `U8` | Instrument, 0…255; 0 = no instrument change |
 | 3 | `U8` | Volume column **value**, 0…255 |
 | 4 | `U8` | Panning column **azimuth**, low 8 bits |
-| 5 | `U8` | Effect 1 opcode |
+| 5 | `U8` | Effect 1 opcode — a base-36 digit value (`0`…`9` = `$00`…`$09`, `A`…`Z` = `$0A`…`$23`), OR, in `$A0`…`$FE`, an ASCII-symbol opcode: the byte minus `$80` is the effect's own character, e.g. `:` (`$3A`) is `$BA` |
 | 6 | `U16` | Effect 1 argument |
 | 8 | `U8` | Column selectors: `0b Avvv pppp` — `A` = azimuth bit 8, `vvv` = volume selector, `pppp` = panning selector |
 | 9 | `S8` | Panning column **elevation** |
 | 10 | `U8` | Effect 2 opcode |
 | 11 | `U16` | Effect 2 argument |
-| 13 | `U8` | bits 4…7: the pitch's **fine nibble** (below); bits 0…3 **RESERVED** |
+| 13 | `U8` | bits 4…7: the pitch's **fine nibble** ([note words](#note-words)); bits 0…3 **RESERVED** |
 | 14 | `Byte[2]` | **RESERVED** |
 
 Rendered by a tracker's display, one row reads:
@@ -276,63 +217,114 @@ rr || NOTE  | Ins | E.Vol | E.ElAzm | EE.ffff |
 63 || FFFFF |  FF | 7 FF  | F FF1FF | FF FFFF |
 ```
 
-#### The note: 65536-TET
+The cell is a **whole-file** property, because the version byte is: every song in a file has the same cell, whatever its surround model. The model ([§4](#immutable-song-flags-byte-28)) says only how the panning column reads, and a stereo song simply never reads the spatial fields.
 
-A wide cell's pitch is **20 bits**: the note word (bytes 0–1) above the fine nibble (byte 13, bits 4…7). Read as one number it is 65536 steps to the octave, `$10000` per octave — `$50000` is C4, the `5` its octave and the `0000` the pitch within it — and it is the note word exactly when the fine nibble is 0, so the note word alone is the pitch rounded down to 4096-TET. A reader **MUST** take the fine nibble as sixteenths of a 4096-TET unit added to the note word: the engine plays `word + fine ÷ 16` wherever it would have played `word`, and every slide, arpeggio and effect argument keeps its 4096-TET units ([Engine Spec §3](TAUD_ENGINE_SPEC.md#3-pitch)).
+A writer **SHOULD** write this cell for every song, and a reader **MUST** accept any well-formed file that has it. There is no conversion to the legacy cell: this one can express pitches, positions, volumes and second effects that the 8-byte cell cannot, so the conversion would be lossy and is **NOT** defined. (An exporter to another format — a module — may still read a song the legacy way, by the inverse of the table in [Upgrading a legacy song](#upgrading-a-legacy-song), and say what it could not carry.)
 
-The sentinels are note **words**: a word below `$0020` is a sentinel whatever the fine nibble holds, the nibble is then **RESERVED**, and a writer **MUST** write it 0.
+#### Note words
 
-A notation stated at this resolution is a version-'b' definition ([§9.7](#9-7-nota-custom-notation-definitions)).
+Pitch is **65536 tone-equal temperament**: 65536 steps to the octave, `$10000` per octave. `$50000` is C4 (middle C); `$10000` is C0 and `$F0000` is C14. A cell's pitch is **20 bits**: the **note word** (bytes 0–1) above the **fine nibble** (byte 13, bits 4…7) — `word × 16 + fine`. Written in hex the octave digit comes first and the place within the octave after it: in `$50000` the `5` is the octave and the `0000` the pitch within it. The note word alone is the pitch rounded down to a whole word, `$5000` for C4 and `$1000` an octave, and it is how the format holds a pitch in sixteen bits everywhere else: an instrument's pitch fields are note words, or offsets in **note-word units** that count sixteen steps a unit, and the `IPit` section gives them their own four low bits ([§9.18](#9-18-ipit-pitch-extensions)). A reader **MUST** take the fine nibble as the pitch's four low bits: the engine plays the whole pitch wherever it would have played the word, and every slide, arpeggio and effect argument counts in note-word units, sixteen steps each ([Engine Spec §3](TAUD_ENGINE_SPEC.md#3-pitch)).
 
-The volume selector is three bits, so its display digit only ever reaches **7**; the panning selector is a full nibble. Both keep the version-2 numbering — 0 SET, 1 SLIDE UP, 2 SLIDE DOWN, 3 FINE — and selectors 4 and above are **RESERVED** in both columns.
+The playable range is the words `$0020`…`$FFFF`. Words `$0000`…`$001F` are reserved for sentinels — a word below `$0020` is a sentinel whatever the fine nibble holds, the nibble is then **RESERVED**, and a writer **MUST** write it 0:
+
+| Value | Name | Meaning |
+|---|---|---|
+| `$0000` | — | No note event on this row |
+| `$0001` | Key off | Release the sustain region; the release stage of the envelope plays |
+| `$0002` | Note cut | Silence the voice immediately |
+| `$0003` | Note fade | Begin the fadeout without releasing sustain |
+| `$0004` | Fast fade | Fast fadeout (~0.3 s) — the SoundFont *exclusiveClass* choke |
+| `$0005`–`$000F` | — | **RESERVED** |
+| `$0010`–`$001F` | Int0…IntF | Interrupt markers 0…15: produce no sound, latch a host-visible flag carrying the row's `: $xxxx` as its 0…65535 argument ([Engine Spec §14](TAUD_ENGINE_SPEC.md#14-interrupts-and-the-host-interface)) |
+
+Actual sounding pitch also depends on the instrument's sampling rate and detune; the note alone is not a frequency. See the Engine Specification. A notation stated at this resolution is a version-'b' definition ([§9.7](#9-7-nota-custom-notation-definitions)).
+
+#### Volume and panning columns
+
+Each column is a selector and a value: 0 SET, 1 SLIDE UP, 2 SLIDE DOWN, 3 FINE, and selectors 4 and above **RESERVED** in both. The volume selector is three bits, so its display digit only ever reaches **7**; the panning selector is a full nibble.
+
+Both columns address the **per-note** axis of their quantity, never the per-lane one: the volume column writes `note_vol` and the panning column writes `note_pan`, while `channel_vol` belongs to M / N and `channel_pan` to S $80xx / P / X / 4 / Z (TAUD_NOTE_EFFECTS.md §3, §3a). A pan column SET therefore places the note within the lane rather than moving the lane, and composes with a set-pan effect on the same row instead of losing to it.
 
 #### Volume column
 
-The value is a plain byte, 0…255. Note volume, row volume and lane volume are all 0…255 in a v3 song, so the column reaches the engine's own resolution instead of a quarter of it.
+The value is a plain byte, 0…255. Note volume, row volume and lane volume are all 0…255, so the column reaches the engine's own resolution.
 
 - **SET** — note volume = *value*.
-- **SLIDE UP / SLIDE DOWN** — by *value* per tick, in the same 0…255 units, so a slide can now move by one unit per tick.
-- **FINE** — a one-shot delta on tick 0: **bit 7** = direction (set = up), bits 0…6 = magnitude. (Version 2 put the direction in bit 5, the top of its 6-bit field; the flag moves with the field width.)
+- **SLIDE UP / SLIDE DOWN** — by *value* per tick, in the same 0…255 units, so a slide can move by one unit per tick.
+- **FINE** — a one-shot delta on tick 0: **bit 7** = direction (set = up), bits 0…6 = magnitude.
 
-A FINE selector with a value of 0 remains the **no-op**, and remains the canonical "this column is empty" encoding: a fine slide by zero is meaningless at any width. An untouched v3 cell therefore has selector byte `$33` — FINE in both columns — with its value, azimuth and elevation bytes zero.
+A FINE selector with a value of 0 is the **no-op**, and the canonical "this column is empty" encoding: a fine slide by zero is meaningless. An untouched cell therefore has selector byte `$33` — FINE in both columns — with its value, azimuth and elevation bytes zero, so a cell with no volume or pan intent does not disturb running state.
 
-**What stays six bits.** An Ixmp patch's velocity rectangle and a metainstrument entry's volume range live in the *instrument* record, which version 3 does not change: a bank is format-neutral, and the same `.tsii` loads into a v2 or a v3 project. A v3 engine compares a note's 0…255 volume against them as `volume >> 2`, so a stored *k* answers the volumes 4*k*…4*k*+3. The volume envelope is 0…63 too unless its instrument says otherwise: byte 14's `V` bit makes it 0…255 in a song of any version ([§7.2](#7-2-envelopes)). Effect-column volume slides (`D`, `K`, `L`, `N`, the retrigger volume modifiers) are nibble-packed and keep their version-2 arguments; a v3 engine multiplies their per-tick step by 4, so `D $01` moves at the rate it always did. Effects that set an absolute volume LEVEL from a byte — lane volume `M` — use the full 0…255 range.
+**What stays six bits.** An Ixmp patch's velocity rectangle and a metainstrument entry's volume range live in the *instrument* record, which the cell does not change: a bank is format-neutral, and the same `.tsii` loads into a project of either cell. The engine compares a note's 0…255 volume against them as `volume >> 2`, so a stored *k* answers the volumes 4*k*…4*k*+3. The volume envelope is 0…63 too unless its instrument says otherwise: byte 14's `V` bit makes it 0…255 ([§7.2](#7-2-envelopes)). Effect-column volume slides (`D`, `K`, `L`, `N`, the retrigger volume modifiers) are nibble-packed and keep the legacy cell's arguments; the engine multiplies their per-tick step by 4, so `D $01` moves at the rate it does in a legacy song. Effects that set an absolute volume LEVEL from a byte — lane volume `M` — use the full 0…255 range.
 
 #### Panning column
 
-The azimuth is nine bits: byte 4 plus the `A` bit, in the units of `S $8xxx` (0 = left, 128 = front, 256 = right, 384 = behind, clockwise). The elevation is byte 9, signed, in effect `X`'s units (128 = 90°). Together they place a source anywhere on the sphere from the column alone.
+The azimuth is nine bits: byte 4 plus the `A` bit, in the units of `S $8xxx` (0 = left, 128 = front, 256 = right, 384 = behind, clockwise). The elevation is byte 9, signed, in effect `X`'s units (128 = 90°). Together they place a source anywhere on the sphere from the column alone.
 
-As in version 2 the column is the **per-note** axis — the wide cell is the same two lanes at higher resolution, exactly as its volume column is still `note_vol` with a whole byte instead of six bits — so the pair it writes is a direction OFFSET from wherever the lane is pointing. With the lane at its front default the two coincide, and the column places the source exactly where it says.
+The column is the **per-note** axis — exactly as the volume column is `note_vol` — so the pair it writes is a direction OFFSET from wherever the lane is pointing. With the lane at its front default the two coincide, and the column places the source exactly where it says.
 
 - **SET** — offset the source by (azimuth, elevation) from the lane's direction. A planar song forces the elevation to zero; a stereo song folds the azimuth as it folds every other one.
 - **SLIDE UP / SLIDE DOWN** — rotate the note's azimuth right / left by the **low byte** per tick, wrapping in a surround song and clamping in a stereo one. The elevation byte is **RESERVED** for these selectors and **MUST** be zero.
 - **FINE** — a one-shot rotation on tick 0: `A` = direction (set = right), low byte = magnitude, elevation **RESERVED**.
 
-One interaction carries over from version 2, and one version-2 rule is gone:
+Two rules for a row that also moves the lane:
 
 - A **`Z` slide on the same row** turns a pan column SET into the slide's TARGET rather than an immediate jump — the column then says the same thing effect `4` would have, and the source travels there instead of appearing there. A target is an absolute direction for the LANE to travel to, so on those rows, and only those, the column speaks for the lane axis. If the row carries both `4` and a pan SET, the column wins, being the more specific statement.
-- `S $8xxx` on the same row **no longer suppresses** a pan column SET. The two write different registers (the lane's direction and the note's offset within it), so both apply and the mixer adds them. Version-2 songs are unaffected in the common case: with the lane left at centre, a column SET lands exactly where it always did.
+- `S $8xxx` on the same row does **not** suppress a pan column SET. The two write different registers (the lane's direction and the note's offset within it), so both apply and the mixer adds them.
 
 #### Effect 2
 
-A second effect, with the same opcode and 16-bit argument encoding as the first, applied **after** it on every pass — the row pass and each tick pass alike. Where two effects would write the same lane state, the second therefore lands last. It exists so that a converter is no longer forced to discard one of two simultaneous source commands.
+A second effect, with the same opcode and 16-bit argument encoding as the first, applied **after** it on every pass — the row pass and each tick pass alike. Where two effects would write the same lane state, the second therefore lands last. It exists so that a converter is not forced to discard one of two simultaneous source commands.
 
 An editor **MAY** leave it out of its display — it is the only cell field that carries no meaning unless a song actually writes one, and it costs a sixth column in the widest row on screen. An editor that hides it **MUST** still preserve it through every copy, paste and block operation the hidden column is not part of; silently dropping a command the file declares is **NOT** conforming. Microtone.js hides it by default and exposes it per lane.
 
-#### Upgrading a version-2 song
+### 5.6 Legacy format — the 8-byte cell
+
+Format versions 1 and 2 — the **legacy format** — have an 8-byte cell with one effect, a note word with no fine nibble, and six-bit volume and panning columns. A reader **MUST** still read it; a writer **SHOULD NOT** write it, and an editor **SHOULD** upgrade a legacy song to the cell of [§5.5](#5-5-the-pattern-cell) as it opens it ([below](#upgrading-a-legacy-song)). Everything this section does not mention is as §5.5 has it.
+
+| Offset | Type | Field |
+|---|---|---|
+| 0 | `U16` | Note word |
+| 2 | `U8` | Instrument, 0…255; 0 = no instrument change |
+| 3 | `U8` | Volume column: bits 0…5 value, bits 6…7 selector |
+| 4 | `U8` | Panning column: bits 0…5 value, bits 6…7 selector |
+| 5 | `U8` | Effect opcode, encoded as effect 1's in [§5.5](#5-5-the-pattern-cell) |
+| 6 | `U16` | Effect argument |
+
+Rendered by a tracker's display, one row reads:
+
+```
+rr || NOTE | Ins | E.Vol | E.Pan | EE.ffff |
+63 || FFFF |  FF | 3 3F  | 3 3F  | FF FFFF |
+```
+
+**The note** is the note word alone, so a legacy cell's pitch is `word × 16`: whole note words only, with the same sentinels.
+
+**The volume and panning columns** share one encoding: a 6-bit value plus a 2-bit selector.
+
+| Selector | Name | Volume column | Panning column |
+|---|---|---|---|
+| 0 | SET | Set note volume to *value* (0…63) | Set note pan to *value* scaled to 0…255 |
+| 1 | SLIDE UP | Slide volume up by *value* per tick | Slide note pan right by *value* per tick |
+| 2 | SLIDE DOWN | Slide volume down by *value* per tick | Slide note pan left by *value* per tick |
+| 3 | FINE | One-shot delta on tick 0: bit 5 = direction (set = up/right), bits 0…4 = magnitude | Same |
+
+A FINE selector with a value of 0 is the no-op here too, written as byte `$C0` into both columns of an untouched cell. Note volume, row volume and lane volume are 0…63 in a legacy song, and the effect-column volume slides move by their arguments as written. The panning column's SET is a front-arc value even in a surround song — six bits cannot express a full turn — and it is always an immediate set; effects `S $8xxx` and `X` are the commands that place a source anywhere on the circle or the sphere.
+
+#### Upgrading a legacy song
 
 | Field | Mapping |
 |---|---|
-| Note | the word, fine nibble 0 — the same pitch. An editor **MAY** move a word that sits exactly on a degree of the song's notation onto that degree's 65536-TET pitch (at most half a 4096-TET unit away), so that the old notes and the new are one grid; Microtone does |
+| Note | the word, fine nibble 0 — the same pitch. An editor **MAY** move a word that sits exactly on a degree of the song's notation onto that degree's 65536-TET pitch (at most eight steps away), so that the old notes and the new are one grid; Microtone does |
 | Volume SET / slides | `round(value × 255 ÷ 63)` — the column's units quadrupled |
 | Volume FINE | magnitude scaled the same way; the direction flag moves bit 5 → bit 7 |
-| Panning SET | azimuth = `(value << 2) \| (value >> 4)`, the same byte the version-2 engine derived from a 6-bit SET; elevation 0 |
+| Panning SET | azimuth = `(value << 2) \| (value >> 4)`, the same byte the legacy engine derived from a 6-bit SET; elevation 0 |
 | Panning slides | magnitude **verbatim** — a pan-byte step and an azimuth step are the same unit |
 | Panning FINE | magnitude verbatim; the direction flag moves bit 5 → `A` |
 | Effect columns | copied verbatim into effect 1; effect 2 empty |
 | Lane volume `M` | argument scaled `round(× 255 ÷ 63)` — it sets an absolute level, not a delta |
 
-Everything else copies across unchanged. Note that only the volume column is rescaled: the panning column's old value was a *fraction of the front arc* and its new one is an angle on the same arc, so the numbers already agree. Nibble-packed effect arguments are never touched — a version-3 engine scales their per-tick step instead ([§5.5 volume column](#volume-column)) — so a converted song sounds as it did.
+Everything else copies across unchanged. Note that only the volume column is rescaled: the panning column's old value was a *fraction of the front arc* and its new one is an angle on the same arc, so the numbers already agree. Nibble-packed effect arguments are never touched — the engine scales their per-tick step instead ([§5.5 volume column](#volume-column)) — so a converted song sounds as it did.
 
 ## 6. Cue sheet
 
@@ -432,12 +424,12 @@ If the record's `U32` at offset 0 has its high 16 bits equal to `$FFFF` — a va
 | 175 | `U8` | Auto-vibrato speed — the source tracker's 0…64 field × 4 (a full LFO cycle is 1024 ÷ speed ticks) |
 | 176 | `U8` | Auto-vibrato sweep — FT2 convention, ticks to reach full depth |
 | 177 | `U8` | Default pan value, 0…255 (enabled by the pan LOOP word's `p` bit). In surround/spatial mode, the positive half of the azimuth |
-| 178 | `U16` | Pitch-pan centre, as a 4096-TET note word |
+| 178 | `U16` | Pitch-pan centre, as a note word |
 | 180 | `S8` | Pitch-pan separation, −128…127 |
 | 181 | `U8` | Pan swing, 0…255 |
 | 182 | `U8` | Default cutoff — 0…254, 255 = filter off |
 | 183 | `U8` | Default resonance — 0…254, 255 = off |
-| 184 | `S16` | Sample detune, in 4096-TET units |
+| 184 | `S16` | Sample detune, in note-word units |
 | 186 | `U8` | Instrument flag: NNA, vibrato waveform, retrigger action |
 | 187 | `U8` | Auto-vibrato depth, 0…255 — the source tracker's 0…64 field × 4; 255 is ±1 semitone |
 | 188 | `U8` | Auto-vibrato rate, 0…255 — IT convention, ramp acceleration |
@@ -554,9 +546,9 @@ seconds = (e == 0) ? m / 256                      (denormal)
 
 Every value is an exact binary fraction, so the table is reproducible on any platform without a lookup table.
 
-**The volume envelope's values** are 0…63, 63 being full volume, unless byte 14's `V` bit is set: then they are 0…255, the units of a version-3 song's note volume ([§5.5](#5-5-format-version-3-the-wide-cell)), and 255 is full volume. The bit belongs to the instrument, so an Ixmp patch's volume envelope ([§9.11](#9-11-ixmp-patch-records)) is in the units of the instrument that carries it; a patch has no bit of its own. A value above full volume plays at full volume. The pan and pitch/filter envelopes are 0…255 either way.
+**The volume envelope's values** are 0…63, 63 being full volume, unless byte 14's `V` bit is set: then they are 0…255, the units of a note volume ([§5.5](#volume-column)), and 255 is full volume. The bit belongs to the instrument, so an Ixmp patch's volume envelope ([§9.11](#9-11-ixmp-patch-records)) is in the units of the instrument that carries it; a patch has no bit of its own. A value above full volume plays at full volume. The pan and pitch/filter envelopes are 0…255 either way.
 
-A record without the bit is as valid as one with it, in a file of any version, and a bank (`.tsii`) may hold both. An editor that keeps every volume of a version-3 song in 0…255 converts a record when it takes it in: each value *v* becomes `round(v × 255 ÷ 63)`, so 63 becomes 255, and the bit is set. Converting back, for a format that has only 0…63, is `round(v × 63 ÷ 255)`, which returns every converted value exactly.
+A record without the bit is as valid as one with it, in a file of any version, and a bank (`.tsii`) may hold both. An editor that keeps every volume of a song in 0…255 converts a record when it takes it in: each value *v* becomes `round(v × 255 ÷ 63)`, so 63 becomes 255, and the bit is set. Converting back, for a format that has only 0…63, is `round(v × 63 ÷ 255)`, which returns every converted value exactly.
 
 Each envelope has two 16-bit control words, at different offsets, which is what makes sustain versus loop a structural distinction rather than a flag bit.
 
@@ -646,7 +638,7 @@ Each entry — a *layer* in a type-0 record, an *operator* in a type-4 one:
 |---|---|---|
 | +0 | `U8` | Entry instrument index, low 8 bits |
 | +1 | `U8` | Mix volume as a decibel octet ([§7.10](#7-10-the-decibel-octet-table)) |
-| +2 | `S16` | Sample detune, in 4096-TET units |
+| +2 | `S16` | Sample detune, in note-word units |
 | +4 | `U16` | Pitch range low (full range = `$0000`) |
 | +6 | `U16` | Pitch range high, inclusive (full range = `$FFFF`) |
 | +8 | `U8` | bits 0…5 = volume range low (0…63); bits 6…7 = entry instrument index bits 8…9 |
@@ -656,7 +648,7 @@ The four range fields define a rectangle over the same pitch × volume space as 
 
 The two remaining fields are the ones each kind reads its own way: in a Layered record the mix octet is the layer's **mix level** and the detune is its **detune**, while in a rack they are the operator's **output level** and its **frequency ratio** ([§7.7](#7-7-metainstrument-type-4-fm-operator-racks)). The bytes are identical; the meaning is the kind's.
 
-Byte +9's bit 6, **fixed pitch**, means one thing in both: the entry sounds one pitch whatever note triggered it, and its detune field is then not an offset (a layer's detune, an operator's ratio) but that pitch — an **unsigned** `U16` note word on the ordinary 4096-TET grid ([note words](#note-words)), the same units a pattern cell writes. A reader **MUST** read the field as unsigned when the bit is set and as `S16` when it is not; a value below `$0020` is in the cell's sentinel space and is clamped to it. What each kind makes of it is in [§7.5](#7-5-metainstrument-type-0-layered-instruments) and [§7.7](#7-7-metainstrument-type-4-fm-operator-racks).
+Byte +9's bit 6, **fixed pitch**, means one thing in both: the entry sounds one pitch whatever note triggered it, and its detune field is then not an offset (a layer's detune, an operator's ratio) but that pitch — an **unsigned** `U16` note word ([note words](#note-words)), the same units a pattern cell writes. A reader **MUST** read the field as unsigned when the bit is set and as `S16` when it is not; a value below `$0020` is in the cell's sentinel space and is clamped to it. What each kind makes of it is in [§7.5](#7-5-metainstrument-type-0-layered-instruments) and [§7.7](#7-7-metainstrument-type-4-fm-operator-racks).
 
 Two rules hold for **every** kind:
 
@@ -938,7 +930,7 @@ A loop's depth is counted in the classic unit — 0, π/16, π/8, π/4, π/2, π
 
 #### The oscillator's harmonic and phase
 
-An Easy operator's **multiplier** is in its ratio, not in its oscillator. An editor writes multiplier *m* — a whole number 1 … 31, or a power of two from 1/256 to 256 — as `4096 × log₂ m` rounded to the sixteenth of a unit, the field and its `IPit` extension byte ([§9.18](#9-18-ipit-pitch-extensions)) holding it together, with any detune added: within 0.002 cent of *m* for every multiplier, on every kind of operator, and as far past the ±8 octaves of the sixteen-bit field as the octave nibble reaches. It reads a ratio back as the multiplier whose `4096 × log₂ m` is nearest (a tie going to the smaller), and the rest as the detune — so a detune that reaches past halfway to a neighbouring multiplier reads back from that one.
+An Easy operator's **multiplier** is in its ratio, not in its oscillator. An editor writes multiplier *m* — a whole number 1 … 31, or a power of two from 1/256 to 256 — as `65536 × log₂ m` rounded to the nearest step, the field and its `IPit` extension byte ([§9.18](#9-18-ipit-pitch-extensions)) holding it together, with any detune added: within 0.002 cent of *m* for every multiplier, on every kind of operator, and as far past the ±8 octaves of the sixteen-bit field as the octave nibble reaches. It reads a ratio back as the multiplier whose `65536 × log₂ m` is nearest (a tie going to the smaller), and the rest as the detune — so a detune that reaches past halfway to a neighbouring multiplier reads back from that one.
 
 Two things an Easy operator has live on its oscillator's own instrument record rather than in the rack, in fields every instrument has ([§7.1](#7-1-byte-map)); a player reads them as it reads any instrument, and nothing about them is Easy Mode's to play. An editor reads them only from an oscillator that is **one looped cycle**: a forward loop starting at frame 0, a non-zero sampling rate, and no Ixmp patches to override its fields. The cycle is the loop, *L* frames long.
 
@@ -966,7 +958,7 @@ A type-8 Metainstrument is an **OPL instrument**: one channel of a Yamaha YM3812
 | 198 | `U8` | Channel A's register `$C0`: feedback in bits 1…3, connection in bit 0 |
 | 199 | `U8` | Channel B's register `$C0`, for a four-operator patch: connection in bit 0 |
 | 200 | `U8` | Rhythm partner's multiplier, bits 0…3 (below) |
-| 201 | `S16` | Rhythm partner's channel pitch, in 4096-TET units from the voice's own (below) |
+| 201 | `S16` | Rhythm partner's channel pitch, in note-word units from the voice's own (below) |
 | 203 | `U8 × 5` | Operator 1: registers `$20`, `$40`, `$60`, `$80`, `$E0` |
 | 208 | `U8 × 5` | Operator 2 |
 | 213 | `U8 × 5` | Operator 3 |
@@ -1267,16 +1259,16 @@ Defines notations beyond the registered set. Repetition of:
 | `U8` | Notation index, counting from 0 (internally mapped to 65535 − index) |
 | `U32` | Size of the remainder of this entry |
 | `U16` | Flags: bits 0…4 the **pitch resolution** `n` (below); bits 5…15 **RESERVED** |
-| `U16` | Interval size in the 4096-TET lattice — octave = `$1000`, tritave = `$195C`. **0** when the notation is not an interval system (and therefore names every note it can express explicitly) |
+| `U16` | Interval size in note-word units — octave = `$1000`, tritave = `$195C`. **0** when the notation is not an interval system (and therefore names every note it can express explicitly) |
 | `U16` | **RESERVED** for a float32 interval size |
 | `U16` | Notes between intervals **minus one** — 12-TET stores 11 |
 | `U16` | Base note the frequency table is offset against, as an absolute note word (C4 = `$5000`); 0 = the default |
 | `Byte[6]` | **RESERVED** |
 | `Byte[*]` | Name, NUL-terminated, UTF-8 |
 | `Byte[*]` | Notation table — `$FF`-separated, NUL-terminated, in the Taud character set |
-| `U16[*]` | Frequency table — relative pitch offsets in 4096-TET space; index 0 **MUST** be 0 |
+| `U16[*]` | Frequency table — relative pitch offsets in note-word units; index 0 **MUST** be 0 |
 
-That is a **version-'a'** definition, `n` = 0. A definition with `n` from 16 to 31 is **version 'b'**: every pitch in it is a `U32` in **2^(n−4)-TET** — `n` bits of pitch across sixteen octaves, so 16 is 4096-TET and **20 is 65536-TET**, a format-3 cell's own resolution ([§5.5](#the-note-65536-tet)). The fields are the same fields, widened in place:
+That is a **version-'a'** definition, `n` = 0. A definition with `n` from 16 to 31 is **version 'b'**: every pitch in it is a `U32` in **2^(n−4)-TET** — `n` bits of pitch across sixteen octaves, so 16 is the note word's own resolution and **20 is 65536-TET**, a pattern cell's own resolution ([§5.5](#note-words)). The fields are the same fields, widened in place:
 
 | Offset in the entry body | Version 'a' (`n` = 0) | Version 'b' (`n` = 16…31) |
 |---|---|---|
@@ -1287,7 +1279,7 @@ That is a **version-'a'** definition, `n` = 0. A definition with `n` from 16 to 
 | 16 | name, notation table | name, notation table |
 | … | `U16[*]` frequency table | `U32[*]` frequency table |
 
-A reader that knows only version 'a' **MUST** skip an entry whose `n` is not 0 (its size field says how far). A writer **SHOULD** write version 'a' whenever every pitch of the definition is a whole 4096-TET unit, and version 'b' with `n` = 20 otherwise.
+A reader that knows only version 'a' **MUST** skip an entry whose `n` is not 0 (its size field says how far). A writer **SHOULD** write version 'a' whenever every pitch of the definition is a whole number of note-word units (a multiple of sixteen steps), and version 'b' with `n` = 20 otherwise.
 
 Frequency-table offsets are unsigned, so an interval-less notation that must name notes below C4 declares its lowest note in the base-note field. For an interval system the base note is the root of the root interval and the field **MUST** be 0.
 
@@ -1295,7 +1287,7 @@ Note tuning proceeds in five steps:
 
 1. Derive "base note at C4" from the song table's tuning pair. A declaration of A4 @ 440 Hz becomes C4 @ 261.6255653 Hz.
 2. The frequency at C5 is the C4 frequency times the interval size.
-3. Distribute 4096 notes logarithmically between C4 and C5; this builds the frequency-offset table.
+3. Distribute 65536 steps logarithmically between C4 and C5; this builds the frequency-offset table.
 4. Apply the frequency-offset table against the base note at C4 — or the notation's own base-note field when non-zero — to construct the notation's notes.
 5. Continue outside the root interval to build a complete note-to-frequency table.
 
@@ -1318,7 +1310,7 @@ Nothing in Project Data is required to play a song correctly, with six exception
 - `sMst`, because it is the chain the song is delivered through ([§9.12](#9-12-smst-song-mastering)).
 - `IMix`, because it is the chains the instruments are mixed through ([§9.15](#9-15-imix-instrument-mixing-chains)).
 - `ILyr`, because it is which syllable a lyric instrument's note sings ([§9.17](#9-17-ilyr-lyric-instruments)).
-- `IPit`, because it is the rest of an instrument's pitches ([§9.18](#9-18-ipit-pitch-extensions)): a reader without it plays an extended field at its sixteen bits — at most a sixteenth of a 4096-TET unit short where only the fraction is extended, and **sixteen octaves or more away** where the octave is.
+- `IPit`, because it is the rest of an instrument's pitches ([§9.18](#9-18-ipit-pitch-extensions)): a reader without it plays an extended field at its sixteen bits — at most fifteen steps out where only the fraction is extended, and **sixteen octaves or more away** where the octave is.
 
 Everything else is naming, display and editor state — including `PKey` ([§9.13](#9-13-pkey-project-keymap)), which decides which key on a typing keyboard sounds which degree and so cannot reach playback at all, and `PMtf` ([§9.14](#9-14-pmtf-motif-source)), the program a project was built from.
 
@@ -1395,7 +1387,7 @@ Patch records are **variable length**. Each begins with a version byte that is r
 | Offset | Type | Field |
 |---|---|---|
 | 0 | `U8` | Version / feature flags |
-| 1 | `U16` | Pitch range start — a 4096-TET note word |
+| 1 | `U16` | Pitch range start — a note word |
 | 3 | `U16` | Pitch range end, inclusive |
 | 5 | `U8` | Volume range start, 0…63 |
 | 6 | `U8` | Volume range end, inclusive |
@@ -1405,7 +1397,7 @@ Patch records are **variable length**. Each begins with a version byte that is r
 | 15 | `U16` | Loop start |
 | 17 | `U16` | Loop end |
 | 19 | `U16` | Sampling rate at C4 — same encoding as base record bytes 6…7 |
-| 21 | `S16` | Sample detune, in 4096-TET units (XM finetune; an IT key-map note that is not the key's own) |
+| 21 | `S16` | Sample detune, in note-word units (XM finetune; an IT key-map note that is not the key's own) |
 | 23 | `U8` | Loop mode and sustain bit — identical to base record byte 14 |
 | 24 | `U8` | Default pan, 0…255; **`$FF` = no override** |
 | 25 | `U8` | Default note volume, 0…255; **0 = no override** |
@@ -1417,7 +1409,7 @@ Patch records are **variable length**. Each begins with a version byte that is r
 
 The first four fields define a rectangle over pitch × volume space. **Patch selection walks the list in order and the first patch whose rectangle contains the trigger wins**; when nothing matches, the base record's sample fields are used unchanged.
 
-**A pitch range runs through the whole of its last unit.** A trigger's pitch may lie between two 4096-TET units — a wide cell's note carries sixteenths ([§5.5](#5-5-format-version-3-the-wide-cell)) — so the inclusive end `E` of a range means every pitch below `E + 1`: a trigger at pitch `p` is inside `S`…`E` when `S ≤ p < E + 1`. Two zones written `…$4FFF` and `$5000…` therefore meet, with no pitch between them that belongs to neither. The same holds for a layer's and an operator's range ([§7.4](#7-4-metainstrument-records)), and a range whose bounds are extended ([§9.18](#9-18-ipit-pitch-extensions)) is tested the same way one step finer. The "no override" sentinels let a converter that has no per-sample data for one axis defer to the base record.
+**A pitch range runs through the whole of its last unit.** A trigger's pitch may lie between two note words — a cell's note carries four more bits ([§5.5](#note-words)) — so the inclusive end `E` of a range means every pitch below `E + 1`: a trigger at pitch `p` is inside `S`…`E` when `S ≤ p < E + 1`. Two zones written `…$4FFF` and `$5000…` therefore meet, with no pitch between them that belongs to neither. The same holds for a layer's and an operator's range ([§7.4](#7-4-metainstrument-records)), and a range whose bounds are extended ([§9.18](#9-18-ipit-pitch-extensions)) is tested the same way one step finer. The "no override" sentinels let a converter that has no per-sample data for one axis defer to the base record.
 
 The IT and XM formats do not define a velocity axis; those converters leave the volume range at 0…63. SoundFont does, but its velocity is not an amplitude, and the volume range is: it is a range of **note volume**, which the engine plays as linear amplitude. A SoundFont converter therefore carries a zone's velocity range through the SoundFont's own velocity curve, onto the note volumes that sound at those velocities' loudness ([Conversion Notes §7.4](TAUD_CONVERSION_NOTES.md#7-4-soundfont-presets-to-taud-instruments)). Rounding velocity linearly onto 0…63 instead makes a volume choose the layer the SoundFont plays at a different loudness.
 
@@ -1803,9 +1795,9 @@ Microtone writes the lyrics as syllables separated by spaces, full stops or hyph
 
 ### 9.18 `IPit` — pitch extensions
 
-An instrument's pitch fields are sixteen bits: 4096 steps to the octave, over sixteen octaves. A pattern cell has more ([§5.5](#5-5-format-version-3-the-wide-cell)), and some instruments need more than either: a zone tuned finer than 0.29 cent, an operator ratio that is not a whole number of 4096ths, a fixed-frequency operator below C0. This section gives a pitch field **one more byte** without moving anything in the record.
+An instrument's pitch fields are sixteen bits — note words, and offsets in note-word units: `$1000` to the octave, over sixteen octaves. A pattern cell has more ([§5.5](#note-words)), and some instruments need more than either: a zone tuned finer than 0.29 cent, an operator ratio that is not a whole number of note-word units, a fixed-frequency operator below C0. This section gives a pitch field **one more byte** without moving anything in the record.
 
-**The extension byte** is `oooo ffff`: four more bits of **fraction** below the field, and four more bits of **octave** above it, as a two's-complement nibble (−8…+7). The value of an extended field, in 65536-TET units, is
+**The extension byte** is `oooo ffff`: four more bits of **fraction** below the field, and four more bits of **octave** above it, as a two's-complement nibble (−8…+7). The value of an extended field, in 65536-TET steps, is
 
 ```
 value = field × 16 + ffff + oooo × 2^20
@@ -1903,3 +1895,4 @@ A writer producing a file that any conforming reader will accept must satisfy al
 | 2026-11-11 | Format version 3 for every song: no longer surround songs only, and the version a writer **SHOULD** emit. The wide cell's byte 13 bits 4…7 are the pitch's **fine nibble**, making its note 65536-TET (`$50000` = C4). `nota` version 'b': flags bits 0…4 name a definition's pitch resolution, its pitch fields `U32` in 2^(n−4)-TET; the standalone `.taudnot` version byte `'b'` |
 | 2026-11-13 | A pitch range runs through the whole of its last unit ([§9.11](#9-11-ixmp-patch-records)): a trigger between two 4096-TET units, which a wide cell can write, no longer falls between two zones that meet. `IPit` — pitch extensions ([§9.18](#9-18-ipit-pitch-extensions)): one more byte for each sixteen-bit pitch field of an instrument (four bits of fraction, four of octave, two's complement), in a guarded entry per instrument; the sixth Project-Data section a player must honour. A file without the section is unchanged |
 | 2026-11-13 | Easy Mode: an operator's **multiplier** is written into its ratio with the `IPit` extension, `4096 × log₂ m` to the sixteenth of a unit, and read back as the nearest multiplier plus a detune; the oscillator's **harmonic** stays readable but is no longer written |
+| 2026-11-14 | Reorganised, no byte changing meaning: pitch is described as 65536-TET throughout — a note word is a pitch's top sixteen bits, and a sixteen-bit pitch field or effect argument counts in note-word units, sixteen steps each; the 16-byte cell is [§5.5](#5-5-the-pattern-cell), "The pattern cell" (it was "Format version 3 — the wide cell"), and the 8-byte cell of versions 1 and 2 is [§5.6](#5-6-legacy-format-the-8-byte-cell), the legacy format |

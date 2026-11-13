@@ -68,9 +68,10 @@ window.addEventListener("error", (e) => log("ERROR " + e.message));
   field.value = "note"; fire(field, "change");
   await sleep(20);
   const val = q(".fb-val");
-  val.value = "1234"; fire(val, "input");
+  // A note is typed in 65536-TET steps, five digits as the raw column shows it.
+  val.value = "12340"; fire(val, "input");
   await sleep(30);
-  check(/\$1234/.test(q(".fb-read").textContent),
+  check(/\$12340/.test(q(".fb-read").textContent),
     "the readout says what it parsed", q(".fb-read").textContent);
   // Two marked rows, two placements: four events in the song.
   check(/4 match/.test(q(".fb-count").textContent),
@@ -141,7 +142,7 @@ window.addEventListener("error", (e) => log("ERROR " + e.message));
   check(!dlg.querySelector(".fc-scope"), "…and no Apply-to scope select");
   const okBtn = dlg.querySelector(".fc-ok");
   check(okBtn.textContent === "Find", "…and OK reads Find", okBtn.textContent);
-  check(/1234/.test(dlg.querySelector(".fc-term .fc-val")?.value ?? ""),
+  check(/12340/.test(dlg.querySelector(".fc-term .fc-val")?.value ?? ""),
     "…starting from what the bar was holding");
   // Add a second term (AND) and accept: the bar can no longer show it in one
   // row, so it must report what it holds rather than misrepresent it.

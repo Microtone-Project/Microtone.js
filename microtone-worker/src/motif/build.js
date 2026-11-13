@@ -53,6 +53,11 @@ import { Score, musicBuiltins, musicHooks, dbOctet } from "./music.js";
 import { resolve } from "./phrase.js";
 import { compileScore } from "./compile.js";
 import { retune } from "./retune.js";
+import { pitchTableOf } from "../../core/format/pitch-ext-section.js";
+import {
+  splitOffset, layerDetune, layerLow, layerHigh, layerDetuneFields, layerLowFields, layerHighFields,
+} from "../doc/pitchedit.js";
+import { clampLayerPitch } from "../doc/metaedit.js";
 
 /** The project section a Motif build keeps its source in. */
 export const MOTIF_FOURCC = "PMtf";
@@ -205,7 +210,7 @@ export async function buildProject(source, host) {
   const { song } = score;
 
   progress("bank", 0);
-  const bank = await assembleBank(score, { sf2Bank, pack: host.pack, log });
+  const bank = await assembleBank(score, { sf2Bank, pack: host.pack, log, fine: score.version >= 2 });
 
   progress("compile", 0);
   const { patterns, cues, names } = compileScore(score);
@@ -238,6 +243,8 @@ export async function buildProject(source, host) {
   if (score.tuning.nota) add("nota", score.tuning.nota);
   add("Ixmp", sectionOf(bank, "Ixmp"));
   add(ILYR_FOURCC, sectionOf(bank, ILYR_FOURCC));
+  // The instruments' pitches beyond sixteen bits (§9.18) — a TML 2 build's.
+  add("IPit", sectionOf(bank, "IPit"));
   if (master) add("sMst", buildMasteringSection({ 0: master }));
 
   const doc = new Document({
@@ -277,7 +284,11 @@ export async function buildProject(source, host) {
         if (!l) throw new MotifError(`instrument ${i.id} has layers 0–${inst.metaLayers.length - 1}; there is no layer ${k}`);
         return l;
       });
-      doc.sampleInstImage.set(buildMetaRecord(keep, { strict: inst.metaStrict, percussion: inst.isPercussion, type: inst.metaType, imixId: inst.imixId }), SAMPLEBIN_SIZE + i.slot * 256);
+      const record = buildMetaRecord(keep, { strict: inst.metaStrict, percussion: inst.isPercussion, type: inst.metaType, imixId: inst.imixId });
+      // The layers kept keep their pitch extensions (§9.18).
+      const ipit = doc.pitchExtPayloadAfter([{ slot: i.slot, record, groups: { table: pitchTableOf(keep) } }]);
+      doc.sampleInstImage.set(record, SAMPLEBIN_SIZE + i.slot * 256);
+      if (ipit !== undefined) doc.setPitchExtPayload(ipit);
     }
     doc._resetInstrumentCache();
     for (const i of score.instruments) {
@@ -389,6 +400,9 @@ export async function buildProject(source, host) {
     progress("retune", 0);
     retuned = await retune(doc, retuneUses(score), {
       passes: 3, pause,
+      // TML 2: corrections to the sixteenth of a unit (§9.18), measured at
+      // the note exactly; TML 1 as it always was.
+      fine: score.version >= 2, wide: score.version >= 2 && score.wide,
       progress: (done, total) => progress("retune", total ? done / total : 1),
     });
   }
@@ -420,7 +434,7 @@ export async function buildProject(source, host) {
  * the instruments it is made of. Returns the parsed-bank shape the rest of the
  * build reads ({sampleInstImage, ixmp, projSections}).
  */
-async function assembleBank(score, { sf2Bank, pack, log }) {
+async function assembleBank(score, { sf2Bank, pack, log, fine = false }) {
   const { song } = score;
   const sf2s = score.instruments.filter((i) => i.kind === "sf2");
   let bank = null;
@@ -477,11 +491,15 @@ async function assembleBank(score, { sf2Bank, pack, log }) {
   for (const i of others) {
     if (i.kind !== "wave") continue;
     const pcm = waveform(i.wave, i.length);
-    const { rate, detune } = tuneForMiddleC(pcm.length);
-    const plan = planSampleImport(work, { nameBytes: utf8(i.name ?? i.id), pcm, rate, detune, loop: true });
+    const { rate, detune } = tuneForMiddleC(pcm.length, fine);
+    // TML 2 tunes the cycle to the sixteenth of a unit: the field and its
+    // `IPit` extension (§9.18).
+    const { field, ext } = splitOffset(detune);
+    const plan = planSampleImport(work, { nameBytes: utf8(i.name ?? i.id), pcm, rate, detune: field, loop: true });
     if (plan.error) throw new MotifError(`instrument ${i.id}: ${plan.error}`);
     importBankOp(plan).apply(work);
     i.slot = plan.insts[0].destSlot;
+    if (ext !== 0) pitchInto(work, i.slot, { base: [ext, 0, 0] });
     if (i.envelope) giveEnvelope(work, i);
   }
 
@@ -490,6 +508,7 @@ async function assembleBank(score, { sf2Bank, pack, log }) {
     if (i.kind !== "opl" && i.kind !== "psg") continue;
     const record = (i.kind === "opl" ? buildOplRecord : buildPsgRecord)(i.block, { percussion: i.percussion });
     i.slot = placeRecord(work, i, record);
+    if (i.pitchBase) pitchInto(work, i.slot, { base: i.pitchBase }); // an OPL partner's sixteenths
     if (i.envelope) giveEnvelope(work, i);
   }
 
@@ -527,6 +546,8 @@ async function assembleBank(score, { sf2Bank, pack, log }) {
       });
       i.slot = placeRecord(work, i, record);
     }
+    // A reference note between two units keeps its sixteenths (§9.18).
+    if (p.refExt) pitchInto(work, i.slot, { base: [0, 0, p.refExt] });
     if (i.envelope) giveEnvelope(work, i);
     if (i.lyrics) giveLyrics(work, i);
   }
@@ -535,8 +556,9 @@ async function assembleBank(score, { sf2Bank, pack, log }) {
   for (const i of others) {
     if (i.kind !== "layers" && i.kind !== "fm") continue;
     work._rebuildInstRegion();
-    const record = i.kind === "layers" ? layeredRecord(work, i) : rackRecord(work, i);
+    const { record, entries } = i.kind === "layers" ? layeredRecord(work, i, fine) : rackRecord(work, i, fine);
     i.slot = placeRecord(work, i, record);
+    pitchInto(work, i.slot, { table: pitchTableOf(entries) }); // its entries' pitches beyond the field (§9.18)
   }
   work._rebuildInstRegion();
   // which instruments sing lyrics — the program's, and any a pack brought
@@ -546,7 +568,7 @@ async function assembleBank(score, { sf2Bank, pack, log }) {
   return {
     sampleInstImage: work.sampleInstImage,
     ixmp: work.ixmp,
-    projSections: work.projSections.filter((x) => ["INam", "SNam", "Ixmp", "IMix", "IMcn", "ILyr"].includes(x.fourcc)),
+    projSections: work.projSections.filter((x) => ["INam", "SNam", "Ixmp", "IMix", "IMcn", "ILyr", "IPit"].includes(x.fourcc)),
   };
 }
 
@@ -636,13 +658,23 @@ export function waveform(shape, length) {
 /** The rate and detune that make a looped cycle of `n` frames sound middle C
  *  at C4: the rate as high as its 16 bits allow, the detune taking up the rest
  *  (the waveform painter's own tuning). */
-function tuneForMiddleC(n) {
+function tuneForMiddleC(n, fine = false) {
   const target = LINEAR_FREQ_C4_HZ * n;
   let rate = target;
   while (rate > 0xffff) rate /= 2;
   while (rate < 1) rate *= 2;
   const r = Math.max(1, Math.min(0xffff, Math.round(rate)));
-  return { rate: r, detune: Math.max(-32768, Math.min(32767, Math.round(4096 * Math.log2(target / r)))) };
+  const d = 4096 * Math.log2(target / r);
+  return { rate: r, detune: Math.max(-32768, Math.min(32767, fine ? Math.round(d * 16) / 16 : Math.round(d))) };
+}
+
+/** Give `slot` of the scratch project the `IPit` groups `groups` (§9.18), its
+ *  record already where it will stay; nothing when every byte is zero. */
+function pitchInto(work, slot, groups) {
+  const any = Object.values(groups).some((g) => g && Array.prototype.some.call(g, (b) => b !== 0));
+  if (!any) return;
+  work._rebuildInstRegion();
+  work.setPitchExtGroups(slot, groups);
 }
 
 const octetToDb = (o) => {
@@ -660,26 +692,37 @@ const octetToDb = (o) => {
  *  points at it; a layer over a layered one stands in for all of ITS layers
  *  (a layer cannot hold a metainstrument), each with the two gains added, the
  *  two detunes added and the two rectangles intersected. */
-function layeredRecord(work, i) {
+function layeredRecord(work, i, fine = false) {
   const out = [];
   let strict = i.strict;
   for (const L of i.layers) {
     const ref = work.instruments[L.ref.slot];
     if (!ref.isMeta) {
       out.push(L.fixed !== null
-        ? makeMetaLayer(L.ref.slot, dbOctet(L.gain), L.fixed, L.pitchStart, L.pitchEnd, L.volStart, L.volEnd, true)
-        : makeMetaLayer(L.ref.slot, dbOctet(L.gain), L.detune, L.pitchStart, L.pitchEnd, L.volStart, L.volEnd));
+        ? entryOf(L.ref.slot, dbOctet(L.gain), L.fixed, L.pitchStart, L.pitchEnd, L.volStart, L.volEnd, true, fine)
+        : entryOf(L.ref.slot, dbOctet(L.gain), L.detune, L.pitchStart, L.pitchEnd, L.volStart, L.volEnd, false, fine));
       continue;
     }
     if (ref.isFm) throw new MotifError(`instrument ${i.id}: ${L.ref.id} is an FM rack, which cannot be a layer`);
     strict = strict || ref.metaStrict;
     for (const c of ref.metaLayers) {
       if ((c.instIdx & 0x3ff) === 0) continue;
-      const ps = Math.max(c.pitchStart, L.pitchStart), pe = Math.min(c.pitchEnd, L.pitchEnd);
       const vs = Math.max(c.volStart, L.volStart), ve = Math.min(c.volEnd, L.volEnd);
-      if (ps > pe || vs > ve) continue;
       const gain = octetToDb(c.mixOctet) + L.gain;
       const octet = gain === -Infinity ? 0 : dbOctet(Math.max(-86, Math.min(24, gain)));
+      if (fine) {
+        // By value (§9.18): the inner layer's pitches as they sound, its
+        // extension included, then the outer layer's on top.
+        const ps = Math.max(layerLow(c), L.pitchStart), pe = Math.min(layerHigh(c), highOf(L.pitchEnd));
+        if (ps > pe || vs > ve) continue;
+        let fixed = c.fixedPitch, det = layerDetune(c);
+        if (L.fixed !== null) { fixed = true; det = L.fixed; }
+        else det += L.detune;
+        out.push(entryOf(c.instIdx & 0x3ff, octet, det, ps, pe, vs, ve, fixed, true, true));
+        continue;
+      }
+      const ps = Math.max(c.pitchStart, L.pitchStart), pe = Math.min(c.pitchEnd, L.pitchEnd);
+      if (ps > pe || vs > ve) continue;
       let fixed = c.fixedPitch, det = c.detune;
       if (L.fixed !== null) { fixed = true; det = L.fixed; }
       else if (fixed) det = Math.max(0x20, Math.min(0xffff, (c.detune & 0xffff) + L.detune));
@@ -689,11 +732,30 @@ function layeredRecord(work, i) {
   }
   if (!out.length) throw new MotifError(`instrument ${i.id}: none of its layers can sound (their ranges miss each other)`);
   if (out.length > META_MAX_LAYERS) throw new MotifError(`instrument ${i.id} would hold ${out.length} layers; a metainstrument holds at most ${META_MAX_LAYERS}`);
-  return buildMetaRecord(out, { strict, percussion: i.percussion });
+  return { record: buildMetaRecord(out, { strict, percussion: i.percussion }), entries: out };
 }
 
+/**
+ * A table entry. TML 1 (`fine` false) is the field as it always was. TML 2
+ * gives its pitches as VALUES (4096-TET units carrying sixteenths, §9.18) and
+ * this splits each into the field and the delta beside it: a detune or a
+ * fixed pitch exactly, a range from its low pitch through its top — a top on a
+ * whole unit takes the whole of it, as a sixteen-bit bound always has, unless
+ * `exactTop` (a bound an earlier entry already worked out, last pitch inside).
+ */
+function entryOf(slot, octet, detune, lo, hi, vs, ve, fixed, fine, exactTop = false) {
+  if (!fine) return makeMetaLayer(slot, octet, detune, lo, hi, vs, ve, fixed);
+  const l = makeMetaLayer(slot, octet, 0, 0, 0, vs, ve, fixed);
+  return Object.assign(l, layerDetuneFields(l, clampLayerPitch(l, detune)),
+    layerLowFields(lo), layerHighFields(exactTop ? hi : highOf(hi)));
+}
+
+/** A range's top as written in TML 2 → the last pitch inside it: a top on a
+ *  whole unit runs through that unit (as a sixteen-bit bound does). */
+const highOf = (hi) => (Number.isInteger(hi) ? hi + 15 / 16 : hi);
+
 /** An FM rack's record: each operator reads an ordinary instrument. */
-function rackRecord(work, i) {
+function rackRecord(work, i, fine = false) {
   const ops = i.operators.map((op, k) => {
     const ref = work.instruments[op.ref.slot];
     if (ref.isMeta) {
@@ -702,10 +764,13 @@ function rackRecord(work, i) {
     if (ref.isFormant) {
       throw new MotifError(`instrument ${i.id}: operator ${k} reads ${op.ref.id}, a formant instrument — a sound made out of a source rather than one; an operator reads one sample (a wave, usually) or a chip`);
     }
-    return makeMetaLayer(op.ref.slot, dbOctet(op.level), op.detune, op.pitchStart, op.pitchEnd, op.volStart, op.volEnd,
-      op.fixed === true);
+    return entryOf(op.ref.slot, dbOctet(op.level), op.detune, op.pitchStart, op.pitchEnd, op.volStart, op.volEnd,
+      op.fixed === true, fine);
   });
-  return buildMetaRecord(ops, { type: META_TYPE_FM, percussion: i.percussion, program: i.program === null ? null : Uint16Array.from(i.program) });
+  return {
+    record: buildMetaRecord(ops, { type: META_TYPE_FM, percussion: i.percussion, program: i.program === null ? null : Uint16Array.from(i.program) }),
+    entries: ops,
+  };
 }
 
 /** A file signature: up to 14 printable ASCII characters, padded with spaces. */

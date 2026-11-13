@@ -15,6 +15,7 @@
 import { setInstPatchesOp, withPitchExtOp } from "../../doc/ops.js";
 import {
   patchLow, patchHigh, patchDetune, patchLowFields, patchHighFields, patchDetuneFields, pitchPatchesOf,
+  rangeEnds, rangeTop,
 } from "../../doc/pitchedit.js";
 import {
   writePatchesBlob, makeInstPatch, patchVibratoInherits, baseStereoPatchIndex,
@@ -276,7 +277,8 @@ export class AdvancedZoneEditor {
     for (let j = 0; j < i; j++) {
       if (j === this.shadowIdx) continue;
       const q = patches[j];
-      if (p.pitchStart <= q.pitchEnd && q.pitchStart <= p.pitchEnd &&
+      // Pitch by value (§9.18): two zones meeting inside a unit do not overlap.
+      if (patchLow(p) <= patchHigh(q) && patchLow(q) <= patchHigh(p) &&
           p.volumeStart <= q.volumeEnd && q.volumeStart <= p.volumeEnd) return true;
     }
     return false;
@@ -305,7 +307,7 @@ export class AdvancedZoneEditor {
       if (i === this.shadowIdx) return; // item 180 — not a real zone
       mkRow(i, this.sampleLabel(p.samplePtr, p.sampleLength) +
         (p.hasChanBlock && p.chanCount > 1 ? ` [${t("smp.stereoTag")}]` : ""),
-        `${rangeToStr(p.pitchStart, p.pitchEnd)} · ${velRangeText(p.volumeStart, p.volumeEnd)}`,
+        `${rangeToStr(...rangeEnds(patchLow(p), patchHigh(p)))} · ${velRangeText(p.volumeStart, p.volumeEnd)}`,
         this.overlapsEarlier(patches, i));
     });
     mkRow(patches.length,
@@ -323,8 +325,8 @@ export class AdvancedZoneEditor {
     let lo = Infinity, hi = -Infinity;
     this.patches().forEach((p, i) => {
       if (i === this.shadowIdx) return;
-      if (p.pitchStart < lo) lo = p.pitchStart;
-      if (p.pitchEnd > hi) hi = p.pitchEnd;
+      if (patchLow(p) < lo) lo = patchLow(p);
+      if (rangeTop(patchHigh(p)) > hi) hi = rangeTop(patchHigh(p));
     });
     if (!isFinite(lo)) { lo = 0x1000; hi = 0x9000; }
     if (hi <= lo) hi = lo + 1;
@@ -391,9 +393,9 @@ export class AdvancedZoneEditor {
 
     patches.forEach((p, i) => {
       if (i === this.shadowIdx) return; // item 180 — not a real zone
-      const x = g.X(p.pitchStart);
+      const x = g.X(patchLow(p)); // values, extension and all (§9.18)
       const y = g.Y(p.volumeEnd);
-      const pw = Math.max(g.X(p.pitchEnd) - x, 2);
+      const pw = Math.max(g.X(rangeTop(patchHigh(p))) - x, 2);
       const ph = Math.max(g.Y(p.volumeStart) - y, 2);
       const selP = i === this.selIdx;
       const live = liveKeys.has(`${p.samplePtr}:${p.sampleLength}`);
@@ -435,9 +437,9 @@ export class AdvancedZoneEditor {
     for (let i = 0; i < patches.length; i++) {
       if (i === this.shadowIdx) continue; // item 180 — not a real zone, not clickable
       const p = patches[i];
-      const px = g.X(p.pitchStart);
+      const px = g.X(patchLow(p));
       const py = g.Y(p.volumeEnd);
-      const pw = Math.max(g.X(p.pitchEnd) - px, 2);
+      const pw = Math.max(g.X(rangeTop(patchHigh(p))) - px, 2);
       const ph = Math.max(g.Y(p.volumeStart) - py, 2);
       if (x >= px && x <= px + pw && y >= py && y <= py + ph) { hit = i; break; }
     }
@@ -577,7 +579,7 @@ export class AdvancedZoneEditor {
       this.num(t("adv.rate"), p.samplingRate, 0, 0xffff, (v) => this._field("samplingRate", v)),
       this.num(t("adv.detune"), patchDetune(p), -0x8000, 0x7fff + 15 / 16,
         (v) => this._fields(patchDetuneFields(v)), null,
-        "", "", centsMap(this.store.pitchPreset, -0x8000, 0x7fff + 15 / 16, true)));
+        "", "", centsMap(this.store.pitchPreset, -0x8000, 0x7fff + 15 / 16)));
     this.row(smp,
       this.sel(t("smp.loop"), p.loopMode & 0x03, [
         ["0", t("smp.loopOff")], ["1", t("smp.loopForward")],

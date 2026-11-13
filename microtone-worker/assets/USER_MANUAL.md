@@ -5,7 +5,7 @@ runs entirely in your browser. There is no server component: your files never
 leave your machine, projects are stored in the browser's private storage, and
 even MIDI/module conversion happens locally. The audio engine is a faithful
 port of the TSVM Taud engine — a ScreamTracker 3-lineage tracker extended with
-16-bit effect arguments and a 4096 tone-equal temperament pitch grid. It renders
+16-bit effect arguments and a 65536 tone-equal temperament pitch grid. It renders
 **48 kHz** stereo, which is the rate browsers run their audio at, so what you
 hear and what you export leave the engine untouched by any resampling stage.
 (Hardware that insists on another rate — 44.1 kHz laptops — and exports at any
@@ -45,26 +45,28 @@ home. If not, here is the vocabulary this manual uses:
 | **Instrument** | A playable definition: a sample plus envelopes, filter, panning, NNA rules — or a **metainstrument**, which holds a table of other instruments instead of a sample, or an **OPL instrument**, which has a channel of an FM sound chip where the sample would be, or a **formant instrument**, which sings its sample through a model of the vocal tract. |
 | **Metainstrument** | The family, and it has two kinds: a **Layered** metainstrument sounds its instruments side by side, an **FM Rack** wires them into each other. Both live in an ordinary instrument slot and are played by an ordinary pattern cell. |
 | **Sample** | Raw 8-bit audio data in the shared sample pool. Several instruments may use the same sample. |
-| **Note word** | A 16-bit pitch value; see the pitch system below. |
+| **Note word** | The top sixteen bits of a pitch, the units the effect column counts pitch in; see the pitch system below. |
 
-### The pitch system: 4096-TET, and 65536-TET in notes and instruments
+### The pitch system: 65536-TET
 
-Pitch is counted on a grid of **4096 steps per octave**: `0x5000` is middle C
-(C4) and each `0x1000` is one octave, and every pitch slide, arpeggio and
-detune in Microtone counts in those units. A note in the pattern goes sixteen
-times finer: it is a 20-bit pitch, **65536 steps per octave**, so a tuning
-system's degrees sit exactly where its definition puts them rather than on the
-nearest 4096th. Written in hex that pitch reads `0x50000` for C4 — the octave
-digit, then the place within it. Note words `0x0000`–`0x001F` are reserved for
-sentinels (key-off, note cut, fades) and [interrupts](#interrupts).
+Pitch is counted on a grid of **65536 steps per octave**: `0x50000` is middle C
+(C4) and each `0x10000` is one octave — written in hex, the octave digit, then
+the place within it. A note in the pattern is that fine, so a tuning system's
+degrees sit exactly where its definition puts them.
 
 An instrument's pitches are just as fine: a detune, a zone's or a layer's pitch
 range, a fixed pitch, an FM operator's ratio, the pitch-pan centre. Their boxes
-count in the 65536 steps — `$50000` is C4, as in the note column, and a cents box
-shows a hundredth of a cent where a pitch falls between two 4096ths — and a fixed
-pitch or an operator's ratio can also go beyond the sixteen octaves a note word
-names: a fixed-frequency operator an octave below C0 reads `−$10000`. The song's
-tuning base note stays on the 4096-step grid.
+count the same steps — `$50000` is C4, as in the note column, and a cents box
+reads to a thousandth of a cent — and a fixed pitch or an operator's ratio can
+also go beyond the sixteen octaves a note names: a fixed-frequency operator an
+octave below C0 reads `−$10000`.
+
+A pitch's first four hex digits are its **note word** (`0x5000` is C4, `0x1000`
+an octave), and the effect column counts pitch in note words: a pitch slide or
+an arpeggio moves sixteen steps for each unit of its argument, so `E $0155`
+slides down about a semitone a tick. The song's tuning base note is a note word
+too. Note words `0x0000`–`0x001F` are reserved for sentinels (key-off, note
+cut, fades) and [interrupts](#interrupts).
 
 You almost never type raw note words. Instead each song carries a **pitch
 table** (a notation preset such as 12-TET, 19-TET, 31-TET, Bohlen-Pierce…)
@@ -201,8 +203,8 @@ Every number field and dropdown in the panels is a value between two buttons:
 - **`–` / `+`** step the number, **`◄` / `►`** move through a list; hold either and it repeats, faster the longer you hold. An arrow greys out at the end of its list.
 - **The middle is a real field.** Click it and type, or use **↑ / ↓** on a number; click a dropdown and its full list opens. The value sits centred between the two buttons, and shuffles left only when it is too long for the box — so what gets cut off is the end of it, never the start.
 - **Hex is understood everywhere a number is.** Type `$FF` or `0xFF` into any spinner and it becomes 255 — handy when the annotation beside the field, the effect argument you are matching, or the pattern you are reading it off is written in hex. The box settles on the decimal it landed on, and `–` / `+` step from a hex value just as readily. A sign goes in front of either spelling (`-$10`). Anything that is not a number at all leaves the field as it was rather than quietly becoming zero.
-- **Pitch fields also take cents and ratios.** Wherever a field holds an interval or a detune — an instrument's detune, a layer's or an FM operator's, the notation maker's cents — you can type it the way you think of it: `700c` for 700 cents, `3/2` (or `3:2`) for a just fifth, `-5/4` for a major third down, or `$100` / `0x100` in hex. A plain number still means whatever the box shows, cents in a cents box. These fields hold the 65536 steps per octave the note column does: hex counts those steps (`$095C0` is the fifth, `$100` a sixteenth of a 4096th), and cents and ratios go straight onto the nearest of them, so `5/4` lands within 0.002 cent of a just major third. The chord maker's raw-units field is the one that still counts 4096ths.
-- **Some fields read in one unit and step in another**, because the file stores something else. An envelope segment shows **seconds** and steps one storable length at a time; a metainstrument layer's mix shows **decibels** and steps one mix level, with the raw byte beside it; a layer's detune shows **cents** and steps a whole degree of the song's own notation; a layer's or a zone's volume range shows **note volumes** (0–255) but the file keeps it in steps of four, so the low end reads the first volume of its step, the high end the last, and ∓ moves a whole step. A **pitch** — a fixed pitch, a layer's or a zone's pitch range, the pitch-pan centre — reads as its count of 65536-TET steps in hex (`$50000` is C4, never with a point), takes the same count as a plain decimal (`327680`) or a note name (`C-4`), and steps a degree of the song's notation. The top of a range is the last step inside it: a note name or a step lands on the whole of that 4096th (`C-4` as a top is `$5000F`), and a typed number is taken as it stands. An instrument's **detune** reads in **cents** and steps the same way; the **sample pointer** reads in hex; and in SoundFont filter mode the **cutoff** reads in **Hz** (and takes `1.2k`) and steps a semitone, while the **resonance** and an Advanced Edit zone's **attenuation** read in **dB**. Typing works in whatever the box shows, and the value settles on the nearest one the file can hold.
+- **Pitch fields also take cents and ratios.** Wherever a field holds an interval or a detune — an instrument's detune, a layer's or an FM operator's, the notation maker's cents, the chord maker's raw offset — you can type it the way you think of it: `700c` for 700 cents, `3/2` (or `3:2`) for a just fifth, `-5/4` for a major third down, or `$100` / `0x100` in hex. A plain number still means whatever the box shows, cents in a cents box. These fields hold the 65536 steps per octave the note column does: hex counts those steps (`$095C0` is the fifth, `$100` a 256th of an octave), and cents and ratios go straight onto the nearest of them, so `5/4` lands within 0.002 cent of a just major third.
+- **Some fields read in one unit and step in another**, because the file stores something else. An envelope segment shows **seconds** and steps one storable length at a time; a metainstrument layer's mix shows **decibels** and steps one mix level, with the raw byte beside it; a layer's detune shows **cents** and steps a whole degree of the song's own notation; a layer's or a zone's volume range shows **note volumes** (0–255) but the file keeps it in steps of four, so the low end reads the first volume of its step, the high end the last, and ∓ moves a whole step. A **pitch** — a fixed pitch, a layer's or a zone's pitch range, the pitch-pan centre — reads as its count of 65536-TET steps in hex (`$50000` is C4, never with a point), takes the same count as a plain decimal (`327680`) or a note name (`C-4`), and steps a degree of the song's notation. The top of a range is the last step inside it: a note name or a step lands on the last of the sixteen steps its note word names (`C-4` as a top is `$5000F`), and a typed number is taken as it stands. An instrument's **detune** reads in **cents** and steps the same way; the **sample pointer** reads in hex; and in SoundFont filter mode the **cutoff** reads in **Hz** (and takes `1.2k`) and steps a semitone, while the **resonance** and an Advanced Edit zone's **attenuation** read in **dB**. Typing works in whatever the box shows, and the value settles on the nearest one the file can hold.
 
 ### Two views at once
 
@@ -265,30 +267,28 @@ Each cell is five columns:
 - **Note** — the pitch in the song's notation (or a sentinel symbol: `===` key-off, `^^^` cut, `~~~` fade, `~^~` fast fade, `I·0`–`I·F` interrupt marker). Notes that don't sit on the current pitch table are shown snapped to the nearest degree and painted **yellow**. The narrow cell in front of the note is blank; with the toolbox **Raw** toggle on it holds the octave digit of the five-digit hex pitch, and the four cells after it the rest (`5` `0000` is C4). In raw mode you type all five digits.
 - **Instrument** — two hex digits, `01`–`FF`.
 - **Volume** — a **symbol** cell + two hex digits. The symbol says what the column *does*; the digits are its argument.
-- **Pan** — the same shape, with sideways symbols (00 = left, 80 = centre, FF = right in a stereo song; a surround song's column is wider, see [The wide pattern cell](#the-wide-pattern-cell)). It pans the *note*, not the lane — see [Note volume vs lane volume, note pan vs lane pan](#note-volume-vs-lane-volume-note-pan-vs-lane-pan).
+- **Pan** — the same shape, with sideways symbols (00 = left, 80 = centre, FF = right in a stereo song; a surround song's column is an angle, see [The pattern cell](#the-pattern-cell)). It pans the *note*, not the lane — see [Note volume vs lane volume, note pan vs lane pan](#note-volume-vs-lane-volume-note-pan-vs-lane-pan).
 - **Effect** — a base-36 opcode letter and a 16-bit argument in four hex digits. See [Effect commands](#effect-commands).
 
 #### The volume and panning symbols
 
 | Symbol | Volume | Panning | Argument |
 |---|---|---|---|
-| *(blank)* | set the volume | set the panning | 00–3F |
-| ˄ / ˅ | slide up / down, once per tick | — | 00–3F |
-| ˃ / ˂ | — | slide right / left, once per tick | 00–3F |
-| **+** / **−** | fine (one-shot) rise / drop | fine step right / left | **00–1F** |
+| *(blank)* | set the volume | set the panning | volume 00–FF; panning as the song reads it |
+| ˄ / ˅ | slide up / down, once per tick | — | 00–FF |
+| ˃ / ˂ | — | slide right / left, once per tick | 00–FF |
+| **+** / **−** | fine (one-shot) rise / drop | fine step right / left | volume **00–7F**, panning 00–FF |
 | `···` | nothing — the column is empty | | |
 
-Full volume is **3F**, i.e. 63. That is not a step short of the 64 a
-ScreamTracker 3 screen shows: ST3 carries the volume in six bits too and clamps
-its own `C40` down to 63, so an imported song keeps its full dynamic range —
-a `C40` arrives as 3F and every quieter value arrives untouched.
+Full volume is **FF**, i.e. 255. An imported tracker song's volumes, which run
+0–64, are scaled onto it — 64 arrives as FF — so the song keeps its full
+dynamic range.
 
-In a **surround project** these two columns are wider: the volume runs 00–FF and
-the panning column carries a height and a full-circle angle. See
-[The wide pattern cell](#the-wide-pattern-cell).
+In a **surround song** the panning column carries a full-circle angle, and in a
+spatial one a height as well. See [The pattern cell](#the-pattern-cell).
 
 A fine slide happens once on the row rather than every tick, so its argument is
-just a magnitude (00–1F) and the **+ / −** symbol carries the direction. Setting
+just a magnitude (00–7F for volume, 00–FF for panning) and the **+ / −** symbol carries the direction. Setting
 a fine slide's argument to zero empties the cell, since "shift by nothing" and
 "no command" are the same thing.
 
@@ -1128,7 +1128,7 @@ editing a shared pattern changes every place it plays.
 
 - **▶ Preview** plays just this pattern in a loop-free scratch cue.
 - **Duplicate** copies the pattern into a fresh slot.
-- **Transpose…** shifts every note, notation-aware: the fine unit is semitones / steps / note units depending on the preset, the coarse unit octaves (or periods for non-octave tunings). Percussion instruments and sentinels are skipped. Its **Mode** is *Chromatic* (every note moves by exactly the interval) or *Harmonic*, described below.
+- **Transpose…** shifts every note, notation-aware: the fine unit is semitones or steps depending on the preset, the coarse unit octaves (or periods for non-octave tunings). Percussion instruments and sentinels are skipped. Its **Mode** is *Chromatic* (every note moves by exactly the interval) or *Harmonic*, described below. Tick **Raw 65536-TET steps** to ignore the tuning system: the two fields become one, the shift in 65536-TET steps (65536 is an octave; hex, `700c` and `3/2` work too), with the cents it makes shown beside it. A song with no tuning table starts with it ticked.
 
   **Harmonic transpose** is the arranger's harmoniser. Say how far the *first* note of the passage should move (up 4 semitones, say), and every other note moves the same number of steps *along the scale it is in*. In C major, C goes up to E, but D goes to F rather than F♯, and B goes to D. A third stays a third, major or minor as the key decides. The scale is never something you pick. It is read from the passage and from everything sounding with it in the other lanes, so the following happen without being asked for:
   - A melody on C D E G A, which fits C major and G major alike, is settled by the accompaniment. If F sounds, D goes to F; if F♯ sounds, D goes to F♯.
@@ -1150,9 +1150,8 @@ editing a shared pattern changes every place it plays.
 The volume/pan/instrument tools honour an active row selection; otherwise they
 act on the whole pattern.
 
-On a **version-3 (surround) project** these tools work in that format's own
-units: volume runs 00–FF rather than 00–3F, so *add* reaches ±255; and the
-panning column is a whole angle, so *shift* reaches a full turn, the centre it
+These tools work in the pattern cell's own units: volume runs 00–FF, so *add*
+reaches ±255; and the panning column is a whole angle, so *shift* reaches a full turn, the centre it
 widens about is **front**, and a move past hard left carries on round behind you
 instead of stopping there — on a circle, hard left is a direction, not an edge.
 
@@ -1323,18 +1322,15 @@ The columns you can test:
 
 | Column | Notes |
 |---|---|
-| **Note** | the note word; type a name (`C-4`, `F#3`) or the word itself |
+| **Note** | the pitch in 65536-TET steps, five hex digits as the raw note column shows it (`50000` is C-4, `#327680` the same in decimal); or type a name (`C-4`, `F#3`). An amount to add is in the same steps: `-1000` moves a note down a sixteenth of an octave |
 | **Instrument** | 00–FF |
 | **Volume** / **Panning** | the column's value |
 | **Volume column** / **Panning column** | what the column *does* — set, slide, fine slide, or blank |
-| **Elevation** | version-3 projects only, signed −128…127 |
+| **Elevation** | signed −128…127 |
 | **Effect** / **Effect argument** | picked from the named opcode list; the argument is four hex digits |
-| **2nd effect** / **2nd effect argument** | version-3 projects only |
+| **2nd effect** / **2nd effect argument** | as the first effect |
 | **Row number** | 0–63 within the pattern — a test only, never written |
 | **Whole cell** | *carries something* / *is blank* — a test only |
-
-A project is never offered a column its format has not got: a version-2 song has
-no elevation and no second effect, so they are not in the list.
 
 The operators are the ordinary comparisons (`is`, `is not`, `is below`, `is at
 most`, `is above`, `is at least`), `is within` / `is outside` a pair of bounds,
@@ -1362,8 +1358,8 @@ Three rules keep a bulk edit from doing damage on your behalf:
 
 Two smaller ones: changing what a column *does* leaves a blank column blank (the
 operation describes what to do with a value it has not got), and clearing an
-effect clears its argument with it. On a version-3 cell, clearing the panning
-column clears the elevation too — they are one column on screen and one
+effect clears its argument with it. Clearing the panning column clears the
+elevation too — they are one column on screen and one
 statement to the engine.
 
 **Typing values.** Columns are read in the base the grid shows them in, which is
@@ -1671,7 +1667,7 @@ note 2 counts degrees of the song's tuning and note 3 is a number you typed:
 - **Just** — a named just interval, chosen from a list that shows each one's ratio and its size in cents (a perfect fifth is `3:2 · +702¢`). Always available, whatever the song is tuned to.
 - **Degrees** — a signed count of degrees of *the song's own pitch table*, so the choices multiply with the tuning: 4 degrees is a major third in 12-TET and a whole tone in 24-TET. Counts wrap into the next period, and negative counts go down. On a notation with an absolute table (ProTracker) the count clamps at the ends, because those ends are every note it can express.
 - **Ratio ×** — a playback ratio typed as a decimal: `2.0` is an octave up, `1.9632` is whatever `1.9632` is.
-- **4096-TET** — a raw offset in note-word units, the same units the note column counts in; `0x1000` is an octave, and hex is accepted so `0x100` works as written.
+- **65536-TET** — a raw offset in 65536-TET steps, the steps the note column counts in; `65536` (or `$10000`) is an octave, so `$1000` is a sixteenth of one. Cents (`700c`) and ratios (`3/2`) land on the nearest step.
 
 **oct** shifts that note by whole octaves on top of its mode, and **dB** sets
 its level in the mix.
@@ -2582,7 +2578,7 @@ Then the per-song properties, applied live to playback:
 - **BPM** (25–1048) and **Speed** (ticks per row, 1–127).
 - **Rows per beat** and **Rows per bar** — the row highlighting the grids are banded with (display only). Also on the Timeline trough's right-click menu, see [The row trough](#the-row-trough).
 - **Global volume** and **Mixing volume** (0–255).
-- **Tone-slide mode** — Linear (4096-TET), Amiga period, or Linear frequency.
+- **Tone-slide mode** — Linear pitch (slides in note words), Amiga period, or Linear frequency.
 - **Interpolation** — Fast sinc, None (ZOH), Amiga 500, Amiga 1200, SNES gaussian, NES DPCM.
 - **Panning model** — Stereo, Planar (360°) or Spatial (sphere); see [Surround panning](#surround-panning).
 - **Notation** — the display pitch table. Changing it only relabels notes; use **Retune…** to actually move them (see [Microtonality in depth](#microtonality-in-depth)).
@@ -2692,21 +2688,16 @@ of each channel layout; see [Import and export](#import-and-export).
 The panner's **This lane only** box hides every other lane's dot, for when
 a busy song makes the dial hard to read.
 
-### The wide pattern cell
+### The pattern cell
 
-Every project is saved in **format 3**, whose pattern cells are twice as wide
-as the old format's. A project saved in an older format is converted as it
-opens — one short notice says so — and its notes move onto the exact pitches
-of the song's tuning system (at most 0.15 cent away); the file itself is
-unchanged until you save. Stereo, planar and spatial only choose how the
-panning column reads.
+Every pattern cell has room for a fine note, an 8-bit volume, a panning column
+as wide as the song needs and two effects. Stereo, planar and spatial only
+choose how the panning column reads.
 
-What the extra room buys you:
-
-- **An 8-bit volume column.** Volumes run 00–FF instead of 00–3F, so the column has four times the resolution — and its own slides can move by a single unit per tick. Effect-column volume slides (`D`, `K`, `L`, `N`) keep their old arguments and their old speed.
-- **A finer note.** Four more bits of pitch: 65536 steps per octave (see [The pitch system](#the-pitch-system-4096-tet-and-65536-tet-in-notes-and-instruments)).
+- **An 8-bit volume column.** Volumes run 00–FF, and the column's own slides can move by a single unit per tick. Effect-column volume slides (`D`, `K`, `L`, `N`) move four units for each step of their argument, the pace a tracker's step of 1 in 64 had.
+- **A fine note.** 65536 steps per octave (see [The pitch system](#the-pitch-system-65536-tet)).
 - **A panning column as wide as the song needs.** In a stereo song it is two digits, `00` left to `FF` right. In a planar song it is the **angle**, three digits: `000` left, `080` front, `100` right, `180` behind. In a spatial song it carries the **height** (two digits, signed: `00` ear level, `40` = +45°, `C0` = −45°) followed by the **angle** (three digits: `000` left, `080` front, `100` right, `180` behind). The height is drawn in its own colour so the two numbers never read as one, and in a **spatial** song a placed source states its height even when it is `00` — on the sphere, ear level is a position you chose, not an absent value (a planar song has no height to state, and a slide leaves the field unused, so both show dots there). A `Z` slide on the same row turns the column into that slide's *target*, so the source travels there instead of jumping.
-- **A second effect column.** Every cell carries two effect slots instead of one, and the second runs straight after the first on every row and every tick — so two commands that used to fight over one column can both be written. Converters use it so nothing from a source file has to be discarded; you can write it yourself the same way you write the first one.
+- **A second effect column.** Every cell carries two effect slots, and the second runs straight after the first on every row and every tick — so two commands that would fight over one column can both be written. Converters use it so nothing from a source file has to be discarded; you can write it yourself the same way you write the first one.
 
 #### Showing the second effect
 
@@ -2727,6 +2718,15 @@ position into the panning column and leaves the effect slot free.
 
 Everything else works as before — the same keys, the same symbol cell, the same
 `Del` to clear a column.
+
+#### Projects in the legacy format
+
+A project saved by an older version of Microtone may be in the **legacy
+format**, whose pattern cells are half as wide: volumes 00–3F, notes on whole
+note words, a panning column of six bits and one effect column. It is
+converted as it opens — one short notice says so — and its notes move onto the
+exact pitches of the song's tuning system (at most 0.15 cent away); the file
+itself is unchanged until you save.
 
 ### Tuning
 
@@ -3274,7 +3274,7 @@ grid):
 
 | Preset | Notes per period | Period |
 |---|---|---|
-| Raw format | — (raw hex words) | octave |
+| Raw format | — (raw hex pitches) | octave |
 | ProTracker Temperament | 12 | **none** — every note listed (see below) |
 | Octave only | 1 | octave |
 | 2- to 10-TET | 2–10 | octave |
@@ -3305,9 +3305,9 @@ ProTracker Temperament with the *Nearest pitch* method.
 
 Note display uses proper microtonal accidentals — sharps, flats, demisharps,
 demiflats, double/triple/quadruple accidentals, Kite tick marks — and degree
-octave labels where letters run out. Notes more than two units off the active
-grid render snapped-but-**yellow**; the **Raw** toolbox toggle shows exact hex
-words instead.
+octave labels where letters run out. Notes more than 32 steps (about 0.6 cent)
+off the active grid render snapped-but-**yellow**; the **Raw** toolbox toggle
+shows the exact hex pitch instead.
 
 ### Retuning
 
@@ -3401,10 +3401,10 @@ sidebar (also at [Note Effects](#effects)).
 | G | Tone portamento | `$xxxx` — slide toward the row's note |
 | H | Vibrato | `$xy00` — speed, depth |
 | I | Tremor | `$xy00` — x+1 ticks on, y+1 off |
-| J | Arpeggio | `$xy00` — microtonal offsets ×256 for notes 2/3 |
+| J | Arpeggio | `$xxyy` — offsets for notes 2/3, each unit `$1000` steps |
 | K | Vibrato + vol slide | `$xy00` |
 | L | Portamento + vol slide | `$xy00` |
-| M | Lane volume | `$xx00` (00–3F) |
+| M | Lane volume | `$xx00` (00–FF) |
 | N | Lane vol slide | `$xy00` |
 | O | Sample offset | `$xxxx` — start at byte offset |
 | P | Pan slide | `$xy00` — left/right |

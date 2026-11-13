@@ -84,6 +84,21 @@ export function layersExtended(layers) {
   return layers.some((l) => (l.dDetune || 0) !== 0 || (l.dLo || 0) !== 0 || (l.dHi || 0) !== 0);
 }
 
+/**
+ * A range's two ends as a readout names them: the first pitch, and the last —
+ * as the unit it falls in when the range runs through the whole of that unit
+ * (which is what an unextended bound does, so `$FFFF` still reads as the open
+ * top and a zone still reads `C-4‥B-4`), otherwise to the sixteenth.
+ */
+export function rangeEnds(lo, hi) {
+  const f = ((Math.round(hi * 16) % 16) + 16) % 16;
+  return [lo, f === 15 ? Math.floor(hi) : hi];
+}
+
+/** Where a range ends, exclusive: one sixteenth past its last pitch — what a
+ *  map draws a zone up to. */
+export const rangeTop = (hi) => hi + 1 / 16;
+
 // ── Ixmp patches ────────────────────────────────────────────────────────────
 
 export const patchLow = (p) => p.pitchStart + (p.dLo || 0);

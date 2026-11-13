@@ -24,6 +24,7 @@ import {
 } from "../../../core/tuning/pitchtables.js";
 import { transposeFields, parseTransposeFields, applyHarmonicTranspose } from "../blocktools.js";
 import { defToPreset } from "../../doc/notation.js";
+import { CENTS_DIGITS } from "../spinmaps.js";
 import { Song } from "../../doc/document.js";
 import { showModal, showNotice } from "../components/modal.js";
 import {
@@ -237,8 +238,8 @@ export class ProjectView {
     ann.style.fontSize = "0.8rem";
     ann.textContent = t("proj.tuningAnnotation", {
       a4: a4.toFixed(2),
-      cents: (c >= 0 ? "+" : "") + c.toFixed(2),
-      rel: Math.abs(c) < 0.005
+      cents: (c >= 0 ? "+" : "") + c.toFixed(CENTS_DIGITS),
+      rel: Math.abs(c) < 0.5 * 10 ** -CENTS_DIGITS
         ? t("proj.tuningAtConcert")
         : t(c < 0 ? "proj.tuningFlat" : "proj.tuningSharp"),
     });
@@ -487,7 +488,7 @@ export class ProjectView {
 
   /** Transpose EVERY pattern of the current song — the Patterns-tab Transpose
    *  (same notation-aware units, same percussion/sentinel skips, same raw
-   *  4096-TET-unit checkbox) applied song-wide in one undo step. Other songs
+   *  65536-TET-steps checkbox) applied song-wide in one undo step. Other songs
    *  in the project are never touched. */
   async transposeGlobal() {
     const store = this.store;

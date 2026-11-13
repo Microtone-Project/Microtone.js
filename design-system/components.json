@@ -98,8 +98,8 @@
       "module": "microtone-worker/src/ui/components/modal.js",
       "exports": ["showModal", "showNotice"],
       "summary": "A form dialog on a native <dialog>, built from field specs: captions in one column, controls ending on one right edge, hints under their field; resolves with the values or null. showNotice is its one-button sibling for something only to be read.",
-      "api": "showModal({ title, body?, fields: [{ name, label, type?: 'text'|'number'|'select'|'checkbox', value?, options?, min?, max?, placeholder?, hint?, hints?, enabledWhen?: { field, is? | not? }, select? }], okLabel }) → Promise<values|null>. showNotice({ title, body?, okLabel }) → Promise<void>.",
-      "classes": ["modal", "modal-text", "modal-form", "modal-field", "modal-label", "modal-check", "modal-hint", "modal-disabled"],
+      "api": "showModal({ title, body?, fields: [{ name, label, type?: 'text'|'number'|'select'|'checkbox', value?, options?, min?, max?, placeholder?, hint?, hints?, enabledWhen?: { field, is? | not? }, shownWhen?: { field, is? | not? }, map?: spinner mapping (resolves the stored value), ann?: (value) => string (a live readout beside the control), select? }], okLabel }) → Promise<values|null>. showNotice({ title, body?, okLabel }) → Promise<void>.",
+      "classes": ["modal", "modal-text", "modal-form", "modal-field", "modal-label", "modal-check", "modal-hint", "modal-disabled", "modal-ann"],
       "tokens": ["panel", "border", "scrim", "dim", "radius-lg"],
       "rules": ["dialog-actions"],
       "example": "const r = await showModal({ title: t(\"files.renameTitle\", { name: old }), fields: [{ name: \"name\", label: t(\"files.name\"), value: old }], okLabel: t(\"common.rename\") });\nif (!r) return; // Cancel, Esc"

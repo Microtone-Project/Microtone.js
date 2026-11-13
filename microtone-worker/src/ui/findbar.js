@@ -392,7 +392,7 @@ export class FindBar {
     countEl.classList.toggle("fb-none", list.length === 0);
   }
 
-  /** The operand readout: `$5000 C-4`, `$30 (48)`, or a bare `?` for something
+  /** The operand readout: `$50000 C-4`, `$30 (48)`, or a bare `?` for something
    *  that is not a value at all (which is also why the count says nothing). */
   paintRead() {
     const readEl = this.host.querySelector(".fb-read");

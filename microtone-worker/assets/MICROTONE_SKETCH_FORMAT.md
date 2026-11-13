@@ -102,7 +102,7 @@ Fourteen bytes naming the encoder, used for diagnostics only and otherwise **IGN
 
 ## 3. Pattern blob
 
-The blob decompresses to exactly **65 536 bytes**, whatever the sketch holds. Any other length is **INVALID**. It is 128 pattern images of 512 bytes each — 64 rows of the 8-byte cell of [Taud File Format §5](TAUD_FILE_FORMAT.md#pattern-cell) — back to back:
+The blob decompresses to exactly **65 536 bytes**, whatever the sketch holds. Any other length is **INVALID**. It is 128 pattern images of 512 bytes each — 64 rows of the 8-byte cell of the Taud legacy format ([Taud File Format §5.6](TAUD_FILE_FORMAT.md#5-6-legacy-format-the-8-byte-cell)) — back to back:
 
 ```
 pattern number  =  8 × section + lane
@@ -148,7 +148,7 @@ As in a `.taud` ([Taud File Format §9.7](TAUD_FILE_FORMAT.md#9-7-nota-custom-no
 
 | Offset | Type | Field |
 |---|---|---|
-| 0 | `U16` | Base note — a 4096-TET note word, 1…65533 |
+| 0 | `U16` | Base note — a note word, the top sixteen bits of a 65536-TET pitch (`$5000` is C4; [Taud File Format §5](TAUD_FILE_FORMAT.md#note-words)), 1…65533 |
 | 2 | `F32` | Frequency in Hz at the base note, finite and above 0 |
 
 Read only when the header's tuning code is 3; under any other code the block is **IGNORED**. A base note or frequency outside those ranges is **INVALID**. The pair means what a Taud song table's tuning pair means: "note *N* sounds at *F* Hz" ([Taud File Format §4](TAUD_FILE_FORMAT.md#tuning)).

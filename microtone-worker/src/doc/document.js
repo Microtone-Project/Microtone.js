@@ -459,6 +459,40 @@ export class Document {
     return buildPitchExtSection(out.sort((a, b) => a.instId - b.instId));
   }
 
+  /**
+   * The `IPit` payload once a plan has given some slots a new record or patch
+   * list — a cleanup that prunes patches, a delete that repacks the tables
+   * that named what it deleted. `changes` = [{slot, record?, patches?,
+   * groups?, drop?}]: the slot's record as the plan leaves it (default: as it
+   * is), its patch list (patch objects; default: as it is), the groups to give
+   * it (a group left out keeps the slot's current one), or `drop` to retire
+   * its entry. `keep(slot)`, when given, also retires every entry it answers
+   * false for. Guards are computed against the instruments as the plan leaves
+   * them; an entry whose groups no longer fit is retired. undefined when
+   * nothing changes.
+   */
+  pitchExtPayloadAfter(changes, keep = null) {
+    const map = new Map(this.pitchExtMap());
+    let changed = false;
+    if (keep) for (const id of [...map.keys()]) if (!keep(id)) { map.delete(id); changed = true; }
+    for (const c of changes) {
+      const s = c.slot & 0x3ff;
+      if (c.drop) { if (map.delete(s)) changed = true; continue; }
+      const now = this.pitchExtGroupsNow(s);
+      const g = {};
+      for (const k of ["base", "table", "patches"]) g[k] = c.groups && c.groups[k] !== undefined ? c.groups[k] : now[k];
+      const inst = new TaudInst(s);
+      inst.loadRecord(c.record ?? this.instRecordBytes(s));
+      const ps = c.patches === undefined ? this.instruments[s].extraPatches : c.patches;
+      inst.extraPatches = ps && ps.length > 0 ? ps : null;
+      let entry = null;
+      try { entry = pitchExtEntry(inst, g); } catch { entry = null; }
+      if (entry === null) { if (map.delete(s)) changed = true; } else { map.set(s, entry); changed = true; }
+    }
+    if (!changed) return undefined;
+    return buildPitchExtSection([...map.entries()].sort((x, y) => x[0] - y[0]).map(([id, e]) => ({ ...e, instId: id })));
+  }
+
   /** Give slot `slot` the extension groups `groups` (pitchExtPayloadWith;
    *  `before` = the groups an undefined one keeps, default the slot's now):
    *  the section is rebuilt and the instrument takes its entry at once. */

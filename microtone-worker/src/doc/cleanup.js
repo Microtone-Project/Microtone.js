@@ -17,7 +17,8 @@ import { EffectOp } from "../../core/engine/tables.js";
 import { rowVolumeFromDefault, narrowVolAxis } from "../../core/engine/trigger.js";
 import { INST_GOBACK, INST_SKIP, INST_JUMP } from "../../core/engine/state.js";
 import { sampleSpans, BANK_SECTIONS, cueInfo } from "./document.js";
-import { buildPitchExtSection } from "../../core/format/pitch-ext-section.js";
+import { buildPitchExtSection, pitchPatchesOf, pitchTableOf } from "../../core/format/pitch-ext-section.js";
+import { patchLow, patchHigh } from "./pitchedit.js";
 import { buildIxmpSection } from "./bankmerge.js";
 import { regionSpans } from "./sampleregions.js";
 import { formantRecordSpans, remapFormantSource } from "./formantedit.js";
@@ -558,7 +559,10 @@ export function planBankCleanup(doc) {
     ixmp: prune.ixmp, report: prune.report,
     // A removed instrument's lyrics go with it (item 280).
     ilyr: lyricsWithSlots(doc, (s) => (used.has(s) ? s : null)),
-    ipit: doc.pitchExtWithSlots((s) => (used.has(s) ? s : null)), // …and its pitch extensions (§9.18)
+    // …and its pitch extensions (§9.18); a pruned patch list keeps its
+    // survivors' (the patch objects carry them).
+    ipit: doc.pitchExtPayloadAfter(prune.report.map((r) => (r.reason === "orphan" ? { slot: r.slot, drop: true }
+      : { slot: r.slot, patches: r.keep, groups: { patches: pitchPatchesOf(r.keep) } })), (s) => used.has(s)),
     removedInstruments: unused.length, freedSampleBytes,
     removedPatches: prune.removedPatches, removedBlobs: prune.removedBlobs,
   };
@@ -824,8 +828,15 @@ export function planRenumberInstruments(doc, moves, { remapPatterns = false } = 
 // ── Ixmp patch cleanup (item 74) ──
 
 /** A patch that can never sound: an empty pitch/velocity range, or no sample. */
+// A patch's pitch range in VALUES (doc/pitchedit.js): its first and last
+// pitch, field and `IPit` extension together (§9.18), on the sixteenth grid —
+// so two zones meeting inside a 4096-TET unit are judged where they meet.
+const lowOf = (p) => patchLow(p);
+const highOf = (p) => patchHigh(p);
+const SIXTEENTH = 1 / 16;
+
 function patchIsDegenerate(p) {
-  return p.sampleLength <= 0 || p.pitchEnd < p.pitchStart || p.volumeEnd < p.volumeStart;
+  return p.sampleLength <= 0 || highOf(p) < lowOf(p) || p.volumeEnd < p.volumeStart;
 }
 
 /**
@@ -838,23 +849,24 @@ function patchIsDegenerate(p) {
 function patchIsShadowed(p, earlier) {
   const covers = earlier.filter((q) =>
     !patchIsDegenerate(q) &&
-    q.pitchStart <= p.pitchEnd && q.pitchEnd >= p.pitchStart &&
+    lowOf(q) <= highOf(p) && highOf(q) >= lowOf(p) &&
     q.volumeStart <= p.volumeEnd && q.volumeEnd >= p.volumeStart);
   if (covers.length === 0) return false;
-  const axis = (lo, hi, starts, ends) => {
+  // `step` is the axis's grain: a sixteenth of a unit for pitch, 1 for volume.
+  const axis = (lo, hi, starts, ends, step) => {
     const cuts = new Set([lo]);
     for (const v of starts) if (v > lo && v <= hi) cuts.add(v);
-    for (const v of ends) if (v >= lo && v < hi) cuts.add(v + 1);
+    for (const v of ends) if (v >= lo && v < hi) cuts.add(v + step);
     return [...cuts].sort((a, b) => a - b);
   };
-  const xs = axis(p.pitchStart, p.pitchEnd, covers.map((q) => q.pitchStart), covers.map((q) => q.pitchEnd));
-  const ys = axis(p.volumeStart, p.volumeEnd, covers.map((q) => q.volumeStart), covers.map((q) => q.volumeEnd));
+  const xs = axis(lowOf(p), highOf(p), covers.map(lowOf), covers.map(highOf), SIXTEENTH);
+  const ys = axis(p.volumeStart, p.volumeEnd, covers.map((q) => q.volumeStart), covers.map((q) => q.volumeEnd), 1);
   for (const x of xs) {
     for (const y of ys) {
       // (x, y) is the lowest corner of a compressed cell: if it is covered, the
       // whole cell is (no rectangle boundary runs through a cell's interior).
       const hit = covers.some((q) =>
-        x >= q.pitchStart && x <= q.pitchEnd && y >= q.volumeStart && y <= q.volumeEnd);
+        x >= lowOf(q) && x <= highOf(q) && y >= q.volumeStart && y <= q.volumeEnd);
       if (!hit) return false;
     }
   }
@@ -1029,10 +1041,12 @@ function expandMetaDemands(doc, demands) {
 /** Note probes that see every distinct answer resolvePatch can give `patches`:
  *  one inside each band the patch pitch boundaries cut. */
 function noteProbes(patches) {
+  // Cut where each range really starts and ends — its values, extension and
+  // all (§9.18) — so a zone that begins inside a unit gets its own probe.
   const cuts = new Set([0x20]);
   for (const p of patches) {
-    if (p.pitchStart > 0x20) cuts.add(p.pitchStart);
-    if (p.pitchEnd < 0xffff) cuts.add(p.pitchEnd + 1);
+    if (lowOf(p) > 0x20) cuts.add(lowOf(p));
+    if (highOf(p) < 0xffff + 15 / 16) cuts.add(highOf(p) + SIXTEENTH);
   }
   return [...cuts];
 }
@@ -1190,6 +1204,9 @@ export function planIxmpCleanup(doc) {
     inam: doc.projSections.find((s) => s.fourcc === "INam")?.payload ?? null,
     snam: encodeNameTable(snamArr),
     ixmp,
+    // The surviving patches keep their pitch extensions (§9.18).
+    ipit: doc.pitchExtPayloadAfter(report.map((r) => (r.reason === "orphan" ? { slot: r.slot, drop: true }
+      : { slot: r.slot, patches: r.keep, groups: { patches: pitchPatchesOf(r.keep) } }))),
     report,
     removedPatches,
     removedBlobs,
@@ -1267,7 +1284,7 @@ export function planDeleteSample(doc, sample) {
     const keep = patches.filter((p) => !(p.samplePtr === sample.ptr && p.sampleLength === sample.len));
     if (keep.length === patches.length) { ixmp.push(e); continue; }
     removedPatches += patches.length - keep.length;
-    patchedInsts.push({ slot, dropped: patches.length - keep.length, kept: keep.length });
+    patchedInsts.push({ slot, dropped: patches.length - keep.length, kept: keep.length, keep });
     if (keep.length === 0) { removedBlobs++; continue; }
     ixmp.push({ instId: e.instId, count: keep.length, blob: writePatchesBlob(keep) });
   }
@@ -1351,6 +1368,10 @@ export function planDeleteSample(doc, sample) {
     ixmp,
     // A lyric recipe sounding the sample loses its noise to the generator (item 280).
     ilyr: lyricsWithRecipes(doc, (p, l) => (p === sample.ptr && l === sample.len ? null : undefined)),
+    // The patches left keep their pitch extensions (§9.18).
+    ipit: doc.pitchExtPayloadAfter(patchedInsts.map((x) => ({
+      slot: x.slot, patches: x.keep, groups: { patches: pitchPatchesOf(x.keep) },
+    }))),
     clearedInsts, patchedInsts, removedPatches, removedBlobs, freedSampleBytes,
   };
 }
@@ -1497,6 +1518,7 @@ export function planDeleteInstruments(doc, slots, { freeSamples = false, reassig
   // metas are skipped — their whole record is already zeroed.
   const rewiredMetas = [];
   const emptiedMetas = [];
+  const pitchChanges = []; // a repacked table keeps its survivors' pitch extensions (§9.18)
   for (const o of doc.usedInstrumentSlots()) {
     if (deleteSet.has(o)) continue;
     const oi = doc.instruments[o];
@@ -1521,14 +1543,16 @@ export function planDeleteInstruments(doc, slots, { freeSamples = false, reassig
       image.fill(0, recOff(o), recOff(o) + 256);
       emptiedMetas.push(o);
     } else {
-      image.set(buildMetaRecord(kept, {
+      const record = buildMetaRecord(kept, {
         strict: oi.metaStrict,
         easy: fm && (oi.metaRaw[0] & 0x01) !== 0,
         percussion: (oi.metaRaw[0] & 0x02) !== 0,
         type: oi.metaType,
         program: oi.fmProgram,
         imixId: oi.imixId,
-      }), recOff(o));
+      });
+      image.set(record, recOff(o));
+      pitchChanges.push({ slot: o, record, groups: { table: pitchTableOf(kept) } });
       rewiredMetas.push(o);
     }
   }
@@ -1587,7 +1611,7 @@ export function planDeleteInstruments(doc, slots, { freeSamples = false, reassig
   return {
     image, inam: encodeNameTable(inamArr), snam: encodeNameTable(snamArr), ixmp, cells, slots: primary,
     ilyr: lyricsWithSlots(doc, (k) => (deleteSet.has(k) ? null : k)), // its lyrics go with it (item 280)
-    ipit: doc.pitchExtWithSlots((k) => (removedSet.has(k) ? null : k)), // …and its pitch extensions (§9.18)
+    ipit: doc.pitchExtPayloadAfter(pitchChanges, (k) => !removedSet.has(k)), // …and its pitch extensions (§9.18)
     freedSamples, freedSampleBytes, rewiredMetas, emptiedMetas,
     autoChildren, deletedLowChildren: deleteLowChildren ? lowChildren.map((c) => c.slot) : [],
     danglingRefs: doReassign ? 0 : refs.length,

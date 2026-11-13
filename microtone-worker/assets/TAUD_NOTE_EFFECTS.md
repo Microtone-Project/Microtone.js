@@ -1,6 +1,6 @@
 # Taud Tracker Effect Command Reference
 
-Taud is a tracker-style music format derived from ScreamTracker 3's pattern command set, extended to 16-bit effect arguments and a 4096-tone equal-temperament pitch grid. This document defines every effect command a Taud engine **MUST** implement. Each command entry has three parts: a plain explanation for composers, compatibility notes for converting patterns from ScreamTracker 3 (ST3), ImpulseTracker (IT), FastTracker 2 (FT2) or ProTracker (PT), and implementation details for engine writers.
+Taud is a tracker-style music format derived from ScreamTracker 3's pattern command set, extended to 16-bit effect arguments and a 65536-tone equal-temperament pitch grid. This document defines every effect command a Taud engine **MUST** implement. Each command entry has three parts: a plain explanation for composers, compatibility notes for converting patterns from ScreamTracker 3 (ST3), ImpulseTracker (IT), FastTracker 2 (FT2) or ProTracker (PT), and implementation details for engine writers.
 
 ## Conformance language
 
@@ -32,9 +32,9 @@ This manual extensively uses "tracker lingo" that may not sound intuitive to the
 
 * **Speed vs. Tempo.** Two independent timing knobs. **Speed** (effect A) is the number of ticks per row; **tempo** (effect T) sets the duration of one tick, conventionally expressed as BPM. To slow the song globally without changing how often per-tick effects update, lower the tempo. To give per-tick effects more iterations per row (denser vibrato, longer slides per row), raise the speed. The default is speed 6, tempo $64 → 125 BPM → 50 Hz tick rate → 120 ms per row.
 
-* **Effect column.** Each cell can carry one effect command (opcode + 16-bit argument) that fires on its row. Unlike a DAW automation lane, effects are inline with the notes — there is no continuous curve, only discrete per-row events that compose with the engine's tick loop.
+* **Effect column.** Each cell can carry two effect commands (each an opcode + 16-bit argument, the second applied after the first) that fire on its row. Unlike a DAW automation lane, effects are inline with the notes — there is no continuous curve, only discrete per-row events that compose with the engine's tick loop.
 
-* **Volume column / panning column.** Two extra mini-lanes per cell, each carrying its own 6-bit value + 2-bit selector (set / slide-up / slide-down / fine-slide). They run alongside the main effect column, so a single cell can carry both a main effect *and* a volume-column slide.
+* **Volume column / panning column.** Two extra mini-lanes per cell, each carrying its own selector (set / slide-up / slide-down / fine-slide) and value — a whole byte of volume, a direction for panning. They run alongside the main effect column, so a single cell can carry both a main effect *and* a volume-column slide.
 
 * **Effect memory / recall.** Most effects remember their last non-zero argument; re-issuing the same effect with `$0000` recalls and re-applies it. This is how trackers express "continue that slide" without re-typing the rate every row. Each effect has either a private memory slot or shares one with a small cohort of related effects (see §6).
 
@@ -72,32 +72,36 @@ This manual extensively uses "tracker lingo" that may not sound intuitive to the
 
 Internal accumulators **MAY** widen to 16 or 32 bits during mixing and effect computation, but stored samples and final output **MUST** be 8-bit.
 
-## 2. Pitch system — 4096-TET
+## 2. Pitch system — 65536-TET
 
-One octave spans **4096 pitch units** ($1000 exactly). A 12-TET semitone therefore equals **4096 ÷ 12 ≈ 341.333 units** (≈ $0155.55), which is not an integer; this irrationality is a deliberate consequence of choosing a microtonal native grid. Implementations **MUST** store lane pitch as a signed integer in Taud units, and **MUST** convert to playback rate using
+One octave spans **65536 pitch steps** (`$10000` exactly), and `$50000` is C4. A 12-TET semitone therefore equals **65536 ÷ 12 ≈ 5461.33 steps**, which is not an integer; this irrationality is a deliberate consequence of choosing a microtonal native grid.
+
+A pattern cell writes a pitch as its **note word** — the top sixteen bits, the pitch ÷ 16: `$5000` is C4 and `$1000` an octave — and its fine nibble the four bits below it (a legacy-format cell, File Format §5.6, has the word alone). Every argument in this document that moves a pitch counts in **note-word units**, sixteen steps each, so the arguments keep their sixteen bits and still reach every interval a song needs. Implementations **MUST** keep a lane's pitch to the step — the low four bits are part of the note — and **MUST** convert it to playback rate using
 
 ```
-playback_rate = reference_rate × 2 ^ (pitch_units / 4096)
+playback_rate = reference_rate × 2 ^ (pitch_steps / 65536)
 ```
 
-Commonly used intervals in Taud units are listed below; all are rounded to the nearest integer.
+The pseudocode below writes a lane's pitch as `pitch`, in note-word units with its low bits as a fraction (C4 = `$5000`), as the arguments are.
 
-| Interval | Units (exact) | Hex (rounded) |
-|---|---|---|
-| Octave | 4096 | $1000 |
-| Perfect fifth (7 ST) | 2389.33 | $0955 |
-| Tritone (6 ST) | 2048 | $0800 |
-| Major third (4 ST) | 1365.33 | $0555 |
-| Minor third (3 ST) | 1024 | $0400 |
-| 1 semitone | 341.33 | $0155 |
-| 1/8 semitone (1 finetune) | 42.67 | $002B |
-| 1/16 semitone | 21.33 | $0015 |
-| 1/64 semitone | 5.33 | $0005 |
-| 1 cent (1/100 semitone) | 3.41 | $0003 |
+Commonly used intervals, in steps and in the note-word units an argument takes; the hex is rounded to the nearest integer.
+
+| Interval | Steps (exact) | Note-word units (exact) | Argument (rounded) |
+|---|---|---|---|
+| Octave | 65536 | 4096 | $1000 |
+| Perfect fifth (7 ST) | 38229.33 | 2389.33 | $0955 |
+| Tritone (6 ST) | 32768 | 2048 | $0800 |
+| Major third (4 ST) | 21845.33 | 1365.33 | $0555 |
+| Minor third (3 ST) | 16384 | 1024 | $0400 |
+| 1 semitone | 5461.33 | 341.33 | $0155 |
+| 1/8 semitone (1 finetune) | 682.67 | 42.67 | $002B |
+| 1/16 semitone | 341.33 | 21.33 | $0015 |
+| 1/64 semitone | 85.33 | 5.33 | $0005 |
+| 1 cent (1/100 semitone) | 54.61 | 3.41 | $0003 |
 
 ## 3. Volume system
 
-Per-note and per-lane volume runs from **$00 (silent) to $3F (full)**, a 6-bit range narrower than ST3's 0..$40. Global volume (effect V) runs 0..$FF; this wider range lets the mix bus scale the summed lane output without disturbing individual note volumes. Conforming engines **MUST** implement the per-frame mix chain per lane as
+Per-note and per-lane volume runs from **$00 (silent) to $FF (full)** — `VOL_MAX` below. Global volume (effect V) runs 0..$FF as well; it lets the mix bus scale the summed lane output without disturbing individual note volumes. Conforming engines **MUST** implement the per-frame mix chain per lane as
 
 ```
 mix = sample × note_vol × channel_vol × global_vol >> normalisation_shift
@@ -112,7 +116,11 @@ with saturation applied before the 8-bit stereo output. Internal accumulators **
 
 The engine carries a third per-tick value, `row_vol`, which is the mixer-facing volume for the current tick. At every row boundary `row_vol` rebases to `note_vol`; per-tick modulators (tremolo R, tremor I) write `row_vol` only, so their effect dies cleanly at row end. Per-note slides (D, K, L, vol-col) write **both** `note_vol` and `row_vol` so the per-note baseline carries forward.
 
-Because the two axes are independent, an `M $4000` (set lane volume to full) issued after a `0.$02` (vol-col SET = 2) leaves the per-note volume untouched at 2 — the lane keeps playing quietly. Conversely, an `N` slide can fade out a lane's overall level while a vol-col SET on a fresh trigger sets the per-note baseline at full.
+The volume column and `M` write a whole level in those units. The effect column's volume slides keep their nibble-sized arguments — `D`, `K`, `L`, `N`, the `Q` retrigger modifiers and the `R` tremolo — and the engine multiplies each step they take by **`VOL_STEP` = 4**, so `D $0100` lowers the volume by 4 of 255 a tick, the pace a tracker's 1 of 64 had.
+
+**The legacy format.** A song in the legacy format ([File Format §5.6](TAUD_FILE_FORMAT.md#5-6-legacy-format-the-8-byte-cell)) has six-bit volumes: there `VOL_MAX` is `$3F` and `VOL_STEP` is 1, so every command below moves by its argument as written and clips at `$3F`.
+
+Because the two axes are independent, an `M $FF00` (set lane volume to full) issued after a `0.$08` (vol-col SET = 8) leaves the per-note volume untouched at 8 — the lane keeps playing quietly. Conversely, an `N` slide can fade out a lane's overall level while a vol-col SET on a fresh trigger sets the per-note baseline at full.
 
 ## 4. Panning system
 
@@ -150,8 +158,8 @@ A pattern is a rectangular grid of rows and lanes; each cell holds one note even
 | Speed | $06 (6 ticks/row) |
 | Tempo byte | $64 (125 BPM; see effect T for the $19 offset) |
 | Global volume | $80 (mid-scale) |
-| Lane volume | $3F (full) |
-| Note volume | $3F (full; reseeded from instrument's Default Note Volume on every re-trigger) |
+| Lane volume | `VOL_MAX` (full) |
+| Note volume | `VOL_MAX` (full; reseeded from instrument's Default Note Volume on every re-trigger) |
 | Lane pan (all lanes) | $80 (centre) |
 | Note pan | $00 offset (neutral; reseeded from the instrument's Default Pan or its Ixmp zone's on a re-trigger that carries one) |
 | cue index | $0000 |
@@ -205,49 +213,49 @@ The base-36 space (`$00`…`$23`) is fully assigned. An effect introduced after 
 
 ## D $xy00 — Volume slide (multiple forms)
 
-D's 16-bit argument encodes four mutually exclusive modes using the top nibble and the following byte. **All forms operate on `note_vol`** (the per-note axis described in §3, analog of IT `chan->volume`) and clip to $00..$3F after each step. The slid value persists into following rows until the next re-trigger; `channel_vol` is **not** touched by D — for the per-lane axis, use N.
+D's 16-bit argument encodes four mutually exclusive modes using the top nibble and the following byte. **All forms operate on `note_vol`** (the per-note axis described in §3, analog of IT `chan->volume`) and clip to `$00..VOL_MAX` after each step; each step is the argument's nibble × `VOL_STEP` (§3). The slid value persists into following rows until the next re-trigger; `channel_vol` is **not** touched by D — for the per-lane axis, use N.
 
 ### D $0y00 — Volume slide down by $y per non-first tick
 
-**Plain.** Each tick after tick 0, `note_vol` decreases by $y. A D $0400 at speed 8 reduces volume by $1C over the row.
+**Plain.** Each tick after tick 0, `note_vol` decreases by $y × `VOL_STEP`. A D $0400 at speed 8 reduces volume by $70 over the row ($1C in a legacy song).
 
-**Compatibility.** ST3 `Dx0` (volume slide down) maps to Taud `D $0x00`. The ST3 volume cap was $40; Taud's is $3F — a very high-volume sample reaching $40 in ST3 will snap to $3F in Taud.
+**Compatibility.** ST3 `Dx0` (volume slide down) maps to Taud `D $0x00`. ST3's volumes run 0…$40, which a converter writes as `round(v × 255 ÷ 64)` — ST3's full $40 is Taud's full $FF — while the slide's nibble is copied as it is: `VOL_STEP` keeps its pace.
 
-**Implementation.** On ticks > 0, subtract the low nibble of the high byte from `note_vol`; clamp at $00; mirror `row_vol = note_vol`. Memory is private to D and is keyed on the full original byte (so D $0000 recalls whatever form last ran).
+**Implementation.** On ticks > 0, subtract the low nibble of the high byte × `VOL_STEP` from `note_vol`; clamp at $00; mirror `row_vol = note_vol`. Memory is private to D and is keyed on the full original byte (so D $0000 recalls whatever form last ran).
 
 ### D $x000 — Volume slide up by $x per non-first tick
 
-**Plain.** Each tick after tick 0, `note_vol` increases by $x. Capped at $3F.
+**Plain.** Each tick after tick 0, `note_vol` increases by $x × `VOL_STEP`. Capped at `VOL_MAX`.
 
 **Compatibility.** ST3 `D0y` (volume slide up) maps to Taud `D $y000`.
 
-**Implementation.** On ticks > 0, add the high nibble of the high byte to `note_vol`; clamp at $3F; mirror `row_vol = note_vol`.
+**Implementation.** On ticks > 0, add the high nibble of the high byte × `VOL_STEP` to `note_vol`; clamp at `VOL_MAX`; mirror `row_vol = note_vol`.
 
 ### D $Fy00 — Fine volume slide down by $y on tick 0
 
-**Plain.** Applies a one-shot `note_vol` reduction of $y on tick 0 only. Independent of speed. A D $FF00 behaves as a fine slide up by $F (so a request for "down by F" is reinterpreted; see below).
+**Plain.** Applies a one-shot `note_vol` reduction of $y × `VOL_STEP` on tick 0 only. Independent of speed. A D $FF00 behaves as a fine slide up by $F (so a request for "down by F" is reinterpreted; see below).
 
 **Compatibility.** ST3 `DFy` maps directly. The $FF edge case is preserved: ST3 treats `DFF` as fine slide up by $F rather than fine slide down by $F, and Taud follows suit.
 
-**Implementation.** On tick 0 only, subtract the low nibble of the high byte from `note_vol`; mirror `row_vol = note_vol`. If the low nibble is $0, treat as fine-slide-up by $F. If the high byte is $FF, treat as fine-slide-up by $F.
+**Implementation.** On tick 0 only, subtract the low nibble of the high byte × `VOL_STEP` from `note_vol`; mirror `row_vol = note_vol`. If the low nibble is $0, treat as fine-slide-up by $F. If the high byte is $FF, treat as fine-slide-up by $F.
 
 ### D $xF00 — Fine volume slide up by $x on tick 0
 
-**Plain.** One-shot `note_vol` increase of $x on tick 0 only.
+**Plain.** One-shot `note_vol` increase of $x × `VOL_STEP` on tick 0 only.
 
-**Compatibility.** ST3 `DxF` maps directly. Volume cap is $3F, lower than ST3's $40.
+**Compatibility.** ST3 `DxF` maps directly. The cap is `VOL_MAX`.
 
-**Implementation.** On tick 0 only, add the high nibble to `note_vol`; clamp at $3F; mirror `row_vol = note_vol`.
+**Implementation.** On tick 0 only, add the high nibble × `VOL_STEP` to `note_vol`; clamp at `VOL_MAX`; mirror `row_vol = note_vol`.
 
 ## E $xxxx — Pitch slide down by $xxxx
 
 **Plain.** Lowers the lane's pitch by the argument per tick. The coarse argument has **three distinct interpretations** chosen by the song-table `ff` field (effect `1`, bits 1-2):
 
-- **Linear mode** (`ff = 0`, default): the argument is a value in the 4096-TET pitch grid, subtracted directly from the stored pitch. `E $0155` ≈ one semitone per tick.
-- **Amiga (cycle-based) mode** (`ff = 1`): the argument is a **raw ProTracker/ST3 period unit count** — the same byte the original tracker stored on disk, *unscaled*. The engine converts the lane's stored 4096-TET pitch back to an Amiga period, subtracts the argument from that period directly, then converts the result back to 4096-TET. `E $0001` therefore corresponds to PT `201` and produces the characteristic non-linear pitch drift of ProTracker-style slides (lower pitches drift more slowly in semitone terms than higher pitches).
-- **Linear-frequency mode** (`ff = 2`): the argument is **Hz/tick** at A4 = 440 Hz / C4 ≈ 261.6256 Hz reference. The engine converts the stored pitch to audible frequency, subtracts the argument from that frequency, then converts the result back to 4096-TET. `E $0010` is the verbatim Monotone `210` (drop 16 Hz/tick); the slide produces a constant *frequency* delta per tick, so the perceived semitone drop is larger at low pitches and smaller at high pitches — exactly Monotone's tracker semantics.
+- **Linear mode** (`ff = 0`, default): the argument is in note-word units, subtracted directly from the stored pitch. `E $0155` (`$1550` steps) ≈ one semitone per tick.
+- **Amiga (cycle-based) mode** (`ff = 1`): the argument is a **raw ProTracker/ST3 period unit count** — the same byte the original tracker stored on disk, *unscaled*. The engine converts the lane's stored pitch back to an Amiga period, subtracts the argument from that period directly, then converts the result back to a pitch, rounded to a whole note word. `E $0001` therefore corresponds to PT `201` and produces the characteristic non-linear pitch drift of ProTracker-style slides (lower pitches drift more slowly in semitone terms than higher pitches).
+- **Linear-frequency mode** (`ff = 2`): the argument is **Hz/tick** at A4 = 440 Hz / C4 ≈ 261.6256 Hz reference. The engine converts the stored pitch to audible frequency, subtracts the argument from that frequency, then converts the result back to a pitch, rounded to a whole note word. `E $0010` is the verbatim Monotone `210` (drop 16 Hz/tick); the slide produces a constant *frequency* delta per tick, so the perceived semitone drop is larger at low pitches and smaller at high pitches — exactly Monotone's tracker semantics.
 
-Because Amiga period units (and Monotone Hz/tick) fit in a single byte (PT/ST3 max value $FF, MONOTONE max $3F), the coarse range never approaches the $F000 fine-slide marker, so the same argument-format selector still distinguishes coarse from fine across all three modes. **Fine slides (`E $Fxxx`) follow the same mode-selection rule as coarse**: linear mode reads the low 12 bits as 4096-TET units, Amiga mode reads them as raw tracker period units, and linear-frequency mode reads them as Hz. A coarse slide uses the full value range; a fine slide applies only once per row.
+Because Amiga period units (and Monotone Hz/tick) fit in a single byte (PT/ST3 max value $FF, MONOTONE max $3F), the coarse range never approaches the $F000 fine-slide marker, so the same argument-format selector still distinguishes coarse from fine across all three modes. **Fine slides (`E $Fxxx`) follow the same mode-selection rule as coarse**: linear mode reads the low 12 bits as note-word units, Amiga mode reads them as raw tracker period units, and linear-frequency mode reads them as Hz. A coarse slide uses the full value range; a fine slide applies only once per row.
 
 Coarse and fine modes are distinguished by the high nibble of the argument:
 
@@ -263,7 +271,7 @@ Coarse and fine modes are distinguished by the high nibble of the argument:
   - ST3 `EEx` extra-fine moves by a **quarter** of that unit (ST3 runs its fine and extra-fine slides through the same arithmetic as IT, below), which the whole-period argument cannot hold: converters **SHOULD** sum the quarters per lane in play order and write `E $F00n` on the row where the sum reaches a whole period (nothing on the others), restarting the sum at every note not tied by a portamento.
 
 - **Impulse Tracker song** (`linear_slides` set → `ff = 0`, clear → `ff = 1`): IT's fine and extra-fine forms differ by **four** too — the fine form moves by the coarse unit, the extra-fine by a quarter of it:
-  - IT `Exx` coarse → Taud `E round($00xx × 64/3)` in linear songs (1 coarse unit = 1/16 semitone ≈ 21.33 Taud units), `E $00xx` in Amiga songs.
+  - IT `Exx` coarse → Taud `E round($00xx × 64/3)` in linear songs (1 coarse unit = 1/16 semitone ≈ 21.33 note-word units), `E $00xx` in Amiga songs.
   - IT `EFx` fine → Taud `E $F0 round(x × 64/3)` in linear songs, `E $F00x` in Amiga songs.
   - IT `EEx` extra-fine → Taud `E $F0 round(x × 16/3)` in linear songs (1/64 semitone). In Amiga songs it is a quarter period, carried as for ST3 above.
 
@@ -287,7 +295,7 @@ on row start:
             pitch = amiga_slide_down(pitch, mag)
         elif tone_mode == 2:            # linear-freq: mag is Hz/tick; pitch down ⇒ −freq
             pitch = linear_freq_slide(pitch, −mag)
-        else:                            # linear: mag is 4096-TET units
+        else:                            # linear: mag is note-word units
             pitch -= mag
         mode_this_row = FINE
     else:                                # coarse
@@ -316,7 +324,7 @@ Glissando control (S $1x) snaps the output pitch to the nearest semitone after e
 
 ## F $xxxx — Pitch slide up by $xxxx
 
-**Plain.** Raises the lane's pitch by the argument per tick, with the same mode-selection scheme as E. Coarse, fine, memory behaviour, and Amiga / linear-freq mode handling are identical in form but inverted in direction. The same triple-interpretation rule applies to **both** coarse and fine arguments: 4096-TET units in linear mode, raw tracker period units in Amiga mode, Hz/tick in linear-frequency mode.
+**Plain.** Raises the lane's pitch by the argument per tick, with the same mode-selection scheme as E. Coarse, fine, memory behaviour, and Amiga / linear-freq mode handling are identical in form but inverted in direction. The same triple-interpretation rule applies to **both** coarse and fine arguments: note-word units in linear mode, raw tracker period units in Amiga mode, Hz/tick in linear-frequency mode.
 
 **Compatibility.** Same as E. ST3 and PT songs keep periods: `Fxx` coarse → `F $00xx`, ST3 `FFx` fine / PT `E1x` → `F $F00x`, and ST3 `FEx` extra-fine is a quarter period, carried to whole ones. In linear IT songs, `Fxx` coarse and `FFx` fine convert with `round(x × 64/3)`, `FEx` extra-fine with `round(x × 16/3)`. In MONOTONE-source songs (ff=2), `1xx` → `F $00xx` verbatim (Hz/tick); MONOTONE has no fine-slide form. F and E share one memory slot in Taud. Slide-mode behaviour is controlled by the same `ff` field as E; under any non-linear mode, both coarse (per-tick) and fine (tick-0 only) F slides are applied in the corresponding mode's space.
 
@@ -328,7 +336,7 @@ Glissando control (S $1x) snaps the output pitch to the nearest semitone after e
 
 The unit of `$xxxx` depends on the song-table tone mode (effect `1`, bits 0-1):
 
-- `ff = 0` (linear) and `ff = 1` (Amiga): 4096-TET pitch units per tick. Amiga sources **SHOULD** be converted to linear units on G, since the original PT G slide already operated semi-linearly within a small range and the shared-memory pitfall of E/F does not apply here.
+- `ff = 0` (linear) and `ff = 1` (Amiga): note-word units (sixteen steps) per tick. Amiga sources **SHOULD** be converted to linear units on G, since the original PT G slide already operated semi-linearly within a small range and the shared-memory pitfall of E/F does not apply here.
 - `ff = 2` (linear-frequency): Hz/tick. The engine walks the lane's *frequency* toward the target note's frequency by `±$xxxx` Hz each non-first tick. This is MONOTONE's `3xx` behaviour verbatim (MTSRC/MT_PLAY.PAS:620-630).
 
 **Compatibility.** ST3 `Gxx` uses an 8-bit value in period-table units; converters **MUST** convert to Taud using the same `round(× 64/3)` scale as E/F coarse (1/16 semitone per ST3 slide unit). Amiga-mode G sources **SHOULD** be treated as linear. MONOTONE `3xx` → Taud `G $00xx` verbatim under ff=2. G has its **own** memory slot in both ST3 and Taud, so conversion is straightforward and does not suffer the shared-memory problem of E/F.
@@ -440,13 +448,13 @@ A zero `$xx` or `$yy` input becomes 1 tick after the `+1`, never zero.
 
 ## J $xxyy — Microtonal arpeggio with offsets $xx00 and $yy00
 
-**Plain.** Cycles the playing pitch through three values across consecutive ticks: the note, the note plus `$xx00` Taud units, and the note plus `$yy00` Taud units, repeating. At the default 50 Hz tick rate (speed 6, 125 BPM), this produces a classic chord-arpeggio effect; because Taud's grid is 4096-TET, the intervals can be microtonal.
+**Plain.** Cycles the playing pitch through three values across consecutive ticks: the note, the note plus `$xx00` note-word units (`$xx000` steps), and the note plus `$yy00` note-word units, repeating. At the default 50 Hz tick rate (speed 6, 125 BPM), this produces a classic chord-arpeggio effect; because Taud's grid is 65536-TET, the intervals can be microtonal.
 
 The encoding places each 8-bit offset byte into the **high byte** of a 16-bit pitch delta, giving 256 discrete intervals per arp note with a resolution of $0100 ≈ 0.75 semitone per step. This is coarser than E/F's 16-bit slides, but adequate for arpeggios and well-suited to non-12-TET intervals.
 
-**Compatibility.** ST3 `Jxy` uses nibbles as 12-TET semitones; Taud uses bytes as $0100-scaled 4096-TET offsets. The conversion is therefore lossy — 12-TET intervals that are not multiples of 3 semitones incur ±25 cent rounding error. The table below gives the best Taud byte for each 12-TET semitone offset:
+**Compatibility.** ST3 `Jxy` uses nibbles as 12-TET semitones; Taud uses bytes as $0100-scaled offsets in note-word units. The conversion is therefore lossy — 12-TET intervals that are not multiples of 3 semitones incur ±25 cent rounding error. The table below gives the best Taud byte for each 12-TET semitone offset:
 
-| Semitones | Taud byte | Taud units | Error (cents) |
+| Semitones | Taud byte | Note-word units | Error (cents) |
 |---|---|---|---|
 | 0 | $00 | 0 | 0 |
 | 1 | $01 | 256 | −25 |
@@ -482,7 +490,7 @@ on every tick:
 The `tick_within_row mod 3` counter resets every row start (so every row begins at `base_pitch`). A subsequent E/F slide after a J row resumes from the last arpeggiated note's pitch, not from `base_pitch` — this mirrors ST3's `kST3PortaAfterArpeggio` quirk and is deliberately preserved.
 
 
-**Extended (paired with `:`).** `J $xxxx : $yyyy` replaces the two <<8-scaled BYTE offsets above with two full 16-bit 4096-TET offsets: `off1` is J's own argument verbatim, `off2` the paired `:`'s argument verbatim, order-independent as every pairing is. Where the base form reaches 256 discrete intervals at $0100 ($0100 ≈ 0.75 semitone) per step, the extended form reaches the full 65536-step resolution E and F already have — arpeggios can be as microtonal as any other pitch effect. Memory is private and separate from the base form's (the two are different units, so a row using one form **MUST NOT** recall the other's last value): `off1` recalls when J's own argument is `$0000`, `off2` when the paired `:`'s argument is `$0000`, independently.
+**Extended (paired with `:`).** `J $xxxx : $yyyy` replaces the two <<8-scaled BYTE offsets above with two full 16-bit offsets in note-word units: `off1` is J's own argument verbatim, `off2` the paired `:`'s argument verbatim, order-independent as every pairing is. Where the base form reaches 256 discrete intervals at $0100 ($0100 ≈ 0.75 semitone) per step, the extended form reaches the full sixteen-bit resolution E and F already have, one note-word unit (sixteen steps) — arpeggios can be as microtonal as any other pitch effect. Memory is private and separate from the base form's (the two are different units, so a row using one form **MUST NOT** recall the other's last value): `off1` recalls when J's own argument is `$0000`, `off2` when the paired `:`'s argument is `$0000`, independently.
 
 ## K $xy00 — Dual: vibrato continuation and volume slide $xy
 
@@ -512,7 +520,7 @@ on every tick (including tick 0):
     apply vibrato update with memory_HU.speed / memory_HU.depth (see §H)
 
 on tick > 0:
-    note_vol = clamp(note_vol + slide_per_tick, 0, $3F)
+    note_vol = clamp(note_vol + slide_per_tick × VOL_STEP, 0, VOL_MAX)
     row_vol  = note_vol
 ```
 
@@ -543,7 +551,7 @@ on row parse (L):
 
 on tick > 0:
     apply tone-portamento step using memory_G.speed (see §G)
-    note_vol = clamp(note_vol + slide_per_tick, 0, $3F)
+    note_vol = clamp(note_vol + slide_per_tick × VOL_STEP, 0, VOL_MAX)
     row_vol  = note_vol
 ```
 
@@ -551,16 +559,16 @@ The slide writes the per-note axis (same as D); `channel_vol` is untouched. L ha
 
 ## M $xx00 — Set lane volume to $xx
 
-**Plain.** Sets the per-lane volume axis (`channel_vol`, see §3) to `$xx`, in the same 6-bit `$00..$3F` range as a note's default volume. M is the analog of IT's `Mxx`, which writes `chan->global_volume` — it does **not** disturb the per-note volume (`note_vol`) set by the volume column or seeded from the instrument default. A vol-col SET of $02 on a note row followed by an `M $4000` on the next row therefore plays the lane at `2/63 × $3F/63 ≈ 3%` of full, *not* at full — exactly as IT would.
+**Plain.** Sets the per-lane volume axis (`channel_vol`, see §3) to `$xx`, in the same `$00..VOL_MAX` range as a note's volume. M is the analog of IT's `Mxx`, which writes `chan->global_volume` — it does **not** disturb the per-note volume (`note_vol`) set by the volume column or seeded from the instrument default. A vol-col SET of $08 on a note row followed by an `M $FF00` on the next row therefore plays the lane at `8/255 × 255/255 ≈ 3%` of full, *not* at full — exactly as IT would.
 
-**Compatibility.** IT `Mxx` maps directly: the source byte **MUST** be taken **verbatim** with a clamp to `$3F` (IT's $40 cap snaps down by one). ST3 has no native M; OpenMPT/Schism's S3M-with-IT-extensions does, and the same verbatim-with-clamp rule applies on import. M has **no memory** — `M $0000` is a literal "set lane volume to silence", not a recall. Source-tracker shared-memory recalls (e.g., ST3's single-slot shared memory) **MUST** be eagerly resolved by the converter before emit.
+**Compatibility.** IT `Mxx` maps directly: the source's 0…$40 **MUST** be written `round(xx × 255 ÷ 64)`, so IT's full $40 is $FF (in the legacy format it was taken verbatim with a clamp to $3F). ST3 has no native M; OpenMPT/Schism's S3M-with-IT-extensions does, and the same rule applies on import. M has **no memory** — `M $0000` is a literal "set lane volume to silence", not a recall. Source-tracker shared-memory recalls (e.g., ST3's single-slot shared memory) **MUST** be eagerly resolved by the converter before emit.
 
 **Implementation.**
 
 ```
 on row parse (M):
     new_vol = (arg >> 8) & $FF
-    if new_vol > $3F: new_vol = $3F
+    if new_vol > VOL_MAX: new_vol = VOL_MAX
     channel_vol = new_vol
     # note_vol and row_vol are NOT touched. The mixer multiplies channel_vol
     # into the per-voice gain via the volume-ramp target, so the change is
@@ -571,18 +579,18 @@ The change takes effect on tick 0 of the row (the next mixer ramp window picks i
 
 ## N $xy00 — Lane volume slide
 
-**Plain.** Slides the per-lane volume axis (`channel_vol`, see §3 and §M) by `$xy` per non-first tick (or once on tick 0 for fine forms). Encoding is identical to D (see §D), but the slide acts on `channel_vol` — independent of `note_vol`, so vol-col SET / D-slide state on the per-note axis survives across an N. The change persists into following rows that don't reissue N. Range and clipping match D: `$00..$3F`.
+**Plain.** Slides the per-lane volume axis (`channel_vol`, see §3 and §M) by `$xy` per non-first tick (or once on tick 0 for fine forms). Encoding is identical to D (see §D), but the slide acts on `channel_vol` — independent of `note_vol`, so vol-col SET / D-slide state on the per-note axis survives across an N. The change persists into following rows that don't reissue N. Range, clipping and step match D: `$00..VOL_MAX`, each step × `VOL_STEP`.
 
 **Compatibility.** IT `Nxy` maps directly to Taud `N $xy00` (high byte = source argument byte, verbatim). ST3 has no native N. N's encoding sub-forms mirror D exactly:
 
-- `N $0y00` — coarse slide down by `$y` per non-first tick.
-- `N $x000` — coarse slide up by `$x` per non-first tick.
-- `N $Fy00` — fine slide down by `$y` on tick 0 only (with the same `$FF` "fine up by $F" quirk as D).
-- `N $xF00` — fine slide up by `$x` on tick 0 only.
+- `N $0y00` — coarse slide down by `$y` × `VOL_STEP` per non-first tick.
+- `N $x000` — coarse slide up by `$x` × `VOL_STEP` per non-first tick.
+- `N $Fy00` — fine slide down by `$y` × `VOL_STEP` on tick 0 only (with the same `$FF` "fine up by $F" quirk as D).
+- `N $xF00` — fine slide up by `$x` × `VOL_STEP` on tick 0 only.
 
 **Memory.** N has its own private slot, separate from D's. `N $0000` recalls the last N argument and re-applies it in its original sub-form (coarse vs fine, up vs down).
 
-**Implementation.** Identical to D, with `channel_vol` substituted for `note_vol`. After every step the result is clamped to `$00..$3F`. `note_vol` and `row_vol` are **not** touched — the mixer multiplies `channel_vol` into the per-voice gain via the volume-ramp target, so the change is heard within the row without disturbing the per-note baseline:
+**Implementation.** Identical to D, with `channel_vol` substituted for `note_vol`. After every step the result is clamped to `$00..VOL_MAX`. `note_vol` and `row_vol` are **not** touched — the mixer multiplies `channel_vol` into the per-voice gain via the volume-ramp target, so the change is heard within the row without disturbing the per-note baseline:
 
 ```
 on row parse (N):
@@ -653,7 +661,7 @@ ProTracker `E9x` is equivalent to Taud `Q $0x00` (retrigger only, no volume cha
 
 **Implementation.** A per-lane tick counter advances every tick, including tick 0. When it reaches `$y`, the sample retriggers (keeping current pitch), the counter resets to 0, and the volume modifier `$x` applies to `note_vol` (the per-note axis — IT's `chan->volume`). `channel_vol` is untouched. The counter resets only when a row has **no** Q command; successive Q rows share and advance the counter.
 
-The volume modifier table, **computed with arithmetic (no LUT)**, is:
+The volume modifier table, **computed with arithmetic (no LUT)**, is below; each added or subtracted amount is multiplied by `VOL_STEP`:
 
 | $x | Action | $x | Action |
 |---|---|---|---|
@@ -666,7 +674,7 @@ The volume modifier table, **computed with arithmetic (no LUT)**, is:
 | 6 | vol × 2 / 3 | E | vol × 3 / 2 |
 | 7 | vol × 1 / 2 | F | vol × 2 |
 
-Multiplicative cases **MUST** use integer arithmetic: `vol × 2 / 3` is `(vol × 2) / 3` (truncated); `vol × 3 / 2` is `(vol × 3) / 2`; `vol × 1 / 2` is `vol >> 1`; `vol × 2` is `vol << 1`. All results **MUST** clip to $00..$3F after.
+Multiplicative cases **MUST** use integer arithmetic: `vol × 2 / 3` is `(vol × 2) / 3` (truncated); `vol × 3 / 2` is `(vol × 3) / 2`; `vol × 1 / 2` is `vol >> 1`; `vol × 2` is `vol << 1`. All results **MUST** clip to `$00..VOL_MAX` after.
 
 A note previously silenced by a cut (`^^^` or `SCx` earlier in the row) **MUST NOT** be retriggered, matching ST3's `kST3RetrigAfterNoteCut` rule.
 
@@ -676,7 +684,7 @@ A note previously silenced by a cut (`^^^` or `SCx` earlier in the row) **MUST N
 
 **Plain.** Modulates volume with an LFO, symmetrically with H's pitch modulation. `$xx` is LFO speed, `$yy` depth; the waveform is selected by S $4x.
 
-**Compatibility.** ST3 `Rxy` uses nibbles; converters **MUST** convert by nibble-repeat, which reproduces ST3's oscillator exactly — see H. ST3's volume cap is $40; Taud's is $3F — very deep tremolo that would have briefly clipped at $40 in ST3 **MAY** clip slightly earlier in Taud. R has its own memory slot (not shared with H/U).
+**Compatibility.** ST3 `Rxy` uses nibbles; converters **MUST** convert by nibble-repeat, which reproduces ST3's oscillator exactly — see H. Very deep tremolo clips at `VOL_MAX`, where ST3's clipped at $40. R has its own memory slot (not shared with H/U).
 
 **Implementation.** Identical machinery to H with a larger shift to fit the narrower volume range:
 
@@ -688,13 +696,13 @@ on row parse (R):
 on every tick (including tick 0):
     sine = ModSinusTable[lfo_pos ÷ 17]
     vol_delta = (sine × memory_R.depth) >> 9
-    row_vol = clamp(note_vol + vol_delta, 0, $3F)        # modulate around the per-note axis
+    row_vol = clamp(note_vol + vol_delta × VOL_STEP, 0, VOL_MAX)   # modulate around the per-note axis
     lfo_pos = (lfo_pos + memory_R.speed) mod 1088
 ```
 
 The LFO bias is added to `note_vol` (per-note axis, mirroring IT's tremolo on `chan->volume`) and the result lands in `row_vol`, never written back into `note_vol` itself — so the row-end rebase reseats `row_vol` cleanly and tremolo dies on the next row without leaving residue. `channel_vol` is unaffected.
 
-Peak at maximum settings: $7F × $FF >> 9 = $3F — the full volume range. Retrigger behaviour tracks the S $4x waveform nibble bit 2: cleared means retrigger on new note, set means preserve LFO position.
+Peak at maximum settings: ($7F × $FF >> 9) × `VOL_STEP` = $3F × `VOL_STEP` — the full volume range. Retrigger behaviour tracks the S $4x waveform nibble bit 2: cleared means retrigger on new note, set means preserve LFO position.
 
 ## T $xxyy — Tempo set or tempo slide
 
@@ -1118,7 +1126,7 @@ Effect dispatch sees the synthesised effect, never the literal `7` opcode of the
 **Plain.** `:` is not a command of its own — it is a 16-bit number that some OTHER part of its row reads. It has two readers, and the row's note column decides which one applies:
 
 - On a row whose note column holds an **interrupt marker** (`Int0`…`IntF`, note words `$0010`…`$001F` — [File Format](TAUD_FILE_FORMAT.md#note-words), [Engine Spec §14](TAUD_ENGINE_SPEC.md#14-interrupts-and-the-host-interface)), `:` is **the interrupt's argument**: the 0…65535 the song hands to whatever program is playing it. This reading works in every format version.
-- On any other row, `:` **extends** the argument of the effect sharing its row. That needs a row able to carry two effects at once — the wide cell of [file-format version 3](TAUD_FILE_FORMAT.md#5-5-format-version-3-the-wide-cell) — so in a version-1 or version-2 cell, or alone in a version-3 cell with nothing in the other slot, it is a well-formed but **inert** command, and a conforming engine **MUST** treat it as a no-op there, the same as an unrecognised opcode. `:` in **both** slots of such a row is likewise inert: there is nothing left for it to extend.
+- On any other row, `:` **extends** the argument of the effect sharing its row. That needs a row able to carry two effects at once, as [a pattern cell](TAUD_FILE_FORMAT.md#5-5-the-pattern-cell) can — so in a legacy-format cell, which has one effect slot, or alone in a cell with nothing in the other slot, it is a well-formed but **inert** command, and a conforming engine **MUST** treat it as a no-op there, the same as an unrecognised opcode. `:` in **both** slots of such a row is likewise inert: there is nothing left for it to extend.
 
 The two readings do not compete. `:` on an interrupt row that also sits beside a `J`, `O`, `2` or `3` is read by **both** — once as the interrupt's argument, once as that command's extension — because reading it does not consume it.
 
@@ -1130,9 +1138,9 @@ Only three commands currently define extended behaviour when paired with `:` —
 
 **What an interrupt row ignores.** An interrupt marker with no `:` on its row fires with argument `0`, and `: $0000` is the same thing said explicitly — there is no recall and no memory here, so a marker never inherits the previous one's argument. Everything else on the marker's row — the instrument byte, the volume and panning columns, and any effect that is not the `:` being read — is not the interrupt's business: the marker ignores all of it, and each of those columns still does exactly what it would do on any other row.
 
-The one effect that does reach it is `S $Dx`, the note delay, which defers the marker to the tick it names exactly as it defers a key-off or a note cut. Either effect slot may carry it and the `:` the other, in whichever order reads better. A version-1 or version-2 song has only one effect slot, so a row there can spell the delay or the argument but not both: a DELAYED marker in those formats always fires with argument `0`.
+The one effect that does reach it is `S $Dx`, the note delay, which defers the marker to the tick it names exactly as it defers a key-off or a note cut. Either effect slot may carry it and the `:` the other, in whichever order reads better. A legacy-format song has only one effect slot, so a row there can spell the delay or the argument but not both: a DELAYED marker in that format always fires with argument `0`.
 
-**Compatibility.** Unique to Taud — no ST3/IT/PT/FT2 source ever emits it, and no converter needs to handle it. Its EXTENSION reading is unique to Format 3 as well, a version-2 song having no second effect slot to put it in; its interrupt-argument reading works in every version, the marker it serves living in the note column rather than beside it.
+**Compatibility.** Unique to Taud — no ST3/IT/PT/FT2 source ever emits it, and no converter needs to handle it. Its EXTENSION reading needs the second effect slot, which a legacy-format song does not have; its interrupt-argument reading works in every format version, the marker it serves living in the note column rather than beside it.
 
 **Implementation.** `applyTrackerRow` (`core/engine/row.js`) resolves the pairing once per row, before either effect slot dispatches: if exactly one slot holds `:`, the OTHER slot's dispatch call receives the `:`'s argument as an extra, optional parameter (`ext`); if neither or both slots hold `:`, both dispatch calls receive nothing extra. `:` reaching `applyEffectRow` (`core/engine/effects.js`) in its own slot — unpaired, or paired with another `:` — hits a bare no-op case, which is what makes Format 1/2 inert for free: those formats have no second slot, so `:` can never be anything BUT unpaired there.
 
@@ -1267,7 +1275,7 @@ S is a multiplexing opcode; the **high nibble of the high byte** selects the sub
 
 ## S $2x00 — Set fine-tune
 
-**Plain.** Overrides the current note's fine-tune by applying a fixed 4096-TET offset. The index `$x` selects one of sixteen predefined pitch offsets, following ScreamTracker 3's Hz-based fine-tune table but expressed directly in Taud units. This command is implemented for ST3 compatibility.
+**Plain.** Overrides the current note's fine-tune by applying a fixed pitch offset. The index `$x` selects one of sixteen predefined pitch offsets, following ScreamTracker 3's Hz-based fine-tune table but expressed directly in note-word units. This command is implemented for ST3 compatibility.
 
 **Compatibility.** The index scheme matches ST3 exactly: `$8` is the baseline (no change), `$0..$7` are progressively flatter, `$9..$F` are progressively sharper. The Hz reference values come from the ST3 User's Manual and are reproduced here for auditability; the Taud offset is `log2(Hz / 8363) × 4096`, rounded to the nearest integer. **Format converters SHOULD apply the offset to the note value directly.**
 
@@ -1571,7 +1579,7 @@ If both are zero:
 
 **Compatibility.** ST3 `SDx` maps directly. ProTracker `EDx` also maps directly. FastTracker `Kxx` maps to `S D00xx`. OpenMPT `:xy` maps to `S Dx1y`. `S D0**` plays the note normally on tick 0. If `$x ≥ speed`, the note **MUST NOT** play on this row and **MUST NOT** carry over to the next row. Some trackers allow playback of "malformed" note delays (`$x` greater than current tick speed); Taud **MUST** discard those notes. If such note events have been encountered during conversion, they **MUST** be corrected by the converter. The `$x` delay applies to every note-column event, the sentinels and the interrupt markers included — see the [`:` section](#xxxx-interrupt-argument-and-argument-extension) for what a delayed `Int` means.
 
-**Effect slots.** Unlike every other `S` sub-command, the note delay has to be resolved BEFORE the row's note event is processed — which is before either effect slot is dispatched — so an engine cannot simply let it arrive through the ordinary per-slot dispatch. In a [Format 3](TAUD_FILE_FORMAT.md#5-5-format-version-3-the-wide-cell) row it **MUST** therefore be looked for in **both** effect slots: `S $Dxny` means the same thing in either one, exactly as it would if the row had only one slot to put it in. Where a row names it **twice**, a conforming engine **MUST** take the FIRST slot's argument and **MUST** discard the second's entirely — both the `$x` delay and the `$n`/`$y` follow-up come from the winning slot, and the losing one contributes nothing. An `S` in the first slot that is some other sub-command (`S $80xx`, say) has not named a delay and does not win one: the second slot's `S $Dxny` then applies normally.
+**Effect slots.** Unlike every other `S` sub-command, the note delay has to be resolved BEFORE the row's note event is processed — which is before either effect slot is dispatched — so an engine cannot simply let it arrive through the ordinary per-slot dispatch. In a row of [the pattern cell](TAUD_FILE_FORMAT.md#5-5-the-pattern-cell) it **MUST** therefore be looked for in **both** effect slots: `S $Dxny` means the same thing in either one, exactly as it would if the row had only one slot to put it in. Where a row names it **twice**, a conforming engine **MUST** take the FIRST slot's argument and **MUST** discard the second's entirely — both the `$x` delay and the `$n`/`$y` follow-up come from the winning slot, and the losing one contributes nothing. An `S` in the first slot that is some other sub-command (`S $80xx`, say) has not named a delay and does not win one: the second slot's `S $Dxny` then applies normally.
 
 **Implementation.** On row parse, the engine **MUST** defer the note-trigger event (including sample selection, volume, offset, and any volume-column effect) until tick `$x`. On tick `$x`, the engine **MUST** execute the deferred trigger. When combined with pattern delay (S $Ex00), the deferred trigger **MUST** re-fire at the start of each row repetition — matching ST3's `kRowDelayWithNoteDelay` behaviour. If `$x` is greater than the current tick speed, the note **MUST** be discarded (see compatibility notes above). If `$x + $y` is greater than the current tick speed, the action `$n` will be discarded.
 
@@ -1778,33 +1786,41 @@ The slide is armed per row like every other tracker slide: it steps on each NON-
 
 ## Volume column effects
 
-Each cell carries a 6-bit value field plus a 2-bit selector field for the volume column. **All four selectors target `note_vol`** — the per-note volume axis (§3, analog of IT's `chan->volume`). The per-lane axis (`channel_vol`) is reachable only via the M / N effects in the main effect column. The four selectors are:
+Each cell's volume column is a selector and a whole-byte value, in `note_vol`'s own 0…$FF units ([File Format §5.5](TAUD_FILE_FORMAT.md#volume-column)). **All four selectors target `note_vol`** — the per-note volume axis (§3, analog of IT's `chan->volume`). The per-lane axis (`channel_vol`) is reachable only via the M / N effects in the main effect column. The four selectors are:
 
-- **`0.$xx` — Set note_vol** to `$xx` (6-bit, $00..$3F). Equivalent in effect to seeding the note with a different default volume; persists across rows until the next re-trigger.
-- **`1.$xx` — note_vol slide up** by `$xx` per non-first tick (4-bit). Clamps at $3F. The slid value persists into following rows.
-- **`2.$xx` — note_vol slide down** by `$xx` per non-first tick (4-bit). Clamps at $00. The slid value persists into following rows.
-- **`3.$Sx` — Fine note_vol slide** on tick 0 only. The high bit `$S` of the value selects direction (0 = down, 1 = up); the low 4 bits `$x` ($0..$F) are the magnitude. Equivalent in scale to `D $xF00` / `D $Fy00` but with a 5-bit cap. Fires once per row regardless of speed.
+- **`0.$xx` — Set note_vol** to `$xx` ($00..$FF). Equivalent in effect to seeding the note with a different default volume; persists across rows until the next re-trigger.
+- **`1.$xx` — note_vol slide up** by `$xx` per non-first tick. Clamps at `VOL_MAX`. The slid value persists into following rows.
+- **`2.$xx` — note_vol slide down** by `$xx` per non-first tick. Clamps at $00. The slid value persists into following rows.
+- **`3.$xx` — Fine note_vol slide** on tick 0 only. Bit 7 of the value selects direction (0 = down, 1 = up); bits 0…6 are the magnitude. Fires once per row regardless of speed.
+
+The column's values are volumes, not steps, so `VOL_STEP` does not apply to them: a slide can move by a single unit per tick.
 
 Volume-column effects do not consume the main effect slot; a cell can carry both (for instance, a tone portamento in the effect slot and a volume slide in the volume column). Because the volume column writes the per-note axis, an `M $xx00` on the same or following row sets the per-lane axis independently — the two multiply at the mixer (see §3 / §M).
 
-When the converter folds an ST3 K, L, M, or N effect into the volume column, the slide-up / slide-down nibbles map to selectors 1 / 2 (clamped to 6 bits — values above $3F clip). Note that *converted* M and N still target `note_vol` here (vol-col semantics) — to preserve the original per-lane intent, converters **MUST** emit them in the main effect column instead.
+When the converter folds an ST3 K, L, M, or N effect into the volume column, the slide-up / slide-down nibbles map to selectors 1 / 2 at four times their size, the column's units for a tracker's step of 1 in 64. Note that *converted* M and N still target `note_vol` here (vol-col semantics) — to preserve the original per-lane intent, converters **MUST** emit them in the main effect column instead.
 
-**The ceiling is 63, and ScreamTracker's is too.** ST3's volume column and `Cxx` are documented as 0…64, and the editor shows 64 as full, but the value is carried in six bits and the player clamps it: `C40` sounds at 63, exactly as `C3F` does. Taud's `$00..$3F` is therefore the same dynamic range as the format it descends from, not a range short of one step — a converter that rescales by 63/64 to "fit" only pulls every volume in the song down. Clamp `$40` to `$3F` and leave every other value alone. The same reading applies to XM and IT sources, whose 0…64 columns are the same six bits with the same clamp.
+**A tracker's 0…64.** ST3's volume column and `Cxx`, and XM's and IT's columns, run 0…64, and those players sound a volume *v* at *v*/64. A converter writes it as `round(v × 255 ÷ 64)`, so 64 is $FF and every other volume keeps its level.
 
 NOTE: **`3.00` — is No-op**
+
+**The legacy format.** A legacy-format cell ([File Format §5.6](TAUD_FILE_FORMAT.md#5-6-legacy-format-the-8-byte-cell)) has a 6-bit value and a 2-bit selector: SET is $00..$3F, the slides move by the value per non-first tick, and the fine slide's direction is bit 5 with bits 0…4 the magnitude. Its ceiling is 63, and a legacy converter clamped a source's $40 to $3F rather than rescaling.
 
 ## Panning column effects
 
-The panning column uses the same 6-bit value + 2-bit selector layout. **All four selectors target `note_pan`** — the per-note panning axis (§3a), the exact counterpart of the volume column owning `note_vol`. The per-lane axis (`channel_pan`) is reachable only via S $80xx / P / X / 4 / Z in the main effect column.
+Each cell's panning column is a selector and a direction: a nine-bit **azimuth** in `S $8xxx`'s units (0 = left, 128 = front, 256 = right, 384 = behind) and a signed **elevation** in `X`'s ([File Format §5.5](TAUD_FILE_FORMAT.md#panning-column)). **All four selectors target `note_pan`** — the per-note panning axis (§3a), the exact counterpart of the volume column owning `note_vol`. The per-lane axis (`channel_pan`) is reachable only via S $80xx / P / X / 4 / Z in the main effect column.
 
-- **`0.$xx` — Set note_pan** (6-bit, $00..$3F mapped onto the 8-bit pan space; $01 = full left, $1F = centre-left, $20 = centre-right, $3F = full right), read as an offset from centre. It **replaces** whatever the instrument seeded, so it is the way to pan one note of a zone-panned Ixmp instrument by hand. For 8-bit precision use a wide cell's panning column.
-- **`1.$xx` — note_pan slide right** by `$xx` per non-first tick (4-bit).
-- **`2.$xx` — note_pan slide left** by `$xx` per non-first tick (4-bit).
-- **`3.$Sx` — Fine note_pan slide** on tick 0 only, same direction-bit encoding as the volume column's selector 3.
+- **`0.` — Set note_pan**: offset the note by (azimuth, elevation) from the lane's direction. It **replaces** whatever the instrument seeded, so it is the way to pan one note of a zone-panned Ixmp instrument by hand. A planar song forces the elevation to zero; a stereo song folds the azimuth as it folds every other one.
+- **`1.` — note_pan slide right** by the azimuth's low byte per non-first tick, wrapping in a surround song and clamping in a stereo one.
+- **`2.` — note_pan slide left**, the same way.
+- **`3.` — Fine note_pan slide** on tick 0 only: the azimuth's bit 8 is the direction (set = right), its low byte the magnitude.
 
-Because the column writes the per-note axis, an `S $80xx` on the same or a following row moves the per-lane axis independently and the two add at the mixer (§3a) — there is no precedence between them, and an engine **MUST NOT** suppress either when both appear on one row. The column is applied AFTER the row's note trigger, so a SET sharing a row with a note wins over that note's instrument seed.
+The elevation is **RESERVED** for selectors 1…3 and **MUST** be zero there.
+
+Because the column writes the per-note axis, an `S $80xx` on the same or a following row moves the per-lane axis independently and the two add at the mixer (§3a) — there is no precedence between them, and an engine **MUST NOT** suppress either when both appear on one row. The column is applied AFTER the row's note trigger, so a SET sharing a row with a note wins over that note's instrument seed. A `Z` slide on the same row turns a SET into the slide's TARGET instead ([File Format §5.5](TAUD_FILE_FORMAT.md#panning-column)).
 
 NOTE: **`3.00` — is No-op**
+
+**The legacy format.** A legacy-format cell has a 6-bit value and a 2-bit selector here too: SET is $00..$3F mapped onto the 8-bit pan space ($01 = full left, $1F = centre-left, $20 = centre-right, $3F = full right), read as an offset from centre and always an immediate set; the slides move by the value per non-first tick; the fine slide's direction is bit 5 with bits 0…4 the magnitude.
 
 ## Effects that modifies global behaviour
 
@@ -1816,9 +1832,9 @@ Effects in this section modifies the behaviour of the mixer. Primary intention o
 
     0b 000 rrr ff
 
-- ff = 0: Linear tone mode. Pitch shift will behave like MIDI/ImpulseTracker. **Coarse and fine E/F arguments are stored as 4096-TET pitch units** and subtracted/added directly from the stored pitch.
+- ff = 0: Linear tone mode. Pitch shift will behave like MIDI/ImpulseTracker. **Coarse and fine E/F arguments are stored as note-word units** (sixteen steps each) and subtracted/added directly from the stored pitch.
 - ff = 1: Amiga (cycle-based) tone mode. Pitch shift will behave like ProTracker/ScreamTracker. **Coarse and fine E/F arguments are stored as raw tracker period units** (the unscaled byte/nibble from the source PT/S3M/IT file) and applied in Amiga period space. Tone portamento (G) remains linear regardless of mode.
-- ff = 2: Linear-frequency tone mode (MONOTONE compat). **E, F, and G arguments are stored as Hz/tick** (a signed change in audible frequency per song tick), and the engine converts the lane's stored 4096-TET pitch back to a frequency, adds/subtracts the argument, then converts back to 4096-TET. Reference is fixed at 12-TET A4 = 440 Hz / C4 ≈ 261.6256 Hz, which matches MONOTONE's MT_PLAY.PAS `notesHz` table (A0 = 27.5 Hz, equal-temperament). Unlike Amiga mode, *all three* slide effects use the new arithmetic — Monotone's `1xx`, `2xx`, and `3xx` are all in Hz/tick (see MTSRC/MT_PLAY.PAS:606-630).
+- ff = 2: Linear-frequency tone mode (MONOTONE compat). **E, F, and G arguments are stored as Hz/tick** (a signed change in audible frequency per song tick), and the engine converts the lane's stored pitch back to a frequency, adds/subtracts the argument, then converts back to a pitch, rounded to a whole note word. Reference is fixed at 12-TET A4 = 440 Hz / C4 ≈ 261.6256 Hz, which matches MONOTONE's MT_PLAY.PAS `notesHz` table (A0 = 27.5 Hz, equal-temperament). Unlike Amiga mode, *all three* slide effects use the new arithmetic — Monotone's `1xx`, `2xx`, and `3xx` are all in Hz/tick (see MTSRC/MT_PLAY.PAS:606-630).
 
 - rrr = 0: Yes interpolation. The actual interpolation algorithm is implementation-dependent; Fast Sinc or Linear is **RECOMMENDED**.
 - rrr = 1: No interpolation.
@@ -1836,7 +1852,7 @@ This table maps each PT effect to its Taud equivalent. Arguments follow PT's two
 | `0 $xy` | `J $xxyy` | Arpeggio; nibble-repeat each byte. See the 12-TET → Taud table above for conversion losses |
 | `1 $xx` | `F $00xx` (Amiga mode, `f` set) | Portamento up; raw PT period units, applied in period space |
 | `2 $xx` | `E $00xx` (Amiga mode, `f` set) | Portamento down; raw PT period units, applied in period space |
-| `3 $xx` | `G round($0xxx × 64/3)` | Portamento to note; G is always linear (4096-TET units) regardless of mode |
+| `3 $xx` | `G round($0xxx × 64/3)` | Portamento to note; G is always linear (note-word units) regardless of mode |
 | `4 $xy` | `H $xxyy` | Vibrato; nibble-repeat each byte. |
 | `5 $xy` | `L $xy00` | Combined portamento + volume slide. Only the slide nibble that acts crosses: ProTracker slides up by `x` whenever it is set and L lets down win, so `5 $35` becomes `L $3000`. An `$F` nibble is a speed of 15, as in L. `5 $00` is a portamento with no slide and becomes `G $0000` |
 | `6 $xy` | `K $xy00` | Combined vibrato + volume slide, the slide nibble chosen as for `5`. `6 $00` is a vibrato with no slide and becomes `H $0000` |

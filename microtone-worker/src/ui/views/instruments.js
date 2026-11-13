@@ -17,7 +17,7 @@ import {
 import {
   layerDetune, layerLow, layerHigh, layerDetuneFields, layerLowFields, layerHighFields,
   OFFSET_EXT_MIN, OFFSET_EXT_MAX, instDetune, instPanCentre, splitOffset, splitNote, baseExtWith,
-  patchExtWith,
+  patchExtWith, patchLow, patchHigh, rangeEnds, rangeTop,
 } from "../../doc/pitchedit.js";
 import {
   metaLayers, metaRecordOf, metaFlags, metaRecordWithFlags,
@@ -56,7 +56,7 @@ import { mapSpinner, setMapped, parsePitchText } from "../components/spinner.js"
 import { hzSpinnerMap } from "../components/hzspinner.js";
 import {
   MIX_DB_MAP, centsMap, hexMap, sfResoDbMap, centsOfUnits, unitsOfCents,
-  widePitchMap, stepsText, stepsHex,
+  widePitchMap, stepsHex,
 } from "../spinmaps.js";
 import { dragGrip, focusGrip } from "../components/dragsort.js";
 import { lampButton } from "../components/lampbutton.js";
@@ -87,7 +87,6 @@ import { psgBadge } from "../../doc/psgedit.js";
 import { ANCHOR_NOTE, stepNoteInTable } from "../../../core/tuning/pitchtables.js";
 // A fixed-pitch layer's field takes a note WORD, and the query parser is
 // already the app's one place that reads "$5000" and "C-4" as the same thing.
-import { parseFieldValue } from "../../doc/patternquery.js";
 import { themeColors } from "../theme.js";
 import { canvasMonoFont } from "../fonts.js";
 import { unescapeName, escapeNonAscii } from "../../../core/format/names.js";
@@ -1392,7 +1391,7 @@ export class InstrumentsView {
           ? compositeOp([setInstFieldOp(slot, "sampleDetune", nv, gid), sync], gid)
           : setInstFieldOp(slot, "sampleDetune", nv, gid), slot, groups, gid));
       },
-      { ann, wide: true, signedLog: true, fine: true, map: centsMap(this.store.pitchPreset, min, max, true), title: t("inst.detuneTitle") });
+      { ann, wide: true, signedLog: true, fine: true, map: centsMap(this.store.pitchPreset, min, max), title: t("inst.detuneTitle") });
   }
 
   /**
@@ -2001,9 +2000,9 @@ export class InstrumentsView {
 
     patches.forEach((p, i) => {
       if (i === shadowIdx) return; // item 180 — not a real zone
-      const x = X(p.pitchStart);
+      const x = X(patchLow(p)); // values, extension and all (§9.18)
       const y = Y(p.volumeEnd);
-      const pw = Math.max(X(p.pitchEnd) - x, 2);
+      const pw = Math.max(X(rangeTop(patchHigh(p))) - x, 2);
       const ph = Math.max(Y(p.volumeStart) - y, 2);
       const live = liveKeys.has(`${p.samplePtr}:${p.sampleLength}`);
       ctx.globalAlpha = live ? 0.55 : 0.35;
@@ -2019,7 +2018,7 @@ export class InstrumentsView {
         // A stereo zone (Ixmp 's') is tagged, since two zones that look alike
         // on the map can differ by costing twice the pool bytes.
         const tag = p.hasChanBlock && p.chanCount > 1 ? ` ${t("smp.stereoTag")}` : "";
-        ctx.fillText(`${rangeToStr(p.pitchStart, p.pitchEnd)}${tag}`, x + 2, y + 11);
+        ctx.fillText(`${rangeToStr(...rangeEnds(patchLow(p), patchHigh(p)))}${tag}`, x + 2, y + 11);
       }
     });
   }
@@ -2070,7 +2069,7 @@ export class InstrumentsView {
     if (title) inp.title = title;
     inp.dataset.mtDecTitle = t("meta.detuneDownTitle");
     inp.dataset.mtIncTitle = t("meta.detuneUpTitle");
-    mapSpinner(inp, centsMap(this.store.pitchPreset, min, max, true), units);
+    mapSpinner(inp, centsMap(this.store.pitchPreset, min, max), units);
     inp.addEventListener("change", () => onCommit(inp.rawValue));
     return inp;
   }
@@ -2300,7 +2299,7 @@ export class InstrumentsView {
       centsIn.title = t(fm ? "fm.ratioTitle" : "meta.detuneTitle");
       centsIn.dataset.mtDecTitle = t("meta.detuneDownTitle");
       centsIn.dataset.mtIncTitle = t("meta.detuneUpTitle");
-      mapSpinner(centsIn, centsMap(preset, OFFSET_EXT_MIN, OFFSET_EXT_MAX, true), det);
+      mapSpinner(centsIn, centsMap(preset, OFFSET_EXT_MIN, OFFSET_EXT_MAX), det);
       centsIn.addEventListener("change", () => commit(layerDetuneFields(entry, centsIn.rawValue)));
     }
     // The note the detune lands on, spelled in the SONG's notation (the
@@ -2310,7 +2309,7 @@ export class InstrumentsView {
     const detAnn = Object.assign(document.createElement("span"), { className: "dim meta-det-ann" });
     detAnn.append(
       noteGlyph(clampN(fixed ? det : ANCHOR_NOTE + det, 0x20, 0xffff + 15 / 16), preset),
-      ` · ${stepsText(det)}`);
+      ` · ${stepsHex(det)}`);
     detCell.append(centsIn, detAnn);
     // The flag itself. It lives beside the field it re-reads, because that is
     // the only thing it changes: the rectangle above still decides which keys
@@ -2343,7 +2342,7 @@ export class InstrumentsView {
     // them on the Layers tab"; until item 113 there was nothing here to narrow.
     const rngCell = tr.querySelector(".rngCell");
     const rngAnn = Object.assign(document.createElement("span"), { className: "dim meta-rng-ann" });
-    rngAnn.append(rangeGlyph(entry.pitchStart, entry.pitchEnd, preset, t("range.whole")));
+    rngAnn.append(rangeGlyph(...rangeEnds(layerLow(entry), layerHigh(entry)), preset, t("range.whole")));
     rngCell.append(
       this.metaPitchIn(layerLow(entry), (v) => commit(layerLowFields(v)), t("meta.pitchLoTitle")),
       this.metaPitchIn(layerHigh(entry), (v) => commit(layerHighFields(v)), t("meta.pitchHiTitle"), true),
@@ -3017,7 +3016,7 @@ export class InstrumentsView {
         // Shown in cents: the field is 4096-TET units from the drum's own
         // pitch, and its extension byte (file format §9.18) adds sixteenths.
         const pdet = document.createElement("input");
-        mapSpinner(pdet, centsMap(this.store.pitchPreset, -0x8000, 0x7fff + 15 / 16, true),
+        mapSpinner(pdet, centsMap(this.store.pitchPreset, -0x8000, 0x7fff + 15 / 16),
           f.partnerDetune + (inst.opl?.dPartnerDetune || 0));
         pdet.addEventListener("change", () => {
           const { field: w, ext } = splitOffset(pdet.rawValue);

@@ -101,7 +101,7 @@ export class Tuning {
     if (!Number.isInteger(step)) throw new MotifError(`a pitch is a whole number of steps, not ${step}`);
     const p = Math.floor(step / this.n);
     const w = ANCHOR_NOTE + (p - 4) * this.interval + this.table[step - p * this.n];
-    if (w < 0x20 || w > 0xffff) throw new MotifError(`${this.nameOf(step)} (step ${step}) is outside the playable range`);
+    if (w < 0x20 || w > (this.fine ? 0xffff + 15 / 16 : 0xffff)) throw new MotifError(`${this.nameOf(step)} (step ${step}) is outside the playable range`);
     return w;
   }
 

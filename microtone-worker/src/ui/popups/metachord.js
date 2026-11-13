@@ -29,6 +29,7 @@ import { setIconLabel } from "../icons.js";
 import { unescapeName } from "../../../core/format/names.js";
 import { t } from "../i18n.js";
 import { actionRow } from "../components/actions.js";
+import { CENTS_DIGITS } from "../spinmaps.js";
 
 /** How long a preview rings before it releases itself. A stack of sustaining
  *  layers would otherwise drone until the dialog closed. */
@@ -36,7 +37,7 @@ const PREVIEW_MS = 2500;
 
 const centsOf = (units) => (units * 1200) / UNITS_PER_OCTAVE;
 const signedCents = (units) =>
-  (units >= 0 ? "+" : "−") + Math.abs(centsOf(units)).toFixed(1) + " ¢";
+  (units >= 0 ? "+" : "−") + Math.abs(centsOf(units)).toFixed(CENTS_DIGITS) + " ¢";
 
 function el(tag, cls, text) {
   const e = document.createElement(tag);

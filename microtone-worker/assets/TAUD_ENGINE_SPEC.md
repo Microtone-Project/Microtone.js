@@ -4,7 +4,7 @@ This document defines the **Taud playback engine**: how a conforming implementat
 
 The **reference implementation** is the Microtone web engine. Its renders are the worked examples conformance is measured against ([§13](#13-determinism)), and where it and this document disagree, one of the two has a defect to fix — neither is a licence for an implementation to differ. It is written in C — compiled to WebAssembly for the browser, and the same sources are the `libtaudplay` player library — and carries its own `pow`, so its renders are the same bits on every machine. The TSVM Audio Adapter's engine follows the reference implementation.
 
-Taud is a ScreamTracker 3-lineage tracker extended with 16-bit effect arguments and a 4096 tone-equal-temperament pitch grid. Where behaviour has an ancestor, this document names it — ImpulseTracker (via Schism Tracker's mixer), FastTracker 2 (via MilkyTracker), ProTracker, SoundFont 2 (via FluidSynth). Those lineages are the *reason* for many rules that would otherwise look arbitrary, and an implementation that follows the rule but not the lineage will drift on real songs.
+Taud is a ScreamTracker 3-lineage tracker extended with 16-bit effect arguments and a 65536 tone-equal-temperament pitch grid. Where behaviour has an ancestor, this document names it — ImpulseTracker (via Schism Tracker's mixer), FastTracker 2 (via MilkyTracker), ProTracker, SoundFont 2 (via FluidSynth). Those lineages are the *reason* for many rules that would otherwise look arbitrary, and an implementation that follows the rule but not the lineage will drift on real songs.
 
 ## Conformance language
 
@@ -107,13 +107,15 @@ Per-pattern loop state — the `S $Bx` loop counters and the Pattern-Ditto arm 
 
 ## 3. Pitch
 
-### 3.1 The 4096-TET grid
+### 3.1 The 65536-TET grid
 
-A note word is an unsigned 16-bit value on a grid of **4096 steps per octave**. `$5000` is C4 (middle C) and each `$1000` is an octave, so `$1000` is C0 and `$F000` is C14. Values `$0000`…`$001F` are sentinels ([§5.2](#5-2-note-events)); the playable range is `$0020`…`$FFFF`, and the engine **MUST** clamp every computed pitch into it.
+Pitch is counted on a grid of **65536 steps per octave**: `$50000` is C4 (middle C) and each `$10000` is an octave, so `$10000` is C0 and `$F0000` is C14. One 12-TET semitone is `65536 ÷ 12` ≈ 5461.33 steps, and one cent is `65536 ÷ 1200` ≈ 54.61 steps. Pitches are not required to land on any particular grid — that is the entire point of the format — so an engine **MUST NOT** quantise them except where a command or a tone mode says so (glissando, `S $1x`, [§3.4](#3-4-tone-modes)).
 
-One 12-TET semitone is `4096 ÷ 12` ≈ 341.33 units, and one cent is `4096 ÷ 1200` ≈ 3.41 units. Note words are not required to land on any particular grid — that is the entire point of the format — so an engine **MUST NOT** quantise them except where a command says so (glissando, `S $1x`).
+A **note word** is the top sixteen bits of a pitch — the pitch ÷ 16 — and it is how the format stores a pitch in sixteen bits: `$5000` is C4, `$1000` an octave, and one unit of it is sixteen steps. A pattern cell carries the four bits below its word, the **fine nibble** (File Format §5.5), so its pitch is `word × 16 + fine`; a legacy-format cell has none, and its pitch is `word × 16` (File Format §5.6). Words `$0000`…`$001F` are sentinels ([§5.2](#5-2-note-events)) and take no fine nibble. The playable range is `$00200`…`$FFFF0` — the words `$0020`…`$FFFF` — and the engine **MUST** clamp every computed pitch into it.
 
-A format-3 cell carries four more bits of pitch, its **fine nibble** (File Format §5.5): its pitch is `word + fine ÷ 16` in these same units — 65536 steps to the octave. The engine takes that number wherever it would have taken the word — the trigger, a tone portamento's target, a delayed note, a duplicate check — and every pitch it computes from it carries the fraction along; slides, arpeggio offsets, vibrato and every effect argument keep their 4096-TET units. A note word below `$0020` is a sentinel, and takes no fraction.
+The engine takes a cell's whole pitch wherever it would have taken the word — the trigger, a tone portamento's target, a delayed note, a duplicate check — and every pitch it computes from it keeps the low bits. Slides, arpeggio offsets, vibrato and every effect argument count in **note-word units**, sixteen steps each: `E $0155` lowers the pitch by `$1550` steps a tick. An instrument's pitch fields are note words, or offsets in note-word units, and the `IPit` section gives each its four low bits and four more of octave ([File Format §9.18](TAUD_FILE_FORMAT.md#9-18-ipit-pitch-extensions)).
+
+The formulas in this document write a pitch as `note`, in note-word units with the low bits as a fraction — `note = pitch ÷ 16`, so a cell's is `word + fine ÷ 16` — because that is the unit of every effect argument and of the engine's own arithmetic.
 
 ### 3.2 Playback rate
 
@@ -148,11 +150,11 @@ Changing the tuning takes effect on the next tick for notes already sounding, so
 
 ### 3.4 Tone modes
 
-The global behaviour flags select how the coarse pitch-slide effects (`E`, `F`) and tone portamento (`G`) interpret their arguments. Every mode ultimately produces a 4096-TET note word; they differ in the space the slide steps through.
+The global behaviour flags select how the coarse pitch-slide effects (`E`, `F`) and tone portamento (`G`) interpret their arguments. Every mode ultimately produces a pitch; they differ in the space the slide steps through.
 
 | Mode | Name | Slide space |
 |---|---|---|
-| 0 | Linear | The argument is added directly to the note word, in 4096-TET units per tick |
+| 0 | Linear | The argument is added directly to the pitch, in note-word units (sixteen steps) per tick |
 | 1 | Amiga period | The argument is subtracted from an Amiga period, per tick |
 | 2 | Linear frequency | The argument is added to a frequency in Hz, per tick |
 
@@ -164,7 +166,7 @@ period ← max(period − argument, 1)
 note   = round($5000 + 4096 × log2(428 ÷ period))
 ```
 
-428 is the ProTracker period of C4 for a standard 8363 Hz sample on the NTSC clock. Fine slides use the same expression without persisting the period.
+The result is a whole note word: a slide in this mode drops a note's fine nibble. 428 is the ProTracker period of C4 for a standard 8363 Hz sample on the NTSC clock. Fine slides use the same expression without persisting the period.
 
 **Linear-frequency mode** keeps a per-voice frequency:
 
@@ -174,7 +176,7 @@ freq ← max(freq + argument, 1)
 note = round($5000 + 4096 × log2(freq ÷ 261.6255653005986))
 ```
 
-This mode exists for sources whose slides are literally in Hz per tick — Monotone's PC-speaker arithmetic is the motivating case.
+The result is again a whole note word. This mode exists for sources whose slides are literally in Hz per tick — Monotone's PC-speaker arithmetic is the motivating case.
 
 **Tone portamento** works in linear note space in modes 0 **and** 1, and in Hz in mode 2. Amiga-mode songs therefore glide linearly in pitch even though their `E`/`F` slides step in period space; this matches the Taud command reference and is deliberate.
 
@@ -323,11 +325,11 @@ A carried envelope keeps its current *value* too — the walker re-reads it from
 
 ### 5.4 Patch resolution
 
-If the instrument carries Ixmp patches, the engine walks the list **in order** and takes the **first** patch whose pitch × volume rectangle contains the trigger. A pitch range runs through the whole of the last unit it names: a trigger at pitch `p` is inside `S`…`E` when `S ≤ p < E + 1`, so that a pitch between two 4096-TET units — which a wide cell can write — is never between two zones that meet ([File Format §9.11](TAUD_FILE_FORMAT.md#9-11-ixmp-patch-records); the bounds with their extensions, where they have them). The same test gates a layer and an operator. When nothing matches, the base record's fields are used unchanged. Because the first match wins, patch order is significant and a fully covered patch is dead weight.
+If the instrument carries Ixmp patches, the engine walks the list **in order** and takes the **first** patch whose pitch × volume rectangle contains the trigger. A pitch range runs through the whole of the last unit it names: a trigger at pitch `p` is inside `S`…`E` when `S ≤ p < E + 1`, so that a pitch between two note words — which a wide cell can write — is never between two zones that meet ([File Format §9.11](TAUD_FILE_FORMAT.md#9-11-ixmp-patch-records); the bounds with their extensions, where they have them). The same test gates a layer and an operator. When nothing matches, the base record's fields are used unchanged. Because the first match wins, patch order is significant and a fully covered patch is dead weight.
 
 The volume axis used for the lookup is the *pre-patch* seed: the volume column's SET if present; otherwise the instrument's default note volume if the row carried an instrument byte; otherwise the voice's current note volume. Using the post-patch volume would make the lookup depend on its own result.
 
-**That axis is six bits in every format version.** The rectangle is instrument data, and a bank is format-neutral, so a version 3 engine **MUST** narrow its eight-bit note volume onto 0…63 (a shift right by two) before testing it — at *every* lookup, not only at the trigger. A version 3 engine that forgets on one path finds no patch there at all, since the seed a wide cell starts from is 255 and every rectangle written by an IT, XM or SoundFont converter ends at 63. The same narrowing applies to a Metainstrument's layer rectangles, which share the axis.
+**That axis is six bits in every format version.** The rectangle is instrument data, and a bank is format-neutral, so the engine **MUST** narrow its eight-bit note volume onto 0…63 (a shift right by two) before testing it — at *every* lookup, not only at the trigger (a legacy-format song's volumes are 0…63 already). An engine that forgets on one path finds no patch there at all, since the seed a cell starts from is 255 and every rectangle written by an IT, XM or SoundFont converter ends at 63. The same narrowing applies to a Metainstrument's layer rectangles, which share the axis.
 
 A patch's "no override" sentinels — default pan `$FF`, default note volume 0, auto-vibrato waveform `$FF` — defer to the base record field by field, with one exception the format forces. **The auto-vibrato sentinel governs all five of its fields.** There is one sentinel for speed, sweep, depth, rate and waveform, so a patch carrying `$FF` *and four zeroes* is saying nothing about auto-vibrato at all and the base record's whole block applies; reading those zeroes would switch an instrument's own vibrato off on every note its keyboard map covers. A patch whose waveform is `$FF` but which states any non-zero number is stating its own vibrato and borrows only the waveform; a patch that names a waveform overrides the block outright, zeroes included.
 
@@ -1217,17 +1219,18 @@ Past-note actions (`S $70`…`S $72`) act on *all* background voices a lane sp
 
 ### 5.8 Volume and panning columns
 
-The columns are applied after the note event and before the effect column.
+The columns are applied after the note event and before the effect column ([File Format §5.5](TAUD_FILE_FORMAT.md#volume-and-panning-columns)).
 
 - **Volume SET** writes the note volume (and rebases the row volume onto it).
-- **Volume slide up/down** arms a per-tick slide for ticks after the first.
-- **Volume fine** applies a one-shot delta at tick 0 — bit 5 of the value is the direction, bits 0…4 the magnitude. A value of 0 is the canonical no-op.
-- **Pan SET** writes the **note** pan, scaled from six bits to eight as `(v << 2) | (v >> 4)` and taken as an offset from centre. It replaces whatever the instrument seeded, so it is how a composer pans one note of a zone-panned instrument by hand. An `S $80xx` on the same row addresses the other axis and both apply.
-- **Pan slides** behave like the volume slides but move the note pan, and in a surround song they **wrap** the azimuth where the stereo model clamps. They keep their own per-tick accumulator, separate from effect `P`'s, so a `P` and a column slide on one row move the two axes independently.
+- **Volume slide up/down** arms a per-tick slide for ticks after the first, by the value in the note volume's own units.
+- **Volume fine** applies a one-shot delta at tick 0 — bit 7 of the value is the direction, bits 0…6 the magnitude. A value of 0 is the canonical no-op.
+- **Pan SET** writes the **note** pan: the column's direction (azimuth, elevation), taken as an offset from the lane's. It replaces whatever the instrument seeded, so it is how a composer pans one note of a zone-panned instrument by hand. An `S $80xx` on the same row addresses the other axis and both apply; a `Z` slide on the same row makes the SET that slide's target instead.
+- **Pan slides** rotate the note's azimuth by the low byte per tick after the first, and in a surround song they **wrap** where the stereo model clamps. They keep their own per-tick accumulator, separate from effect `P`'s, so a `P` and a column slide on one row move the two axes independently.
+- **Pan fine** applies a one-shot rotation at tick 0 — azimuth bit 8 is the direction, the low byte the magnitude.
 
 Both columns write the per-note axis of their quantity and neither can reach the per-lane one (TAUD_NOTE_EFFECTS.md §3, §3a); `M` / `N` and `S $80xx` / `P` / `X` / `4` / `Z` are the commands that can.
 
-The pan column's SET keeps its front-arc meaning in every surround model — six bits cannot express a full turn, and `S $8xxx` and `X` are the commands that can.
+**The legacy format.** A legacy-format cell's columns are six bits ([File Format §5.6](TAUD_FILE_FORMAT.md#5-6-legacy-format-the-8-byte-cell)): a fine slide's direction is bit 5 and its magnitude bits 0…4, and a pan SET is scaled from six bits to eight as `(v << 2) | (v >> 4)`, taken as an offset from centre, and keeps its front-arc meaning in every surround model — six bits cannot express a full turn, and `S $8xxx` and `X` are the commands that can.
 
 ### 5.9 Pattern Ditto
 
@@ -1250,7 +1253,7 @@ The tick pass runs once per tick, per voice, and is where everything continuous 
 9. **Glissando** (`S $1x`): snap the *sounding* pitch to the nearest 12-TET semitone while leaving the note word smooth.
 10. **Tremolo** (`R`): `row_volume = clamp(note_volume + ((lfo × depth) >> 9), 0, 63)`.
 11. **Panbrello** (`Y`): `panbrello_offset = (lfo × depth) >> 7`. This is a signed offset the mixer sums with the two pan axes ([§10.3](#10-3-panning)), **not** a write to either of them — so the LFO swings around wherever the lane and the note have put the voice, without consuming the instrument's own pan seed, and the same offset steers the surround models ([§11](#11-the-spatial-model)). On a tick where `Y` is not active the same step sets it to 0, so a row without `Y` puts the voice back on its base pan. That zero **MUST** be written here and not in the row reset ([§5.1](#5-1-per-row-reset)): a row boundary runs the row pass *after* this one, so a value the row pass clears is still cleared while the new row's first tick renders — one tick of dead centre in the middle of a sweep that spans several rows.
-12. **Arpeggio** (`J`): the tick index modulo 3 selects offset 0, the first argument byte or the second, each shifted left 8 bits (one argument byte is 256 units ≈ 0.75 semitones). This *overrides* the sounding pitch for the tick.
+12. **Arpeggio** (`J`): the tick index modulo 3 selects offset 0, the first argument byte or the second, each shifted left 8 bits (one argument byte is 256 note-word units, `$1000` steps ≈ 0.75 semitones). This *overrides* the sounding pitch for the tick.
 13. **Retrigger** (`Q`): count ticks and, on reaching the interval, first ghost the sounding note per its New Note Action wherever its instrument asks for that ([§5.7](#5-7-new-note-actions)), then restart the sample at the active play start, clear key-off, reset all four envelope playheads (re-seeding the pitch and filter ones past zero-duration nodes), reset the fadeout, auto-vibrato and filter history, and apply the retrigger volume modifier.
 14. **Auto-vibrato** ([§6.1](#6-1-auto-vibrato)), added on top of the sounding pitch.
 15. **Pitch envelope** contribution ([§7.4](#7-4-pitch-and-filter-envelope-application)).
@@ -1274,7 +1277,7 @@ else:           ramp = depth
 
 with `t` the ticks since the trigger. The pitch delta is `(lfo × ramp × 43) >> 12`, and the phase advances by `speed` modulo 1024. Waveform 4 (ramp up, FT2 only) is the negation of waveform 1.
 
-**Both bytes are the source tracker's field × 4.** IT's `Vis` and `Vid` and XM's rate and depth are 6-bit; the record widens them, and every number in this section is written for the widened scale. Depth 255 — the record's maximum, and IT's `Vid` 64 — is ±1 semitone, ±341 units of 4096-TET; the `× 43 >> 12` is that calibration and the response is linear below it. Speed 255 is a cycle every four ticks, speed 4 one every 256. A producer that writes the source field unscaled therefore sounds a quarter of the intended depth at a quarter of the intended rate — not a rounding difference, an audibly different instrument.
+**Both bytes are the source tracker's field × 4.** IT's `Vis` and `Vid` and XM's rate and depth are 6-bit; the record widens them, and every number in this section is written for the widened scale. Depth 255 — the record's maximum, and IT's `Vid` 64 — is ±1 semitone, ±341 note-word units (±5461 steps); the `× 43 >> 12` is that calibration and the response is linear below it. Speed 255 is a cycle every four ticks, speed 4 one every 256. A producer that writes the source field unscaled therefore sounds a quarter of the intended depth at a quarter of the intended rate — not a rounding difference, an audibly different instrument.
 
 A record whose ramp fields are both zero plays at full depth from the first tick, which is FT2's reading of a zero sweep. **IT's is the opposite**: its `Vir` is the only thing that lifts the depth off zero, so an IT sample with `Vir` = 0 plays no auto-vibrato at all however deep its `Vid`. That one is a converter's job — the depth it writes is 0 — because an editor needs the FT2 reading: an instrument given a speed and a depth and nothing else has to sound.
 
@@ -1928,11 +1931,11 @@ Under those conditions, and with the numeric rules of [§12](#12-output-stage), 
 
 Note words `$0010`…`$001F` are **interrupt markers**: they produce no sound and have no built-in behaviour. Processing one latches bit *n* in the playhead's pending-interrupt mask, together with a 16-bit **argument** the song chose.
 
-The argument is the `:` effect on the marker's own row ([Note Effects](TAUD_NOTE_EFFECTS.md#xxxx-interrupt-argument-and-argument-extension)), read but not consumed — the same `:` still extends a `J`, `O`, `2` or `3` sharing the row. A row with no `:` fires with argument `0`. Where a Format 3 row holds a `:` in **both** effect slots, the engine **MUST** take the first slot's and ignore the second's; with only one `:` the slot it sits in makes no difference. Nothing else on the marker's row is the interrupt's business — the instrument byte, the volume and panning columns and any other effect are ignored by it, and still do their own work.
+The argument is the `:` effect on the marker's own row ([Note Effects](TAUD_NOTE_EFFECTS.md#xxxx-interrupt-argument-and-argument-extension)), read but not consumed — the same `:` still extends a `J`, `O`, `2` or `3` sharing the row. A row with no `:` fires with argument `0`. Where a row holds a `:` in **both** effect slots, the engine **MUST** take the first slot's and ignore the second's; with only one `:` the slot it sits in makes no difference. Nothing else on the marker's row is the interrupt's business — the instrument byte, the volume and panning columns and any other effect are ignored by it, and still do their own work.
 
 An engine **MUST** keep one argument per interrupt, not one per fire. The host drains the mask with a **read-to-acknowledge** call that returns and clears it, and reads the arguments beside it; only the words whose bit the drain returned mean anything. Latching accumulates, so no fire is lost between drains, but repeated fires of the same interrupt between two drains collapse into one bit **carrying the last argument** — the semantics are edge-triggered and level-collapsed, on the argument exactly as on the bit. A host dispatches its own callbacks from the drained mask.
 
-A sub-row **note delay** (`S $Dx`) defers a marker exactly as it defers a key-off or a note cut ([§5.2](#5-2-note-events)): the marker **MUST** latch at the tick the delay names and not at tick 0, carrying the argument it was written with, and `x ≥ speed` **MUST** discard it with the rest of the row's note event rather than firing it late or carrying it into the next row. One tick is 20 ms at the default tempo, which is well inside what a cue driven by an interrupt can be seen to miss. Either effect slot of a Format 3 row may carry the delay and the `:` the other; where a row names the delay twice, the first slot wins ([Note Effects](TAUD_NOTE_EFFECTS.md#s-dxny-note-delay-for-x-ticks-then-note-action-n-after-y-ticks)).
+A sub-row **note delay** (`S $Dx`) defers a marker exactly as it defers a key-off or a note cut ([§5.2](#5-2-note-events)): the marker **MUST** latch at the tick the delay names and not at tick 0, carrying the argument it was written with, and `x ≥ speed` **MUST** discard it with the rest of the row's note event rather than firing it late or carrying it into the next row. One tick is 20 ms at the default tempo, which is well inside what a cue driven by an interrupt can be seen to miss. Either effect slot of a row may carry the delay and the `:` the other (a legacy-format row has only one); where a row names the delay twice, the first slot wins ([Note Effects](TAUD_NOTE_EFFECTS.md#s-dxny-note-delay-for-x-ticks-then-note-action-n-after-y-ticks)).
 
 A transport reset clears the mask **and** the arguments ([§15](#15-transport-reset)); a stale argument outliving its bit would otherwise be delivered with the next fire that carries none.
 
@@ -1971,11 +1974,11 @@ Because nothing is mixed, the walk never sees a sample run out: a note it starts
 
 The effect column is specified in full in the **Note Effects** reference, including per-effect memory cohorts, recall rules and the conversion tables for ProTracker, ScreamTracker 3, FastTracker 2 and ImpulseTracker sources. This document defines only the machinery those commands drive.
 
-Opcodes are base-36 digit values: `0`…`9` are `$00`…`$09` and `A`…`Z` are `$0A`…`$23` — except `:` (Format 3 only), which lives in a second, ASCII-symbol opcode space (`$A0`…`$FE`, decoded as `opcode − $80`) opened once the base-36 one filled. A few carry engine-scope rather than voice-scope meaning and are worth naming here:
+Opcodes are base-36 digit values: `0`…`9` are `$00`…`$09` and `A`…`Z` are `$0A`…`$23` — except `:`, which lives in a second, ASCII-symbol opcode space (`$A0`…`$FE`, decoded as `opcode − $80`) opened once the base-36 one filled. A few carry engine-scope rather than voice-scope meaning and are worth naming here:
 
 | Opcode | Scope | Engine effect |
 |---|---|---|
-| `:` | Row | On an interrupt row, that interrupt's argument ([§14](#14-interrupts-and-the-host-interface)); otherwise argument extension — hands its argument to whichever other effect shares the row, resolved once per row before either slot dispatches ([Note Effects](TAUD_NOTE_EFFECTS.md#xxxx-interrupt-argument-and-argument-extension)), and a bare no-op outside Format 3 |
+| `:` | Row | On an interrupt row, that interrupt's argument ([§14](#14-interrupts-and-the-host-interface)); otherwise argument extension — hands its argument to whichever other effect shares the row, resolved once per row before either slot dispatches ([Note Effects](TAUD_NOTE_EFFECTS.md#xxxx-interrupt-argument-and-argument-extension)), and a bare no-op in a legacy-format song |
 | `1` | Playhead | Set the global behaviour flags — tone mode and interpolation — from the argument's high byte |
 | `5` / `6` | Instrument | Cutoff / resonance override, `$FFFF` to clear |
 | `S $Axxx` | Instrument | Instrument Sound Control. On a PSG instrument, a register write into the instrument's run-time overlay ([§5.5.4](#5-5-4-type-9-psg-instruments)); on a formant instrument, `S $Afgr`, the note's vowel; on an FM rack, `S $Apsd`, operator *p*'s auto-vibrato for the note ([§5.5.1](#5-5-1-type-4-fm-racks)) |
@@ -2012,4 +2015,4 @@ An implementation conforms when all of the following hold.
 - A multichannel delivery masters the channel bus per §12.3: identical filtering on every channel, the dynamics detectors linked across all of them, the width as surround width on an ambisonic scene (every channel but W scaled) and skipped on a speaker layout.
 - The output stage narrows to binary32 before clamping, and runs the dither loop entirely in binary32 against a seeded generator.
 - A play-from-row reset returns every lane to the song's start and keeps the playhead's tempo; a chase walks the song's own path from the song start with every row event and tick pass and nothing mixed, stops at the first arrival, falls back to the cue order when that path never arrives, and keeps the lanes' state while deactivating every voice.
-- A format-3 note sounds at its word plus its fine nibble in sixteenths of a unit (§3.1); a sentinel word takes no fraction.
+- A note sounds at its whole pitch, the word and the fine nibble below it (§3.1); a sentinel word takes no fraction.

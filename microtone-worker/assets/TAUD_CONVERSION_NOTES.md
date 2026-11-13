@@ -49,17 +49,19 @@ Whatever resamples a looped sample, the loop **MUST** keep its length in time. A
 
 ### 1.3 Pitch
 
-Every source pitch becomes a 4096-TET note word anchored at C4 = `$5000`:
+Every source pitch becomes a 65536-TET pitch anchored at C4 = `$50000`, rounded to the nearest step — a half rounding up, as the editor's own tables round:
 
 | Source | Conversion |
 |---|---|
-| ProTracker period | `round($5000 + 4096 × log2(428 ÷ period))` |
-| Semitone index *n* relative to C4 | `round($5000 + n × 4096 ÷ 12)` |
-| Frequency *f* Hz | `round($5000 + 4096 × log2(f ÷ 261.6255653))` |
+| ProTracker period | `round($50000 + 65536 × log2(428 ÷ period))` |
+| Semitone index *n* relative to C4 | `round($50000 + n × 65536 ÷ 12)` |
+| Frequency *f* Hz | `round($50000 + 65536 × log2(f ÷ 261.6255653))` |
+
+The cell holds the pitch's note word (the pitch ÷ 16, its top sixteen bits) and its fine nibble (the four bits below), [File Format §5.5](TAUD_FILE_FORMAT.md#note-words).
 
 Per-sample tuning offsets — XM's `relative note` and `finetune`, IT's C5 speed, SoundFont's `originalPitch` and `pitchCorrection` — are baked into the instrument's **sampling rate at C4** field, or into its signed **sample detune** field, rather than being pushed into every note. That keeps the pattern readable and lets a retune operate on musical pitches.
 
-One semitone is ≈ 341.33 units and one cent is ≈ 3.41 units, so slide arguments generally need scaling; each format's section gives its factor.
+Slide arguments count in note-word units, sixteen steps each — one semitone is ≈ 341.33 of them and one cent ≈ 3.41 — so they generally need scaling; each format's section gives its factor.
 
 ### 1.4 Patterns are single-lane
 
@@ -94,7 +96,7 @@ The same goes for anything else a walk decides from what came before: `it2taud` 
 
 ### 1.7 Volume and pan columns
 
-Every converter writes **format 3**, the wide cell ([File Format §5.5](TAUD_FILE_FORMAT.md#5-5-format-version-3-the-wide-cell)): pitches to a sixteenth of a 4096-TET unit, a volume column of a selector and a whole byte, a panning column of a selector and a nine-bit azimuth, and a second effect. FINE with value 0 is the canonical **no-op** in both columns (selector byte `$33`). Two conventions follow:
+Every converter writes the pattern cell of [File Format §5.5](TAUD_FILE_FORMAT.md#5-5-the-pattern-cell), never the legacy one: pitches to the 65536-TET step, a volume column of a selector and a whole byte, a panning column of a selector and a nine-bit azimuth, and a second effect. FINE with value 0 is the canonical **no-op** in both columns (selector byte `$33`). Two conventions follow:
 
 - On a row that triggers a note but carries no explicit source volume, emit a **SET** with the instrument's default volume. Otherwise the lane's prior volume persists into the fresh note, which is almost never what the source meant.
 - On every other row, emit the FINE-0 no-op so the column does not disturb running state.
@@ -135,7 +137,7 @@ The converter sets two global behaviour flags: **Amiga period tone mode** and **
 
 Periods convert against ProTracker's period 428 for C4. Because the song runs in Amiga period mode, coarse `1xx` and `2xx` slide arguments pass through **unscaled** — the engine consumes them in period space directly. Fine slides (`E1x`, `E2x`) do the same.
 
-Tone portamento (`3xx`) is the exception: Taud treats `G` as linear even in Amiga mode, so its argument is scaled to 4096-TET units by `round(arg × 64 ÷ 3)`.
+Tone portamento (`3xx`) is the exception: Taud treats `G` as linear even in Amiga mode, so its argument is scaled to note-word units by `round(arg × 64 ÷ 3)`.
 
 Arpeggio nibbles are semitone offsets and go through the shared table: one Taud argument byte is 256 units ≈ 0.75 semitones, so `byte = round(semitones × 4 ÷ 3)`.
 
@@ -401,9 +403,9 @@ The converter synthesises a single instrument: a 32-byte, 50 %-duty square wave 
 
 ### 6.2 Pitch and slides
 
-Monotone note value 1 is A0, so C4 sits at value 40 and `note = $5000 + round((value − 40) × 4096 ÷ 12)`. Value `$7F` is a note cut.
+Monotone note value 1 is A0, so C4 sits at value 40 and its pitch is `round($50000 + (value − 40) × 65536 ÷ 12)`. Value `$7F` is a note cut.
 
-The interesting decision is the slides. Monotone's `1xx`, `2xx` and `3xx` are **Hz per tick** — its player literally adds the argument to a frequency. Rather than rescale them into 4096-TET units and accumulate drift, the converter emits them verbatim and turns on Taud's **linear-frequency tone mode**, so the engine performs exactly the same arithmetic the original player did. Interpolation is set to none, matching a square-wave source.
+The interesting decision is the slides. Monotone's `1xx`, `2xx` and `3xx` are **Hz per tick** — its player literally adds the argument to a frequency. Rather than rescale them into note-word units and accumulate drift, the converter emits them verbatim and turns on Taud's **linear-frequency tone mode**, so the engine performs exactly the same arithmetic the original player did. Interpolation is set to none, matching a square-wave source.
 
 ### 6.3 Effects
 
@@ -449,7 +451,7 @@ Cues break at every time-signature change, and each section is packed into whole
 
 ### 7.2 Pitch bend
 
-Bends **MUST** be preserved as far as the format allows, and Taud's 4096-TET grid allows a lot.
+Bends **MUST** be preserved as far as the format allows, and Taud's 65536-TET grid allows a lot.
 
 - A note starting under a non-zero bend triggers **directly at the bent pitch**; MIDI can start a note already bent, and a tracker cannot, so the trigger encodes the shifted pitch exactly.
 - Movement during a note becomes linear segments: one row each, carrying the exact target note plus a tone portamento (`G`) sized to arrive by the row's end.

@@ -72,7 +72,7 @@ test("the notation maker's cents fields hold sixteenths and step one 65536-TET s
   assert.equal(m.step(2396, 1), 2396.0625);
   assert.equal(m.step(2396.0625, -1), 2396);
   assert.equal(m.step(0, -1), 0);
-  assert.equal(m.toDisplay(2396), "701.95");
+  assert.equal(m.toDisplay(2396), "701.953");
   // Every 65536-TET step survives its own two-decimal text.
   for (let s = 0; s < 0x10000 * 16; s += 37) {
     assert.equal(m.fromDisplay(m.toDisplay(s / 16)), s / 16, `step ${s}`);

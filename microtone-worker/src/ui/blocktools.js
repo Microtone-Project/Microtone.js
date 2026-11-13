@@ -17,6 +17,7 @@
 import { ICON, fxGlyph } from "./icons.js";
 import { t } from "./i18n.js";
 import { showModal } from "./components/modal.js";
+import { stepsMap, stepsCentsText } from "./spinmaps.js";
 import { COL_NOTE, COL_INST, COL_VOL, COL_PAN, COL_FX, COL_FX2, SUB_PAN } from "./edit.js";
 import { scaleVolumeAt, transformPanAt, changeInstrumentAt } from "../doc/patterntools.js";
 import { setCellsBytesOp, setCellsFieldsOp, bulkNotesOp } from "../doc/ops.js";
@@ -488,10 +489,17 @@ export async function panDialog(store, scope, titleArg) {
 export function transposeFields(store) {
   const units = transposeUnitKeys(store.pitchPreset);
   const harmonicOnly = { field: "mode", is: "harmonic" };
+  // Raw ignores the tuning system, so the notation's two units give way to ONE
+  // field: the shift in 65536-TET steps, with the cents it makes beside it. A
+  // song whose notation has no table at all starts there.
+  const notRaw = { field: "raw", is: false };
+  const rawNotation = !store.pitchPreset || store.pitchPreset.table.length === 0;
   return [
-    { name: "fine", label: t(units.fine), type: "number", value: 0, min: -4096, max: 4096 },
-    { name: "coarse", label: t(units.coarse), type: "number", value: 0, min: -10, max: 10 },
-    { name: "mode", label: t("pat.trMode"), type: "select", value: "chromatic",
+    { name: "fine", label: t(units.fine), type: "number", value: 0, min: -4096, max: 4096, shownWhen: notRaw },
+    { name: "coarse", label: t(units.coarse), type: "number", value: 0, min: -10, max: 10, shownWhen: notRaw },
+    { name: "steps", label: t("pat.rawSteps"), value: 0, map: stepsMap(), ann: stepsCentsText,
+      hint: t("pat.rawStepsHint"), shownWhen: { field: "raw", is: true } },
+    { name: "mode", label: t("pat.trMode"), type: "select", value: "chromatic", enabledWhen: notRaw,
       options: [
         { value: "chromatic", label: t("pat.trModeChromatic") },
         { value: "harmonic", label: t("pat.trModeHarmonic") },
@@ -503,14 +511,22 @@ export function transposeFields(store) {
       enabledWhen: harmonicOnly },
     { name: "avoidClashes", label: t("pat.trAvoidClashes"), type: "checkbox",
       value: HARMONISE_DEFAULTS.avoidClashes, hint: t("pat.trAvoidClashesHint"), enabledWhen: harmonicOnly },
-    { name: "raw", label: t("pat.unitRaw4096"), type: "checkbox", value: false },
+    { name: "raw", label: t("pat.unitRaw"), type: "checkbox", value: rawNotation },
   ];
 }
 
 /** Read the transpose fields back: {fine, coarse, raw, harmonic, policy,
- *  avoidClashes}, or null when nothing would move. */
+ *  avoidClashes}, or null when nothing would move. A Raw shift comes back as
+ *  `fine` in 4096-TET units carrying sixteenths (the 65536-TET steps ÷ 16),
+ *  `coarse` 0 — the arithmetic transposePatternNotes does without a table. */
 export function parseTransposeFields(result) {
   if (!result) return null;
+  const policy = CHROMATIC_POLICIES.includes(result.policy) ? result.policy : HARMONISE_DEFAULTS.policy;
+  if (result.raw) {
+    const steps = Math.round(Number(result.steps) || 0);
+    if (steps === 0) return null;
+    return { fine: steps / 16, coarse: 0, raw: true, harmonic: false, policy, avoidClashes: result.avoidClashes !== false };
+  }
   const fine = parseInt(result.fine || "0", 10) | 0;
   const coarse = parseInt(result.coarse || "0", 10) | 0;
   if (fine === 0 && coarse === 0) return null;
@@ -524,9 +540,9 @@ export function parseTransposeFields(result) {
 }
 
 /** The transpose dialog — its unit labels follow the song's tuning, and the
- *  raw checkbox bypasses notation entirely for a straight 4096-TET-unit shift
- *  (fine = note units, coarse = octaves), the same arithmetic the "Raw
- *  format" preset already does, on demand rather than by switching notation.
+ *  raw checkbox bypasses notation entirely for a straight shift in 65536-TET
+ *  steps (one field in place of fine and coarse), the same arithmetic the
+ *  "Raw format" preset already does, on demand rather than by switching notation.
  *  Resolves the parseTransposeFields shape or null. */
 export async function transposeDialog(store, scope, titleArg) {
   const result = await showModal({
@@ -600,8 +616,8 @@ export function harmonicReportText(report, preset) {
 
 /** The preset a transpose should actually compute against: the raw checkbox
  *  swaps in the "Raw format" preset (an empty table), which makes
- *  transposePatternNotes take its no-table branch — a straight 4096-TET-unit
- *  shift regardless of the song's real notation. */
+ *  transposePatternNotes take its no-table branch — a straight shift by the
+ *  65536-TET steps typed, regardless of the song's real notation. */
 export function transposePresetFor(store, v) {
   return v.raw ? pitchTablePresets[0] : store.pitchPreset;
 }
