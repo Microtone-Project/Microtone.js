@@ -430,6 +430,12 @@ TaudError te_parse_taud(const uint8_t *file, size_t len, TaudDoc *doc)
         if (n < 0) { err = TAUD_ERR_NOMEM; goto fail; }
         doc->numLyrics = n;
     }
+    /* …and the instruments' pitch extensions (§9.18), for the same reason. */
+    sec = find_sec(secs, nSecs, "IPit");
+    if (sec != NULL) {
+        doc->pitchExtOff = sec->off;
+        doc->pitchExtLen = sec->len;
+    }
     free(secs);
     return TAUD_OK;
 
@@ -490,4 +496,6 @@ void te_load_into_engine(TaudEngine *e, const TaudDoc *doc, int songIndex)
     for (p = 0; p < doc->numIxmp; p++) {
         te_upload_instrument_patches(e, doc->ixmp[p].instId, doc->ixmp[p].blob, doc->ixmp[p].len);
     }
+    /* …and the pitch extensions of the records and patches just loaded. */
+    te_set_pitch_ext(e, doc->pitchExtLen > 0 ? doc->projData + doc->pitchExtOff : NULL, doc->pitchExtLen);
 }

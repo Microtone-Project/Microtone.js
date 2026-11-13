@@ -193,7 +193,7 @@ const TaudPatch *te_inst_resolve_patch(const TaudInst *inst, double noteVal, int
     if (inst->extraPatches == NULL || inst->opl != NULL || inst->psg != NULL || inst->formant != NULL) return NULL;
     for (i = 0; i < inst->patchCount; i++) {
         const TaudPatch *p = &inst->extraPatches[i];
-        if (noteVal >= p->pitchStart && noteVal <= p->pitchEnd &&
+        if (te_pitch_in_range(noteVal, p->pitchStart, p->dLo, p->pitchEnd, p->dHi) &&
             rowVolume >= p->volumeStart && rowVolume <= p->volumeEnd) return p;
     }
     return NULL;
@@ -207,7 +207,7 @@ int te_inst_resolve_meta_layers(const TaudInst *inst, double noteVal, int rowVol
     if (inst->meta == NULL) return 0;
     for (i = 0; i < inst->meta->count; i++) {
         const TaudMetaLayer *l = &inst->meta->layers[i];
-        if (noteVal >= l->pitchStart && noteVal <= l->pitchEnd &&
+        if (te_pitch_in_range(noteVal, l->pitchStart, l->dLo, l->pitchEnd, l->dHi) &&
             rowVolume >= l->volStart && rowVolume <= l->volEnd) out[n++] = l;
     }
     return n;
@@ -427,6 +427,10 @@ static void refresh_lyric(TaudInst *inst)
     inst->lyric = inst->lyricStore;
 }
 
+/* The syllables again, after something they are built from has changed
+ * under them (the pitch extension of the reference note, pitchext.c). */
+void te_inst_refresh_lyric(TaudInst *inst) { refresh_lyric(inst); }
+
 /** Install (or, with NULL, drop) this instrument's `ILyr` entry. */
 void te_inst_set_lyric(TaudInst *inst, const TaudLyricEntry *entry)
 {
@@ -478,6 +482,8 @@ static void load_record(TaudInst *inst, const uint8_t *b)
             int instIdx, mixOctet, detRaw, detune, pStart, pEnd, vStart, vEnd;
             bool fixedPitch, usable;
             if (o + 10 > 256) break;
+            memcpy(m.rawPitch + (size_t)n * 6, b + o + 2, 6);
+            m.rawCount = n + 1;
             instIdx = b[o] | (((b[o + 8] >> 6) & 0x3) << 8);
             mixOctet = b[o + 1];
             detRaw = b[o + 2] | (b[o + 3] << 8);
@@ -501,6 +507,7 @@ static void load_record(TaudInst *inst, const uint8_t *b)
                 l->volStart = vStart;
                 l->volEnd = vEnd;
                 l->fixedPitch = fixedPitch;
+                l->srcIndex = n;
             }
             o += 10;
         }
@@ -526,6 +533,7 @@ static void load_record(TaudInst *inst, const uint8_t *b)
         inst->meta = NULL;
         for (i = 0; i < 256; i++) inst_set_byte(inst, i, b[i]);
     }
+    if (inst->engine != NULL) te_apply_pitch_ext(inst->engine, inst);
 }
 
 /* ── invert-loop mask (S $F0xx) ── */

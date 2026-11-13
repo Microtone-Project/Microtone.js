@@ -352,6 +352,14 @@ export class Document {
     this._instrumentsEdited = true;
   }
 
+  /** The instruments' pitch extensions: the `IPit` payload (file format
+   *  §9.18) as the file has it, or null. An engine checks each entry against
+   *  the instrument it names (its guard), so an entry an edit has outdated is
+   *  simply not applied. */
+  pitchExt() {
+    return this.projSections.find((s) => s.fourcc === "IPit")?.payload ?? null;
+  }
+
   /** Set/replace a Project-Data section payload; null removes the section. */
   setSection(fourcc, payload) {
     const i = this.projSections.findIndex((s) => s.fourcc === fourcc);
@@ -1022,6 +1030,8 @@ export class Document {
       imix: this.imixBlocks(),
       // …and so are the lyric instruments' lyrics (item 280).
       lyrics: this.lyricEntries(),
+      // …and the instruments' pitch extensions (§9.18).
+      pitchExt: this.pitchExt(),
       songs: this.songs.map((song, i) => i === songIndex ? {
         bpm: s.bpm, tickRate: s.tickRate, globalFlags: s.globalFlags,
         globalVolume: s.globalVolume, mixingVolume: s.mixingVolume,

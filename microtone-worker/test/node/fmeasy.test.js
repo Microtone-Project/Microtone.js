@@ -281,8 +281,17 @@ test("turning Easy Mode on wraps an ordinary rack in a principal, and it sounds 
   // The note's first samples hold the anti-click attack, which the old
   // principal now takes twice (as an operator, and through the new principal),
   // and the output stage remembers that for a few chunks; after it the two are
-  // the same sound to the bit — the new principal multiplies by exactly 1.0.
-  for (let i = 4; i < 24; i++) assert.deepEqual(after[i], before[i], `chunk ${i}`);
+  // the same sound — the new principal multiplies by exactly 1.0. Not always
+  // the same BITS: a rack runs at its own rate and comes down through a
+  // low-pass (engine spec §5.5.1), and the old principal's level now scales
+  // what goes INTO that filter where the mixer scaled what came out of it —
+  // the same numbers multiplied in another order, a last binary32 bit apart
+  // now and then, which the 8-bit output's dither may turn into one code.
+  let worst = 0;
+  for (let i = 4; i < 24; i++) {
+    for (let k = 0; k < after[i].length; k++) worst = Math.max(worst, Math.abs(after[i][k] - before[i][k]));
+  }
+  assert.ok(worst <= 1, `the wrapped rack differs by ${worst} codes`);
 
   // …and a rack that already reads as Easy Mode only needs its bit.
   assert.equal(planEasyConvert(doc, p.metaSlot).kind, "flag");

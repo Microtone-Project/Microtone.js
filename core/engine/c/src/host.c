@@ -26,7 +26,8 @@ static bool meta_sounds_at(const TaudEngine *e, const TaudInst *inst, int note)
         if (inst->meta->count < 1) return false;
         o = &inst->meta->layers[0];
         return inst->meta->hasProgram && o->instIdx >= 1 &&
-            note >= o->pitchStart && note <= o->pitchEnd && o->volStart <= 0x3f && o->volEnd >= 0x3f;
+            te_pitch_in_range(note, o->pitchStart, o->dLo, o->pitchEnd, o->dHi) &&
+            o->volStart <= 0x3f && o->volEnd >= 0x3f;
     }
     n = te_inst_resolve_meta_layers(inst, note, 0x3f, layers);
     if (!inst->meta->strict) return n > 0;

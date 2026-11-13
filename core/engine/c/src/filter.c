@@ -5,11 +5,18 @@
 
 #include "taud_internal.h"
 
+/* The rate a voice's filter runs at: the engine's, or its rack's for an FM
+ * operator past the first (voice.filterOversample). */
+static double filter_rate(const TaudEngine *e, const TaudVoice *v)
+{
+    return v->filterOversample > 1 ? (double)e->rate * v->filterOversample : (double)e->rate;
+}
+
 /* RBJ cookbook low-pass, normalised to a0; SF2 §2.01 p.59 1/√Q gain-norm. */
 static void sf_biquad(const TaudEngine *e, TaudVoice *v, double fres, double qLin)
 {
     const double pi = 3.141592653589793;
-    double omega = (2.0 * pi * fres) / e->rate;
+    double omega = (2.0 * pi * fres) / filter_rate(e, v);
     double sinC = js_sin(omega);
     double cosC = js_cos(omega);
     double alpha = sinC / (2.0 * qLin);
@@ -34,7 +41,7 @@ void te_refresh_voice_filter(const TaudEngine *e, TaudVoice *v)
     const double pi = 3.141592653589793;
     int cut = v->currentCutoff;
     int res = v->currentResonance;
-    double rate = e->rate;
+    double rate = filter_rate(e, v);
     double nyquist = rate * 0.5 - 1.0;
     double itCutoff, itResonance, frequency, dmpfac, r, d, ee, denom;
     if (cut == v->filterCutoffCached && res == v->filterResonanceCached) return;
@@ -150,7 +157,7 @@ void te_advance_filter_glide(const TaudEngine *e, TaudVoice *v)
     }
     hz = v->sfCentsLeft == 0
         ? v->sfHzAim
-        : dmin(dmax(8.176 * js_pow(2.0, v->sfCents / 1200.0), 5.0), 0.45 * e->rate);
+        : dmin(dmax(8.176 * js_pow(2.0, v->sfCents / 1200.0), 5.0), 0.45 * filter_rate(e, v));
     sf_biquad(e, v, hz, v->sfQ);
 }
 

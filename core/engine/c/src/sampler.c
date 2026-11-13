@@ -9,7 +9,7 @@
 double te_compute_playback_rate(const TaudEngine *e, const TaudVoice *v, double noteVal, double tuningRatio)
 {
     return ((double)v->activeSamplingRate / e->rate) *
-           js_pow(2.0, (noteVal - MIDDLE_C + v->activeSampleDetune) / 4096.0) *
+           js_pow(2.0, (noteVal - MIDDLE_C + v->activeSampleDetune + v->pitchExcess) / 4096.0) *
            tuningRatio;
 }
 
@@ -233,8 +233,9 @@ static void begin_ramp_out(TaudVoice *v, int samples)
 void te_start_ramp_out(TaudEngine *e, TaudVoice *v) { begin_ramp_out(v, e->rampOutSamples); }
 void te_start_cut_ramp(TaudEngine *e, TaudVoice *v) { begin_ramp_out(v, e->attackRampSamples); }
 
-/* Step samplePos by the playback rate and apply the loop/end rules. */
-static void advance_sample_pos(TaudEngine *e, TaudVoice *v, TaudInst *inst, int sampleLen)
+/* Step samplePos by `step` — the playback rate, or its share of one of an
+ * oversampled rack's sub-steps — and apply the loop/end rules. */
+static void advance_sample_pos(TaudEngine *e, TaudVoice *v, TaudInst *inst, int sampleLen, double step)
 {
     bool zWindowed = v->funkPos >= 0 || v->funkWindow >= 0;
     double zLoopStart = v->funkWindow >= 0 ? v->funkWindow : v->activeSampleLoopStart;
@@ -253,7 +254,7 @@ static void advance_sample_pos(TaudEngine *e, TaudVoice *v, TaudInst *inst, int 
 
     if (v->forward) {
         int effectiveLoopMode;
-        v->samplePos += v->currentPlaybackRate;
+        v->samplePos += step;
         effectiveLoopMode = ((v->activeLoopMode & 0x04) != 0 && v->keyOff) ? 0 : v->activeLoopMode & 3;
         switch (effectiveLoopMode) {
         case 0:
@@ -286,7 +287,7 @@ static void advance_sample_pos(TaudEngine *e, TaudVoice *v, TaudInst *inst, int 
             break;
         }
     } else {
-        v->samplePos -= v->currentPlaybackRate;
+        v->samplePos -= step;
         if (v->samplePos < loopStart) {
             if (extWindowed) {
                 double prevWindow = extLoopStart;
@@ -330,7 +331,7 @@ void te_fetch_tracker_sample_stereo(TaudEngine *e, TaudVoice *v, TaudInst *inst,
         v->modFunkXfade--;
     }
     if (v->modXfade > 0) v->modXfade--;
-    if (v->rampOutSamples <= 0) advance_sample_pos(e, v, inst, sampleLen);
+    if (v->rampOutSamples <= 0) advance_sample_pos(e, v, inst, sampleLen, v->currentPlaybackRate);
 }
 
 /* The read position a phase-modulated fetch lands on. */
@@ -374,7 +375,42 @@ double te_fetch_tracker_sample(TaudEngine *e, TaudVoice *v, TaudInst *inst, int 
 
     if (v->modXfade > 0) v->modXfade--;
     if (v->rampOutSamples > 0) return sample;
-    advance_sample_pos(e, v, inst, sampleLen);
+    advance_sample_pos(e, v, inst, sampleLen, v->currentPlaybackRate);
+    return sample;
+}
+
+/* The same fetch as one of the `n` sub-steps an oversampled FM rack takes per
+ * output frame (spec §5.5.1): the position moves a n-th of the playback rate,
+ * and what is counted in output samples — the crossfades of funk repeat and
+ * of the sample modifications — counts once a frame, on the `last` sub-step. */
+double te_fetch_tracker_sample_sub(TaudEngine *e, TaudVoice *v, TaudInst *inst, int interpMode, double posOffset,
+                                   int n, bool last)
+{
+    int sampleLen, binMax = SAMPLE_BIN_TOTAL - 1;
+    double keepPos, sample;
+    if (inst->index == 0) return 0.0;
+
+    sampleLen = imax(v->activeSampleLength, 1);
+    keepPos = v->samplePos;
+    if (posOffset != 0) v->samplePos = wrap_read_pos(v, keepPos + posOffset, sampleLen);
+    sample = interpolate_channel(e, v, inst, interpMode, sampleLen, binMax, v->activeSamplePtr, &v->nesDpcmCounter);
+    if (v->funkXfade > 0) {
+        double w = (double)v->funkXfade / v->funkXfadeLen;
+        sample = ghost_channel(e, v, inst, interpMode, sampleLen, binMax, v->activeSamplePtr,
+                               &v->nesDpcmCounter, v->funkXfadeOffset) * w + sample * (1.0 - w);
+        if (last) v->funkXfade--;
+    }
+    if (v->modFunkXfade > 0) {
+        double w = (double)v->modFunkXfade / v->modFunkXfadeLen;
+        sample = ghost_channel(e, v, inst, interpMode, sampleLen, binMax, v->activeSamplePtr,
+                               &v->nesDpcmCounter, v->modFunkXfadeOffset) * w + sample * (1.0 - w);
+        if (last) v->modFunkXfade--;
+    }
+    if (posOffset != 0) v->samplePos = keepPos;
+
+    if (last && v->modXfade > 0) v->modXfade--;
+    if (v->rampOutSamples > 0) return sample;
+    advance_sample_pos(e, v, inst, sampleLen, v->currentPlaybackRate / n);
     return sample;
 }
 

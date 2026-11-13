@@ -59,6 +59,9 @@ export function loadIntoEngine(eng, doc, songIndex = 0) {
   eng.setLyrics(doc.lyrics ?? []);
 
   for (const entry of doc.ixmp) eng.uploadInstrumentPatches(entry.instId, entry.blob);
+  // …and the instruments' pitch extensions (§9.18): what the records and the
+  // patches above could not hold of their pitches.
+  eng.setPitchExt(doc.pitchExt ?? null);
 }
 
 /** Render up to `seconds`; returns U8 device output + f32 mix-bus tap. */

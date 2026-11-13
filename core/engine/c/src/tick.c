@@ -723,9 +723,16 @@ void te_apply_tracker_tick(TaudEngine *e)
                 bg->layerPitchMod = 0;
                 bg->layerFixedNote = -1;
             } else {
-                bg->noteVal = bg->layerFixedNote >= 0
-                    ? bg->layerFixedNote
-                    : dclamp(parent->noteVal + bg->layerRelDetune, 0x20, 0xffff);
+                if (bg->layerFixedNote >= 0) {
+                    bg->noteVal = bg->layerFixedNote; /* its excess is the trigger's */
+                } else {
+                    /* The parent's pitch, whole, plus this entry's place
+                     * against it; what a note value cannot hold goes into
+                     * the excess, as at the trigger. */
+                    double full = parent->noteVal + parent->pitchExcess + bg->layerRelDetune;
+                    bg->noteVal = dclamp(full, 0x20, 0xffff);
+                    bg->pitchExcess = full - bg->noteVal;
+                }
                 bg->layerPitchMod = parent->pitchModDelta;
                 bg->basePitch = bg->noteVal;
                 bg->amigaPeriod = -1.0;

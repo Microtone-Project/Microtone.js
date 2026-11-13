@@ -582,6 +582,7 @@ void te_upload_instrument_patches(TaudEngine *e, int slot, const uint8_t *bytes,
     inst->extraPatches = n > 0 ? patches : NULL;
     inst->patchCount = n > 0 ? n : 0;
     if (n < 0) e->oom = true;
+    te_apply_pitch_ext(e, inst);
 }
 
 void te_set_cell_format(TaudEngine *e, bool wide)
@@ -972,6 +973,7 @@ void te_engine_free(TaudEngine *e)
     free(e->retired);
     free(e->ownPool);
     free(e->ownImix);
+    te_pitch_ext_free(e);
     te_lyrics_free(e->ownLyrics, e->ownLyricCount);
     free(e);
 }

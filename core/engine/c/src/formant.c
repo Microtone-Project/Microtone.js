@@ -156,7 +156,10 @@ static void vowel_formants(const TaudFormantTables *T, double front, double open
 
 /* A syllable without a vowel (reference note 0) is a syllabic consonant. */
 static bool has_vowel(const TaudFormantPatch *patch) { return patch->refNote != 0; }
-static int ref_note(const TaudFormantPatch *patch) { return patch->refNote != 0 ? patch->refNote : FORMANT_DEFAULT_REF; }
+static double ref_note(const TaudFormantPatch *patch)
+{
+    return patch->refNote != 0 ? patch->refNote + patch->dRefNote : FORMANT_DEFAULT_REF;
+}
 
 static double note_hz(int note)
 {
@@ -905,7 +908,8 @@ void te_formant_lyric_syllable(const TaudFormantPatch *rec, const TaudLyricSylla
     out->open = syl->open & 0xff;
     out->round = syl->round & 0xff;
     out->track = rec->track;
-    out->refNote = syl->vowel ? ref_note(rec) : 0;
+    out->refNote = syl->vowel ? (rec->refNote != 0 ? rec->refNote : FORMANT_DEFAULT_REF) : 0;
+    out->dRefNote = syl->vowel ? rec->dRefNote : 0.0;
     out->nasal = syl->nasal;
     out->glide = rec->glide;
     out->timing = rec->timing;

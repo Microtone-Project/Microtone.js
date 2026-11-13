@@ -647,9 +647,16 @@ export function applyTrackerTick(eng, ts, playhead) {
         // else below still follows the parent — the pitch OVERLAY included, so
         // a vibrato written on the lane still bends it. What the flag takes
         // away is the keyed note, not the pattern's reach over the note.
-        bg.noteVal = bg.layerFixedNote >= 0
-          ? bg.layerFixedNote
-          : clamp(parent.noteVal + bg.layerRelDetune, 0x20, 0xffff);
+        if (bg.layerFixedNote >= 0) {
+          bg.noteVal = bg.layerFixedNote; // its excess is the trigger's
+        } else {
+          // The parent's pitch, whole, plus this entry's place against it;
+          // what a note value cannot hold goes into the excess, as at the
+          // trigger.
+          const full = parent.noteVal + parent.pitchExcess + bg.layerRelDetune;
+          bg.noteVal = clamp(full, 0x20, 0xffff);
+          bg.pitchExcess = full - bg.noteVal;
+        }
         bg.layerPitchMod = parent.pitchModDelta;
         bg.basePitch = bg.noteVal;
         bg.amigaPeriod = -1.0;

@@ -136,6 +136,7 @@ export class FormantPatch {
     this.round = 0;
     this.track = 64;
     this.refNote = 0x4000; // bits 0…14 of the word; 0 = the syllable has NO vowel (formantHasVowel)
+    this.dRefNote = 0;     // the pitch extension of refNote (file format §9.18)
     this.nasal = false;    // bit 15: the vowel nasalised
     this.glide = 20;
     this.timing = 128;
@@ -224,7 +225,8 @@ export function lyricSyllable(rec, syl, recipes, out = new FormantPatch()) {
   out.open = syl.open & 0xff;
   out.round = syl.round & 0xff;
   out.track = rec.track;
-  out.refNote = syl.vowel ? formantRefNote(rec) : 0;
+  out.refNote = syl.vowel ? (rec.refNote !== 0 ? rec.refNote : FORMANT_DEFAULT_REF) : 0;
+  out.dRefNote = syl.vowel ? (rec.dRefNote || 0) : 0;
   out.nasal = !!syl.nasal;
   out.glide = rec.glide;
   out.timing = rec.timing;
@@ -287,7 +289,7 @@ export function formantHasVowel(patch) {
 
 /** The reference note the record's formants are sized by. */
 export function formantRefNote(patch) {
-  return patch.refNote !== 0 ? patch.refNote : FORMANT_DEFAULT_REF;
+  return patch.refNote !== 0 ? patch.refNote + (patch.dRefNote || 0) : FORMANT_DEFAULT_REF;
 }
 
 // ── The vowel ───────────────────────────────────────────────────────────────

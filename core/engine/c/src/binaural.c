@@ -41,18 +41,6 @@ static void binaural_mirror_signs(const int *acn, int n, int8_t *out)
     }
 }
 
-static double bin_bessel_i0(double x)
-{
-    double sum = 1.0, term = 1.0, half = x * 0.5;
-    int k;
-    for (k = 1; k < 24; k++) {
-        term *= (half / k) * (half / k);
-        sum += term;
-        if (term < sum * 1e-17) break;
-    }
-    return sum;
-}
-
 /* Rate-convert the whole set; taps scaled by 1/ratio (impulse responses). */
 static double *binaural_resample(const double *src, int srcLen, int channels, int rate, int *dstLenOut)
 {
@@ -60,7 +48,7 @@ static double *binaural_resample(const double *src, int srcLen, int channels, in
     double cutoff = ratio < 1.0 ? ratio : 1.0;
     double half = ceil(BIN_RESAMP_HALF / cutoff);
     int dstLen = ((int)ceil(srcLen * ratio) + 3) & ~3;
-    double norm = bin_bessel_i0(BIN_RESAMP_BETA);
+    double norm = te_bessel_i0(BIN_RESAMP_BETA);
     double scale = 1.0 / ratio;
     double *out = (double *)calloc((size_t)channels * dstLen, sizeof(double));
     int n;
@@ -75,7 +63,7 @@ static double *binaural_resample(const double *src, int srcLen, int channels, in
             double u = cutoff * d;
             double sinc = fabs(u) < 1e-9 ? 1.0 : js_sin(3.141592653589793 * u) / (3.141592653589793 * u);
             double x = d / half;
-            double w = bin_bessel_i0(BIN_RESAMP_BETA * sqrt(1.0 - x * x)) / norm;
+            double w = te_bessel_i0(BIN_RESAMP_BETA * sqrt(1.0 - x * x)) / norm;
             double g = cutoff * sinc * w * scale;
             for (c = 0; c < channels; c++) out[c * dstLen + n] += src[c * srcLen + i] * g;
         }

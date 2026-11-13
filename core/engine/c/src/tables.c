@@ -108,6 +108,63 @@ const float MINIFLOAT_LUT[256] = {
 #define AMIGA_LED_FC 3090.533
 #define AMIGA_LED_Q 0.660225
 
+/* The modified Bessel function I0, by its series (a Kaiser window's shape). */
+double te_bessel_i0(double x)
+{
+    double sum = 1.0, term = 1.0, half = x * 0.5;
+    int k;
+    for (k = 1; k < 24; k++) {
+        term *= (half / k) * (half / k);
+        sum += term;
+        if (term < sum * 1e-17) break;
+    }
+    return sum;
+}
+
+/* The FM racks' rate at this engine rate, and the low-pass they come down
+ * through (spec §5.5.1): an eighth-order Butterworth at FM_DEC_CUTOFF of the
+ * ENGINE's rate, designed at the rack's — so its place in the oversampled
+ * spectrum is 2π × FM_DEC_CUTOFF ÷ factor, whatever the rate. Four RBJ
+ * low-pass sections on the Butterworth pole angles, lowest Q first. */
+static void build_fm_decimator(TaudEngine *e)
+{
+    const double pi = 3.141592653589793;
+    int n = (FM_OVERSAMPLE_RATE + e->rate - 1) / e->rate;
+    double w0, cosw, sinw;
+    int k;
+    if (n < 1) n = 1;
+    if (n > FM_OVERSAMPLE_MAX) n = FM_OVERSAMPLE_MAX;
+    e->fmOversample = n;
+    w0 = (2.0 * pi * FM_DEC_CUTOFF) / n;
+    cosw = js_cos(w0);
+    sinw = js_sin(w0);
+    for (k = 0; k < FM_DEC_SECTIONS; k++) {
+        double q = 1.0 / (2.0 * js_cos(((2 * k + 1) * pi) / (4.0 * FM_DEC_SECTIONS)));
+        double alpha = sinw / (2.0 * q);
+        double a0 = 1.0 + alpha;
+        e->fmDec[k][0] = ((1.0 - cosw) * 0.5) / a0;
+        e->fmDec[k][1] = (1.0 - cosw) / a0;
+        e->fmDec[k][2] = ((1.0 - cosw) * 0.5) / a0;
+        e->fmDec[k][3] = (-2.0 * cosw) / a0;
+        e->fmDec[k][4] = (1.0 - alpha) / a0;
+    }
+}
+
+/* One sample through the racks' low-pass: each section in transposed direct
+ * form II, `state` its two numbers a section. */
+double te_fm_decimate(const TaudEngine *e, double *state, double x)
+{
+    int k;
+    for (k = 0; k < FM_DEC_SECTIONS; k++) {
+        const double *c = e->fmDec[k];
+        double y = c[0] * x + state[2 * k];
+        state[2 * k] = c[1] * x - c[3] * y + state[2 * k + 1];
+        state[2 * k + 1] = c[2] * x - c[4] * y;
+        x = y;
+    }
+    return x;
+}
+
 void te_build_tables(TaudEngine *e)
 {
     const double pi = 3.141592653589793;
@@ -132,6 +189,8 @@ void te_build_tables(TaudEngine *e)
     }
 
     for (i = 0; i < 256; i++) e->pcmU8[i] = (i - 127.5) / 127.5;
+
+    build_fm_decimator(e);
 
     e->a500B1 = js_exp((-2.0 * pi * AMIGA_A500_LP_FC) / rate);
     e->a500A0 = 1.0 - e->a500B1;

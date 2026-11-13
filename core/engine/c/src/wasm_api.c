@@ -245,6 +245,11 @@ int tw_set_imix(TaudEngine *e, const uint8_t *section, uint32_t len)
     return n;
 }
 
+/** The whole `IPit` section payload (len 0 = none): the instruments' pitch
+ *  extensions (§9.18). The engine copies what it keeps. */
+TW_EXPORT(tw_set_pitch_ext)
+void tw_set_pitch_ext(TaudEngine *e, const uint8_t *section, uint32_t len) { te_set_pitch_ext(e, section, len); }
+
 /** The whole `ILyr` section payload (len 0 = no lyrics). Returns the number of
  *  entries installed, or -1 out of memory (the old set stays). */
 TW_EXPORT(tw_set_lyrics)

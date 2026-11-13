@@ -310,6 +310,11 @@ export class Voice {
     this.activeSampleLoopEnd = 0;
     this.activeSamplingRate = 0;
     this.activeSampleDetune = 0; // signed 4096-TET
+    // How far the pitch this voice SOUNDS lies outside the sixteen octaves a
+    // note value can hold: a layer or an operator whose detune (or fixed note)
+    // takes it there keeps noteVal at the nearest end and carries the rest
+    // here, into the playback rate (§9.18). 0 for any other voice.
+    this.pitchExcess = 0;
     this.activeLoopMode = 0;     // bits 0-1 direction, bit 2 sustain
     this.activeVibratoSpeed = 0;
     this.activeVibratoSweep = 0;
@@ -371,6 +376,10 @@ export class Voice {
     this.filterX1 = 0.0;
     this.filterX2 = 0.0;
     this.filterCutoffCached = -1;
+    // How many times a frame this voice's filter runs: an FM operator past the
+    // first is filtered at its rack's rate, so its coefficients are made for
+    // that rate. 0 or 1 = the engine's own.
+    this.filterOversample = 0;
     // SoundFont-mode filter glide (filter.js advanceFilterGlide): where the
     // cutoff (cents) and Q stand, their per-sample steps and how many remain,
     // and the refresh's targets. sfCents NaN = the next refresh lands at once.

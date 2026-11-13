@@ -9,6 +9,12 @@
 
 import { SAMPLING_RATE, SF_FILTER_GLIDE_SAMPLES } from "./constants.js";
 
+/** The rate a voice's filter runs at: the engine's, or its rack's for an FM
+ *  operator past the first (voice.filterOversample). */
+function filterRate(voice) {
+  return voice.filterOversample > 1 ? SAMPLING_RATE * voice.filterOversample : SAMPLING_RATE;
+}
+
 /** Recompute filter coefficients when cutoff/resonance changed since last refresh. */
 export function refreshVoiceFilter(voice) {
   const cut = voice.currentCutoff;
@@ -17,11 +23,12 @@ export function refreshVoiceFilter(voice) {
   voice.filterCutoffCached = cut;
   voice.filterResonanceCached = res;
 
-  const nyquist = SAMPLING_RATE * 0.5 - 1.0;
+  const rate = filterRate(voice);
+  const nyquist = rate * 0.5 - 1.0;
   if (voice.filterSfMode) {
     // SoundFont mode: cutoff = absolute cents, resonance = centibels above DC gain.
     if (cut >= 0xffff) { voice.filterActive = false; stopSfGlide(voice); return; }
-    const fres = Math.min(Math.max(8.176 * 2 ** (cut / 1200.0), 5.0), 0.45 * SAMPLING_RATE);
+    const fres = Math.min(Math.max(8.176 * 2 ** (cut / 1200.0), 5.0), 0.45 * rate);
 
     // SF2 Q (cB) → linear, with FluidSynth's −3.01 dB offset (Q=0 cB ⇒ Butterworth).
     const qcb = res >= 0xffff ? 0 : res;
@@ -81,7 +88,7 @@ export function refreshVoiceFilter(voice) {
   const frequency = Math.min(110.0 * 2 ** (itCutoff / 24.0 + 0.25), nyquist);
   const dmpfac = 10 ** ((-itResonance * (24.0 / 128.0)) / 20.0);
 
-  const r = SAMPLING_RATE / (2.0 * Math.PI * frequency);
+  const r = rate / (2.0 * Math.PI * frequency);
   const d = dmpfac * r + dmpfac - 1.0;
   const e = r * r;
   const denom = 1.0 + d + e;
@@ -95,7 +102,7 @@ export function refreshVoiceFilter(voice) {
 
 /** RBJ cookbook low-pass, normalised to a0; SF2 §2.01 p.59 1/√Q gain-norm. */
 function sfBiquad(voice, fres, qLin) {
-  const omega = (2.0 * Math.PI * fres) / SAMPLING_RATE;
+  const omega = (2.0 * Math.PI * fres) / filterRate(voice);
   const sinC = Math.sin(omega);
   const cosC = Math.cos(omega);
   const alpha = sinC / (2.0 * qLin);
@@ -139,7 +146,7 @@ export function advanceFilterGlide(voice) {
   }
   const hz = voice.sfCentsLeft === 0
     ? voice.sfHzAim
-    : Math.min(Math.max(8.176 * 2 ** (voice.sfCents / 1200.0), 5.0), 0.45 * SAMPLING_RATE);
+    : Math.min(Math.max(8.176 * 2 ** (voice.sfCents / 1200.0), 5.0), 0.45 * filterRate(voice));
   sfBiquad(voice, hz, voice.sfQ);
 }
 

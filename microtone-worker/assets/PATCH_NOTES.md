@@ -6,13 +6,21 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 
 ## Version 5.0.0 (2026-11-13)
 
-**Microtone has a new engine: the same one, rewritten in C and run as WebAssembly, and faster in every browser.** Everything that makes sound goes through it: playback, jamming, every preview, audio export, stems and surround, Pattern to Sample and Motif builds. This version adds no features; the engine is the change.
+**Microtone has a new engine: the same one, rewritten in C and run as WebAssembly, and faster in every browser.** Everything that makes sound goes through it: playback, jamming, every preview, audio export, stems and surround, Pattern to Sample and Motif builds.
 
 - Playing a song takes less of the processor: measured on the demo songs, the engine is at least one and a half times as fast as before in Chrome, two and a half times in Firefox, and a little faster in the desktop app on Linux. A dense song that crackled on a slow machine has that much more room.
 - Songs sound as they did. One thing is computed differently on purpose: the default (sinc) interpolation now reads its table at the nearest of 1024 positions below the playhead instead of blending two entries, which is where part of the speed comes from. The difference is some 70 dB below the music, under the noise of an 8-bit sample.
 - The engine is the same bits everywhere now. It carries its own mathematics instead of the browser's, so a song renders to the identical file in Chrome, Firefox, Safari, the desktop app and the player libraries, whatever the machine.
 - Microtone Touch and the desktop app run the same engine.
 - The `taudplay` JavaScript library is version 5.0.0 and runs this engine too, with the API it had; `libtaudplay`, the C library, is no longer a port of the engine but its source.
+- Fixed: a note lying between two 4096ths of an octave, which the built-in tuning systems now write, could fall into the gap between two keyboard zones of a sampled instrument and play its base sample instead; a zone, a layer's range and an operator's range now run through the whole of their last step.
+
+**FM instruments are computed at 192 kHz inside, so a hard-driven patch no longer aliases.** A deep modulation makes partials far above what the output can hold, and they used to fold back into the audible range as tones that belong to no harmonic of the note.
+
+- An FM rack now runs at four times the usual 48 kHz (the smallest whole multiple of the engine's rate that reaches 192 kHz) and is filtered down to the output: in a patch driven hard, the folded tones are more than 20 dB quieter than before. A gentle patch sounds as it did.
+- Feedback loops close at that rate too, so an operator that feeds itself back changes its tone a little.
+- An operator's own filter keeps the cutoff you set; an OPL or a PSG instrument used as an operator still runs on its chip's own clock.
+- An FM instrument costs about four times the processor per operator that it did, so a song made mostly of FM instruments is heavier than before; songs without them are not affected.
 
 ## Version 4.10.0 (2026-11-11)
 

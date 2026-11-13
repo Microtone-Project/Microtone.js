@@ -26,6 +26,7 @@ import {
 import { imixBlockMap } from "./imix.js";
 import {
   META_TYPE_FM, META_TIER_NONE, META_TIER_LOW, META_TIER_HIGH, INST_VOLENV8, metaTierOf, writePatchesBlob, layerNote,
+  pitchInRange,
 } from "./inst.js";
 
 const NUM_INST_SLOTS = 1025; // the 1024 bank slots and the audition slot
@@ -246,7 +247,7 @@ class InstView extends viewClass("TaudInst") {
     const patches = this.extraPatches;
     if (patches === null || this.opl !== null || this.psg !== null || this.formant !== null) return null;
     for (const p of patches) {
-      if (noteVal >= p.pitchStart && noteVal <= p.pitchEnd &&
+      if (pitchInRange(noteVal, p.pitchStart, p.dLo, p.pitchEnd, p.dHi) &&
           rowVolume >= p.volumeStart && rowVolume <= p.volumeEnd) return p;
     }
     return null;
@@ -256,7 +257,7 @@ class InstView extends viewClass("TaudInst") {
   resolveMetaLayers(noteVal, rowVolume) {
     const layers = this.metaLayers;
     if (layers === null) return [];
-    return layers.filter((l) => noteVal >= l.pitchStart && noteVal <= l.pitchEnd &&
+    return layers.filter((l) => pitchInRange(noteVal, l.pitchStart, l.dLo, l.pitchEnd, l.dHi) &&
       rowVolume >= l.volStart && rowVolume <= l.volEnd);
   }
 }
@@ -391,7 +392,7 @@ export class TaudEngine extends WasmTaudEngine {
     if (inst.isFm) {
       const o = inst.metaLayers[0];
       return inst.fmProgram !== null && o.instIdx >= 1 &&
-        note >= o.pitchStart && note <= o.pitchEnd && o.volStart <= 0x3f && o.volEnd >= 0x3f;
+        pitchInRange(note, o.pitchStart, o.dLo, o.pitchEnd, o.dHi) && o.volStart <= 0x3f && o.volEnd >= 0x3f;
     }
     let layers = inst.resolveMetaLayers(note, 0x3f);
     if (inst.metaStrict) {

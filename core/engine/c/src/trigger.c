@@ -99,7 +99,7 @@ void te_apply_active_sample(TaudVoice *v, const TaudInst *inst, const TaudPatch 
          * tracker convention (§7.8, §7.9) — the pitch has to come from
          * somewhere. */
         v->activeSamplingRate = inst_is_chip(inst) && inst->samplingRate == 0 ? OPL_C4_RATE : inst->samplingRate;
-        v->activeSampleDetune = inst_sample_detune_signed(inst);
+        v->activeSampleDetune = inst_sample_detune_signed(inst) + inst->dSampleDetune;
         v->activeLoopMode = inst->loopMode;
         v->activeVibratoSpeed = inst->vibratoSpeed;
         v->activeVibratoSweep = inst->vibratoSweep;
@@ -117,7 +117,7 @@ void te_apply_active_sample(TaudVoice *v, const TaudInst *inst, const TaudPatch 
         v->activeSampleLoopStart = patch->loopStart;
         v->activeSampleLoopEnd = patch->loopEnd;
         v->activeSamplingRate = patch->samplingRate;
-        v->activeSampleDetune = patch->sampleDetune;
+        v->activeSampleDetune = patch->sampleDetune + patch->dDetune;
         v->activeLoopMode = patch->loopMode;
         v->activeVibratoSpeed = vibDefer ? inst->vibratoSpeed : patch->vibratoSpeed;
         v->activeVibratoSweep = vibDefer ? inst->vibratoSweep : patch->vibratoSweep;
@@ -246,6 +246,13 @@ static inline double pitch_of(const TaudMetaLayer *l, double noteVal)
 {
     return dclamp(te_layer_note(l, noteVal), 0x20, 0xffff);
 }
+/* What pitch_of had to leave out: the part of an entry's pitch that lies
+ * outside a note value's sixteen octaves (voice.pitchExcess). */
+static inline double excess_of(const TaudMetaLayer *l, double noteVal)
+{
+    double full = te_layer_note(l, noteVal);
+    return full - dclamp(full, 0x20, 0xffff);
+}
 
 static void seed_child_lane_context(TaudVoice *child, const TaudVoice *voice, int chanPan, int chanRowPan,
                                     int chanPanbrello, double chanAzimuth, double chanElevation)
@@ -275,7 +282,7 @@ static bool fm_sounds(TaudEngine *e, const TaudMetaLayer *o, double noteVal, int
      * made OUT of sources, and taking one would be recursion (§7.4). */
     return o->instIdx >= 1 && o->instIdx <= 1023 &&
         !inst_is_meta(&e->instruments[o->instIdx]) && !inst_is_high_meta(&e->instruments[o->instIdx]) &&
-        noteVal >= o->pitchStart && noteVal <= o->pitchEnd &&
+        te_pitch_in_range(noteVal, o->pitchStart, o->dLo, o->pitchEnd, o->dHi) &&
         seedVol >= o->volStart && seedVol <= o->volEnd;
 }
 
@@ -387,12 +394,13 @@ void te_trigger_meta_or_note(TaudEngine *e, TaudVoice *voice, int vi, double not
     l0Elevation = l0HasPan ? seed.elevation : 0;
     voice->layerMixGain = META_MIX_GAIN[l0->mixOctet & 0xff];
     voice->layerRelDetune = 0;
-    voice->layerFixedNote = l0->fixedPitch ? (int)pitch_of(l0, noteVal) : -1;
+    voice->layerFixedNote = l0->fixedPitch ? pitch_of(l0, noteVal) : -1;
+    voice->pitchExcess = excess_of(l0, noteVal);
     voice->layerRelPan = 0;
     voice->layerRelElevation = 0;
     voice->isLayerChild = false;
     voice->metaForeground = true;
-    voice->metaForegroundDetune = l0->detune;
+    voice->metaForegroundDetune = l0->detune + l0->dDetune;
     for (k = 1; k < nLayers; k++) {
         const TaudMetaLayer *lk = layers[k];
         TaudVoice *child = te_voice_alloc(e);
@@ -403,7 +411,8 @@ void te_trigger_meta_or_note(TaudEngine *e, TaudVoice *voice, int vi, double not
         child->sourceChannel = vi;
         child->displayInst = voice->displayInst;
         child->layerRelDetune = te_layer_note(lk, noteVal) - te_layer_note(l0, noteVal);
-        child->layerFixedNote = lk->fixedPitch ? (int)pitch_of(lk, noteVal) : -1;
+        child->layerFixedNote = lk->fixedPitch ? pitch_of(lk, noteVal) : -1;
+        child->pitchExcess = excess_of(lk, noteVal);
         if (seed.present) {
             child->layerRelPan = seed.pan - l0Pan;
             child->layerRelElevation = seed.elevation - l0Elevation;
@@ -447,12 +456,13 @@ static void trigger_fm_rack(TaudEngine *e, TaudVoice *voice, int vi, double note
     te_trigger_note(e, voice, pitch_of(&ops[0], noteVal), ops[0].instIdx, rowVolOverride, NULL);
     voice->layerMixGain = 1.0;
     voice->layerRelDetune = 0;
-    voice->layerFixedNote = ops[0].fixedPitch ? (int)pitch_of(&ops[0], noteVal) : -1;
+    voice->layerFixedNote = ops[0].fixedPitch ? pitch_of(&ops[0], noteVal) : -1;
+    voice->pitchExcess = excess_of(&ops[0], noteVal);
     voice->layerRelPan = 0;
     voice->layerRelElevation = 0;
     voice->isLayerChild = false;
     voice->metaForeground = true;
-    voice->metaForegroundDetune = ops[0].detune;
+    voice->metaForegroundDetune = ops[0].detune + ops[0].dDetune;
 
     /* The rig is built after the trigger (which drops any previous one); the
      * JS builds it before, but nothing in between reads it. */
@@ -470,6 +480,9 @@ static void trigger_fm_rack(TaudEngine *e, TaudVoice *voice, int vi, double note
         op = te_voice_alloc(e);
         if (op == NULL) break;
         seed_child_lane_context(op, voice, chanPan, chanRowPan, chanPanbrello, chanAzimuth, chanElevation);
+        /* Its filter runs at the rack's rate (fm.c): said before the trigger
+         * makes the first coefficients. */
+        op->filterOversample = e->fmOversample;
         te_trigger_note(e, op, pitch_of(&ops[k], noteVal), ops[k].instIdx, rowVolOverride, NULL);
         op->isLayerChild = true;
         op->fmOperator = true;
@@ -477,7 +490,8 @@ static void trigger_fm_rack(TaudEngine *e, TaudVoice *voice, int vi, double note
         op->sourceChannel = vi;
         op->displayInst = voice->displayInst;
         op->layerRelDetune = te_layer_note(&ops[k], noteVal) - te_layer_note(&ops[0], noteVal);
-        op->layerFixedNote = ops[k].fixedPitch ? (int)pitch_of(&ops[k], noteVal) : -1;
+        op->layerFixedNote = ops[k].fixedPitch ? pitch_of(&ops[k], noteVal) : -1;
+        op->pitchExcess = excess_of(&ops[k], noteVal);
         op->layerMixGain = 1.0;
         op->layerRelPan = 0;
         op->layerRelElevation = 0;
@@ -519,6 +533,7 @@ static void trigger_note_seed(TaudEngine *e, TaudVoice *voice, double noteVal, i
 
     voice->oplCarry = false;
     voice->psgCarry = false;
+    voice->pitchExcess = 0.0;   /* a layer's or an operator's is set by its trigger, after this */
 
     if (instId != 0) voice->instrumentId = instId;
     inst = &e->instruments[voice->instrumentId];
@@ -602,7 +617,7 @@ static void trigger_note_seed(TaudEngine *e, TaudVoice *voice, double noteVal, i
             }
         }
         if (inst->pitchPanSeparation != 0) {
-            double noteDelta = (noteVal - inst->pitchPanCentre) / 4096.0;
+            double noteDelta = (noteVal - (inst->pitchPanCentre + inst->dPitchPanCentre)) / 4096.0;
             double panShift = trunc(noteDelta * inst->pitchPanSeparation * 4.0);
             te_apply_note_pan_slide(e, voice, panShift);
             seed->present = true;
@@ -844,6 +859,7 @@ static TaudVoice *ghost_voice(TaudEngine *e, const TaudVoice *src, int channel)
     v->filterX1 = src->filterX1;
     v->filterX2 = src->filterX2;
     v->filterCutoffCached = src->filterCutoffCached;
+    v->filterOversample = src->filterOversample;
     v->filterResonanceCached = src->filterResonanceCached;
     v->sfCents = src->sfCents; v->sfCentsIncr = src->sfCentsIncr; v->sfCentsLeft = src->sfCentsLeft;
     v->sfCentsAim = src->sfCentsAim; v->sfHzAim = src->sfHzAim; v->sfQ = src->sfQ;
@@ -879,6 +895,7 @@ static TaudVoice *ghost_voice(TaudEngine *e, const TaudVoice *src, int channel)
     v->activeSampleLoopEnd = src->activeSampleLoopEnd;
     v->activeSamplingRate = src->activeSamplingRate;
     v->activeSampleDetune = src->activeSampleDetune;
+    v->pitchExcess = src->pitchExcess;
     v->activeLoopMode = src->activeLoopMode;
     v->funkWindow = src->funkWindow;
     v->modFunkWindow = src->modFunkWindow;

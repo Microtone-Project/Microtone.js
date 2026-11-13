@@ -18,7 +18,10 @@ import { fileURLToPath } from "node:url";
 import { parseTaud } from "../core/format/taud-parse.js";
 import { TaudEngine } from "../core/engine/engine-js.js";
 import { WasmTaudEngine } from "../core/engine/wasm-engine.js";
-import { TaudInst } from "../core/engine/inst.js";
+import {
+  TaudInst, parsePatchesBlob, buildMetaRecord, makeMetaLayer, META_TYPE_FM, FM_WORD_OSC, FM_WORD_MOD, FM_WORD_FB, FmOp,
+} from "../core/engine/inst.js";
+import { pitchExtEntry, buildPitchExtSection } from "../core/format/pitch-ext-section.js";
 import { setSamplingRate, TRACKER_CHUNK, SAMPLE_BIN_TOTAL } from "../core/engine/constants.js";
 import { setRandomSource, makeSeededRandom } from "../core/engine/rng.js";
 import { loadIntoEngine } from "../core/audio/offline-render.js";
@@ -487,6 +490,115 @@ export const SCENARIOS = {
       r.render(200);
       eng.setLyrics(doc.lyrics);
       r.render(200);
+    },
+  },
+  "pitch extensions installed, outdated by an edit, and taken away": {
+    file: DEMO("Huygens_clock"),
+    script(r) {
+      const { eng, doc } = r;
+      // An `IPit` section over the song's own bank (§9.18): every instrument's
+      // base detune, every layer and every zone moved off the 4096-TET grid,
+      // and one layer table reaching for another sixteen octaves.
+      const image = doc.sampleInstImage;
+      const recOf = (slot) => image.subarray(SAMPLE_BIN_TOTAL + slot * 256, SAMPLE_BIN_TOTAL + (slot + 1) * 256);
+      const blobs = new Map(doc.ixmp.map((e) => [e.instId, e.blob]));
+      const entries = [];
+      let tables = 0, first = -1;
+      for (let slot = 1; slot < 1024; slot++) {
+        const m = new TaudInst(slot);
+        m.loadRecord(recOf(slot));
+        if (blobs.has(slot)) m.extraPatches = parsePatchesBlob(blobs.get(slot));
+        const tabled = m.metaLayers !== null;
+        if (!tabled && m.sampleLength === 0 && m.extraPatches === null) continue;
+        if (first < 0 && !tabled) first = slot;
+        const n = m.extraPatches?.length ?? 0;
+        entries.push(pitchExtEntry(m, {
+          base: tabled ? null : [0x05, 0x02, 0],
+          table: tabled ? Array.from({ length: m.metaEntryCount * 3 }, (_, i) => (i % 3 === 0 ? (tables++ === 0 ? 0x13 : 0x0b) : i % 3 === 2 ? 0x04 : 0)) : null,
+          patches: n > 0 ? Array.from({ length: n * 3 }, (_, i) => (i % 3 === 2 ? 0x07 : 0)) : null,
+        }));
+      }
+      const section = buildPitchExtSection(entries);
+      r.note(entries.length, section.length);
+      playFromTop(r);
+      r.render(200);
+      eng.setPitchExt(section);             // under sounding notes
+      r.render(400);
+      // An edit the section does not know of: that instrument's entry is
+      // outdated, and the rest stand.
+      const changed = Uint8Array.from(recOf(first));
+      changed[184] ^= 0x10;
+      eng.uploadInstrument(first, changed);
+      r.render(200);
+      eng.uploadInstrument(first, recOf(first));
+      eng.setTrackerRow(0, 0);
+      eng.play(0);
+      r.render(300);
+      eng.setPitchExt(null);
+      r.render(200);
+    },
+  },
+  "FM racks at their own rate: feedback, a filtered modulator, chip operators, ghosts": {
+    file: DEMO("Troll_Chord"),
+    script(r) {
+      const { eng, doc } = r;
+      // Racks built over the song's own bank (§5.5.1): the demo has none, and
+      // a rack's sub-steps, its low-pass, an operator's filter at the rack's
+      // rate and a chip operator held over a frame are all the engine's.
+      const image = doc.sampleInstImage;
+      const recOf = (slot) => image.subarray(SAMPLE_BIN_TOTAL + slot * 256, SAMPLE_BIN_TOTAL + (slot + 1) * 256);
+      const kindOf = (slot) => { const b = recOf(slot); return b[2] === 0xff && b[3] === 0xff ? b[0] >> 4 : -1; };
+      const used = r.usedInstruments();
+      const opl = used.find((s) => kindOf(s) === 8), psg = used.find((s) => kindOf(s) === 9);
+      // A one-cycle oscillator of our own, and the same with a filter on it:
+      // the Impulse Tracker kind, then the SoundFont one with a resonance.
+      // (Written into a copy of the song's image, which goes up whole — the
+      // way a host changes the pool — with the patch lists after it.)
+      const bank = Uint8Array.from(image);
+      const at = 0x7f0000;
+      for (let i = 0; i < 256; i++) bank[at + i] = 128 + Math.round(110 * Math.sin((2 * Math.PI * i) / 256) + 14 * Math.sin((6 * Math.PI * i) / 256));
+      eng.uploadSampleInstBlob(bank);
+      for (const e of doc.ixmp) eng.uploadInstrumentPatches(e.instId, e.blob);
+      const osc = (cut = 0xff, sf = false) => {
+        const b = new Uint8Array(256);
+        b[0] = at & 0xff; b[1] = (at >> 8) & 0xff; b[2] = (at >> 16) & 0xff;
+        b[4] = 0; b[5] = 1; b[6] = 0x00; b[7] = 0x80; b[12] = 0; b[13] = 1; b[14] = 1;
+        b[21] = 0x3f; b[171] = 255; b[196] = 255;
+        if (sf) { b[173] = 0x10; b[182] = 0x24; b[252] = 0x9c; b[183] = 0x00; b[253] = 0x50; } // 9372 cents (1.84 kHz), 8 dB
+        else { b[182] = cut; b[183] = 0x40; }
+        return b;
+      };
+      eng.uploadInstrument(940, osc());
+      eng.uploadInstrument(941, osc(0x58));
+      eng.uploadInstrument(942, osc(0, true));
+      const L = (inst, octet, detune, fixed = false) => makeMetaLayer(inst, octet, detune, 0x0000, 0xffff, 0, 63, fixed);
+      const rack = (ops, program) => buildMetaRecord(ops, { type: META_TYPE_FM, program: Uint16Array.from([...program, FmOp.END]) });
+      // 950: a carrier with a modulator that feeds itself back.
+      eng.uploadInstrument(950, rack([L(940, 159, 0), L(940, 175, 4096)], [FM_WORD_FB | 1, FM_WORD_MOD | 1, FM_WORD_MOD | 0]));
+      // 951: three in series, the two modulators filtered (one each way), the top one fixed.
+      eng.uploadInstrument(951, rack([L(940, 159, 0), L(941, 190, 6492), L(942, 200, 0x6800, true)],
+        [FM_WORD_OSC | 2, FM_WORD_MOD | 1, FM_WORD_MOD | 0]));
+      // 952 / 953: a chip as the modulator, and as the carrier.
+      eng.uploadInstrument(952, rack([L(940, 159, 0), L(opl, 180, 0)], [FM_WORD_OSC | 1, FM_WORD_MOD | 0]));
+      eng.uploadInstrument(953, rack([L(psg, 159, 0), L(940, 185, 4096)], [FM_WORD_OSC | 1, FM_WORD_MOD | 0]));
+      r.note(opl, psg);
+      let k = 0;
+      for (const inst of [950, 951, 952, 953]) {
+        for (const note of [0x3800, 0x5000, 0x6955, 0x8400]) {
+          eng.jamNote(0, eng.jamVoice(k++ % 6), note, inst, false);
+          r.render(90);
+        }
+        eng.jamRelease(0, eng.jamVoice((k + 3) % 6));
+        r.render(60);
+      }
+      // …and under a song, on lanes, where a new note ghosts the old rack.
+      playFromTop(r);
+      for (let i = 0; i < 6; i++) {
+        eng.jamNote(0, 30, 0x4800 + i * 0x2ab, 950 + (i & 1), false);
+        r.render(50);
+      }
+      eng.jamStop(0);
+      r.render(120);
     },
   },
   "a full reset and a second file": {

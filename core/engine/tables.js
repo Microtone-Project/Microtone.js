@@ -107,6 +107,54 @@ function rebuildAmigaCoeffs(rate) {
 rebuildAmigaCoeffs(SAMPLING_RATE);
 onSamplingRateChange(rebuildAmigaCoeffs);
 
+// ── The FM racks' own rate (engine spec §5.5.1) ──
+// A rack runs at the smallest whole multiple of the engine's rate that reaches
+// FM_OVERSAMPLE_RATE (at most FM_OVERSAMPLE_MAX times it) and comes down
+// through an eighth-order Butterworth low-pass at FM_DEC_CUTOFF of the
+// ENGINE's rate, designed at the rack's — so its place in the oversampled
+// spectrum is 2π × FM_DEC_CUTOFF ÷ factor, whatever the rate. Four RBJ
+// low-pass sections on the Butterworth pole angles, lowest Q first; FM_DEC
+// holds b0, b1, b2, a1, a2 of each (a0 = 1), in the order they run.
+export const FM_OVERSAMPLE_RATE = 192000;
+export const FM_OVERSAMPLE_MAX = 8;
+export const FM_DEC_SECTIONS = 4;
+export const FM_DEC_CUTOFF = 0.45;
+export let FM_OVERSAMPLE = 1;
+export const FM_DEC = new Float64Array(FM_DEC_SECTIONS * 5);
+
+function rebuildFmDecimator(rate) {
+  const n = Math.min(Math.max(Math.trunc((FM_OVERSAMPLE_RATE + rate - 1) / rate), 1), FM_OVERSAMPLE_MAX);
+  FM_OVERSAMPLE = n;
+  const w0 = (2.0 * Math.PI * FM_DEC_CUTOFF) / n;
+  const cosw = Math.cos(w0);
+  const sinw = Math.sin(w0);
+  for (let k = 0; k < FM_DEC_SECTIONS; k++) {
+    const q = 1.0 / (2.0 * Math.cos(((2 * k + 1) * Math.PI) / (4.0 * FM_DEC_SECTIONS)));
+    const alpha = sinw / (2.0 * q);
+    const a0 = 1.0 + alpha;
+    FM_DEC[k * 5] = ((1.0 - cosw) * 0.5) / a0;
+    FM_DEC[k * 5 + 1] = (1.0 - cosw) / a0;
+    FM_DEC[k * 5 + 2] = ((1.0 - cosw) * 0.5) / a0;
+    FM_DEC[k * 5 + 3] = (-2.0 * cosw) / a0;
+    FM_DEC[k * 5 + 4] = (1.0 - alpha) / a0;
+  }
+}
+rebuildFmDecimator(SAMPLING_RATE);
+onSamplingRateChange(rebuildFmDecimator);
+
+/** One sample through the racks' low-pass: each section in transposed direct
+ *  form II, `state` its two numbers a section. */
+export function fmDecimate(state, x) {
+  for (let k = 0; k < FM_DEC_SECTIONS; k++) {
+    const c = k * 5;
+    const y = FM_DEC[c] * x + state[2 * k];
+    state[2 * k] = FM_DEC[c + 1] * x - FM_DEC[c + 3] * y + state[2 * k + 1];
+    state[2 * k + 1] = FM_DEC[c + 2] * x - FM_DEC[c + 4] * y;
+    x = y;
+  }
+  return x;
+}
+
 // ── 64-entry signed sine table (OpenMPT-style; 1407) ──
 export const MOD_SIN_TABLE = Int32Array.from([
   0x00, 0x0c, 0x19, 0x25, 0x31, 0x3c, 0x47, 0x51,

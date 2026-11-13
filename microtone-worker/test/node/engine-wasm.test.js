@@ -117,8 +117,11 @@ test("instrument data replaced under sounding notes is kept for them, then given
   // …of which only the ones a voice still points into may be held,
   const held = eng.retireSweep();
   assert.ok(held < 80, `${held} retired blocks held`);
-  // and the heap did not grow by a table per upload (each is some kilobytes).
-  assert.ok(eng._x.memory.buffer.byteLength - before < (1 << 20), "memory grew under re-uploads");
+  // and the heap did not grow by a table per upload: sixty rounds of these
+  // tables are over twenty megabytes, and what is held between two sweeps is
+  // about one (it levels off after the third round).
+  const grew = eng._x.memory.buffer.byteLength - before;
+  assert.ok(grew < (4 << 20), `memory grew by ${grew} bytes under re-uploads`);
   assert.equal(eng.outOfMemory, false);
 });
 

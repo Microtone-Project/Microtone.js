@@ -34,6 +34,7 @@ export class DocSync {
         ixmp: this.doc.ixmp,
         imix: this.doc.imixBlocks(),
         lyrics: this.doc.lyricEntries(),
+        pitchExt: this.doc.pitchExt(),
       },
       this.songIndex,
     );

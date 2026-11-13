@@ -99,6 +99,7 @@ export function applyAudioCommand(eng, m) {
       eng.setMasterMeter(m.ph, m.on, m.scramble, m.bitDepth, m.histSpan); return true;
     case CMD.SET_IMIX: eng.setImix(m.blocks); return true;
     case CMD.SET_LYRICS: eng.setLyrics(m.entries); return true;
+    case CMD.SET_PITCH_EXT: eng.setPitchExt(m.bytes ? new Uint8Array(m.bytes) : null); return true;
     case CMD.SET_IMIX_METER: eng.setImixMeter(m.ph, m.slot, m.seat ?? 0); return true;
     case CMD.PLAY: eng.play(m.ph); return true;
     case CMD.STOP: eng.stop(m.ph); return true;

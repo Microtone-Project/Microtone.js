@@ -28,7 +28,11 @@ void te_fm_rig_clone(TaudFmRig *dst, const TaudFmRig *src)
     for (k = 0; k < src->count; k++) {
         dst->gain[k] = src->gain[k];
         dst->last[k] = src->last[k];
+        dst->opGain[k] = src->opGain[k];
+        dst->held[k] = src->held[k];
     }
+    /* …and where the low-pass stands, so the copy carries on mid-wave. */
+    memcpy(dst->dec, src->dec, sizeof dst->dec);
 }
 
 void te_fm_referenced_operators(const uint16_t *program, int len, int count, uint8_t *used)
@@ -87,8 +91,11 @@ static double fm_psg_operator(TaudEngine *e, TaudVoice *v, int64_t frame, double
     return s;
 }
 
+/* One operator's value at sub-step `sub` of the `n` its rack takes this
+ * output frame (n = 1: the rack runs at the engine's rate, and this is the
+ * whole of the frame). */
 static double fm_eval_operator(TaudEngine *e, TaudFmRig *rig, int k, int interpMode, double spt, double offset,
-                               int64_t frame)
+                               int64_t frame, int sub, int n)
 {
     TaudVoice *v;
     TaudInst *inst;
@@ -98,49 +105,63 @@ static double fm_eval_operator(TaudEngine *e, TaudFmRig *rig, int k, int interpM
     v = rig->voices[k];
     if (v == NULL || !v->active) { rig->cur[k] = 0.0; return 0.0; }
     inst = &e->instruments[v->instrumentId];
-    if (v->opl != NULL) {
-        s = fm_chip_operator(e, v, frame, offset);
-    } else if (v->psg != NULL) {
-        s = fm_psg_operator(e, v, frame, offset);
+    if (v->opl != NULL || v->psg != NULL) {
+        /* A chip runs on its own clock, a sample of it an output frame: read
+         * on the frame's first sub-step, with the modulation that sub-step
+         * brings, and held for the rest. */
+        if (sub == 0) {
+            rig->held[k] = v->opl != NULL ? fm_chip_operator(e, v, frame, offset) : fm_psg_operator(e, v, frame, offset);
+        }
+        s = rig->held[k];
     } else {
         frames = offset == 0 ? 0 : offset * fm_cycle_frames(v);
-        s = te_fetch_tracker_sample(e, v, inst, interpMode, frames);
+        s = n == 1 ? te_fetch_tracker_sample(e, v, inst, interpMode, frames)
+                   : te_fetch_tracker_sample_sub(e, v, inst, interpMode, frames, n, sub == n - 1);
     }
     g = rig->gain[k];
     if (k != 0) {
-        double effEnvVol;
+        /* Its filter runs at the rack's rate (its coefficients are made for
+         * it: voice.filterOversample); everything that shapes its LEVEL moves
+         * once an output frame, on the first sub-step, and holds. */
         s = te_apply_voice_filter_self(v, s);
-        te_advance_filter_glide(e, v);
-        v->envVolMix += v->envVolStep;
-        effEnvVol = v->hasVolEnv && v->volEnvOn ? v->envVolMix : 1.0;
-        te_advance_volume_ramp(e, v, e->volDiv);
-        te_advance_pitch_ramp(e, v, spt);
-        g *= effEnvVol * te_advance_fadeout(v) * v->activeAttenGain * (inst->instGlobalVolume / 255.0);
-        if (v->rampOutSamples > 0) {
-            g *= v->rampOutGain;
-            v->rampOutGain -= v->rampOutStep;
-            v->rampOutSamples--;
-            if (v->rampOutSamples == 0) v->active = false;
+        if (sub == 0) {
+            double effEnvVol;
+            te_advance_filter_glide(e, v);
+            v->envVolMix += v->envVolStep;
+            effEnvVol = v->hasVolEnv && v->volEnvOn ? v->envVolMix : 1.0;
+            te_advance_volume_ramp(e, v, e->volDiv);
+            g *= effEnvVol * te_advance_fadeout(v) * v->activeAttenGain * (inst->instGlobalVolume / 255.0);
+            if (v->rampOutSamples > 0) {
+                g *= v->rampOutGain;
+                v->rampOutGain -= v->rampOutStep;
+                v->rampOutSamples--;
+                if (v->rampOutSamples == 0) v->active = false;
+            }
+            if (v->attackRampSamples > 0) {
+                int elapsed = e->attackRampSamples - v->attackRampSamples;
+                g *= 0.5 - 0.5 * js_cos((3.141592653589793 * elapsed) / e->attackRampSamples);
+                v->attackRampSamples--;
+            }
+            rig->opGain[k] = g;
+        } else {
+            g = rig->opGain[k];
         }
-        if (v->attackRampSamples > 0) {
-            int elapsed = e->attackRampSamples - v->attackRampSamples;
-            g *= 0.5 - 0.5 * js_cos((3.141592653589793 * elapsed) / e->attackRampSamples);
-            v->attackRampSamples--;
-        }
+        /* The rate it reads at moves once a frame too, and AFTER the frame's
+         * last sub-step: every sub-step of a frame steps by the same rate, as
+         * operator 0's do (the mixer moves that one, after the rack has run). */
+        if (sub == n - 1) te_advance_pitch_ramp(e, v, spt);
     }
     out = s * g;
     rig->cur[k] = out;
     return out;
 }
 
-/* Run the rack's algorithm for one output sample. */
-double te_render_fm_voice(TaudEngine *e, TaudVoice *voice, int interpMode, double spt, int64_t frame)
+/* Run the rack's algorithm once: one sub-step. */
+static double fm_run_program(TaudEngine *e, TaudFmRig *rig, int interpMode, double spt, int64_t frame, int sub, int n)
 {
-    TaudFmRig *rig = voice->fmRig;
     const uint16_t *prog = rig->program;
     double *stack = rig->stack;
     int sp = 0, i, k;
-    if (prog == NULL) return 0.0;
     memset(rig->done, 0, sizeof rig->done);
 
     for (i = 0; i < rig->programLen; i++) {
@@ -176,11 +197,28 @@ double te_render_fm_voice(TaudEngine *e, TaudVoice *voice, int interpMode, doubl
             continue;
         }
         offset = cls == FM_WORD_MOD && sp > 0 ? stack[--sp] : 0.0;
-        if (sp < FM_STACK_MAX) stack[sp++] = fm_eval_operator(e, rig, k, interpMode, spt, offset, frame);
+        if (sp < FM_STACK_MAX) stack[sp++] = fm_eval_operator(e, rig, k, interpMode, spt, offset, frame, sub, n);
     }
 
     for (k = 0; k < rig->count; k++) if (rig->done[k] != 0) rig->last[k] = rig->cur[k];
     return sp > 0 ? stack[sp - 1] : 0.0;
+}
+
+/* The rack's value for one output sample: its algorithm run at the rack's own
+ * rate — e->fmOversample times the engine's — through the low-pass that
+ * brings it down, read on the frame's last sub-step (spec §5.5.1, "The
+ * rack's own rate"). At a factor of 1 the algorithm's value IS the sample. */
+double te_render_fm_voice(TaudEngine *e, TaudVoice *voice, int interpMode, double spt, int64_t frame)
+{
+    TaudFmRig *rig = voice->fmRig;
+    int n = e->fmOversample, s;
+    double y = 0.0;
+    if (rig->program == NULL) return 0.0;
+    if (n <= 1) return fm_run_program(e, rig, interpMode, spt, frame, 0, 1);
+    for (s = 0; s < n; s++) {
+        y = te_fm_decimate(e, rig->dec, fm_run_program(e, rig, interpMode, spt, frame, s, n));
+    }
+    return y;
 }
 
 /* True when operator 0 is a DSP-ONLY principal (fmPrincipalIsDsp): the

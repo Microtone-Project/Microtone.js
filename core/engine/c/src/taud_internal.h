@@ -202,6 +202,10 @@ typedef struct { uint8_t value, offset; } TaudEnvPoint;
 
 typedef struct {
     int pitchStart, pitchEnd, volumeStart, volumeEnd;
+    /* The pitch extension (§9.18, pitchext.c): what the instrument's `IPit`
+     * entry adds to the three 16-bit pitch fields, in 4096-TET units; 0
+     * without one. dHi is added to the EXCLUSIVE end of the range, pitchEnd + 1. */
+    double dLo, dHi, dDetune;
     uint32_t samplePtr;
     int sampleLength, playStart, loopStart, loopEnd, samplingRate, sampleDetune;
     int loopMode, defaultPan, defaultNoteVolume;
@@ -229,6 +233,14 @@ typedef struct {
  * IMix id (item 217) and byte 254 stays clear (FM_PROGRAM_END). */
 #define FM_PROGRAM_END 254
 #define FM_STACK_MAX 16
+/* A rack runs at the smallest whole multiple of the engine's rate that
+ * reaches FM_OVERSAMPLE_RATE (at most FM_OVERSAMPLE_MAX times it), and comes
+ * down through an eighth-order Butterworth low-pass — FM_DEC_SECTIONS
+ * biquads — at FM_DEC_CUTOFF of the engine's rate. */
+#define FM_OVERSAMPLE_RATE 192000
+#define FM_OVERSAMPLE_MAX 8
+#define FM_DEC_SECTIONS 4
+#define FM_DEC_CUTOFF 0.45
 #define FM_WORD_OSC 0x0000
 #define FM_WORD_MOD 0x0400
 #define FM_WORD_FB 0x0800
@@ -244,11 +256,17 @@ typedef struct {
 typedef struct {
     int instIdx, mixOctet, detune, pitchStart, pitchEnd, volStart, volEnd;
     bool fixedPitch;
+    int srcIndex;               /* which entry of the record this is (some are dropped) */
+    double dLo, dHi, dDetune;   /* the pitch extension, as a patch's (§9.18) */
 } TaudMetaLayer;
 
 typedef struct {
     int count;
     TaudMetaLayer layers[META_MAX_LAYERS];
+    /* Every entry the record has, usable or not — its count byte and the six
+     * pitch bytes of each (+2…+7): what an `IPit` guard is computed over. */
+    int rawCount;
+    uint8_t rawPitch[META_MAX_LAYERS * 6];
     uint8_t flags;              /* record byte 0 */
     uint8_t imixId;             /* record byte 255: the IMix block (§9.15) */
     bool strict;
@@ -285,6 +303,7 @@ typedef struct {
     int kind;
     bool deepTremolo, deepVibrato, nts, lowFnum;
     int feedback, cntA, cntB, partnerMult, partnerDetune;
+    double dPartnerDetune;      /* the pitch extension of partnerDetune (§9.18) */
     TaudOplOperator ops[4];
     int outputs;
 } TaudOplPatch;
@@ -384,6 +403,7 @@ typedef struct TaudFormantPatch {
     int srcInst;                /* the header's source instrument, 0 = the sample */
     int front, open, round, track, glide, timing;
     int refNote;                /* bits 0…14 of the word; 0 = the syllable has no vowel */
+    double dRefNote;            /* the pitch extension of refNote (§9.18) */
     bool nasal;                 /* bit 15: the vowel nasalised */
     int semivowel;
     bool rhotic;
@@ -549,6 +569,8 @@ typedef struct TaudInst {
     int dupCheckFlag, defaultNoteVolume, pf2EnvLoop, pf2EnvSustainWord;
     uint8_t reserved[5];
     int initialAttenOctet;
+    /* The pitch extension of sampleDetune and pitchPanCentre (§9.18); 0 without one. */
+    double dSampleDetune, dPitchPanCentre;
 
     int cutoffOverride, resonanceOverride;
 
@@ -722,6 +744,13 @@ typedef struct {
     const uint16_t *program;
     int programLen;
     double stack[FM_STACK_MAX + 2];
+    /* Oversampling (spec §5.5.1 "The rack's own rate"): what an operator's
+     * per-frame chain made of its gain, and a chip operator's value, both
+     * held over the frame's sub-steps; and the state of the low-pass the
+     * rack comes down through, two numbers a section. */
+    double opGain[FM_MAX_OPERATORS];
+    double held[FM_MAX_OPERATORS];
+    double dec[FM_DEC_SECTIONS * 2];
 } TaudFmRig;
 
 /* Renderer gains for a voice's (at most two) sample channels. */
@@ -749,14 +778,14 @@ struct TaudVoice {
 
     bool isLayerChild;
     double layerRelDetune;
-    int layerFixedNote;
+    double layerFixedNote;      /* −1 = not fixed; else the pitch, inside the cell's range */
     double layerRelPan, layerRelElevation;
     double layerMixGain;
     double layerPitchMod;
     int nnaOverride;
     bool volEnvOn, panEnvOn, pitchEnvOn, filterEnvOn;
     bool metaForeground;
-    int metaForegroundDetune;
+    double metaForegroundDetune;
     bool noteFading;
 
     TaudFmRig *fmRig;            /* NULL, or &rigStore */
@@ -829,7 +858,13 @@ struct TaudVoice {
 
     uint32_t activeSamplePtr;
     int activeSampleLength, activeSamplePlayStart, activeSampleLoopStart, activeSampleLoopEnd;
-    int activeSamplingRate, activeSampleDetune, activeLoopMode;
+    int activeSamplingRate, activeLoopMode;
+    double activeSampleDetune;
+    /* How far the pitch this voice SOUNDS lies outside the sixteen octaves a
+     * note value can hold: a layer or an operator whose detune (or fixed
+     * note) takes it there keeps noteVal at the nearest end and carries the
+     * rest here, into the playback rate (§9.18). 0 for any other voice. */
+    double pitchExcess;
     int activeVibratoSpeed, activeVibratoSweep, activeVibratoDepth, activeVibratoRate;
     int activeVibratoWaveform;
     int activeChanCount, activeChanMode;
@@ -859,6 +894,10 @@ struct TaudVoice {
     bool filterIsBiquad;
     double filterBqB02, filterBqB1, filterBqA1, filterBqA2, filterX1, filterX2;
     int filterCutoffCached, filterResonanceCached;
+    /* How many times a frame this voice's filter runs: an FM operator past
+     * the first is filtered at its rack's rate, so its coefficients are made
+     * for that rate. 0 or 1 = the engine's own. */
+    int filterOversample;
     /* SoundFont-mode filter glide (te_advance_filter_glide): cutoff in cents
      * and Q where they stand, per-sample steps, samples left, the refresh's
      * targets. sfCents NaN = the next refresh lands at once. */
@@ -1466,6 +1505,10 @@ typedef struct TaudEngine {
      * p, for the taps −2…+3. */
     double sincTable[SINC_TABLE_SIZE + 1];
     double sincPhase[SINC_PRECISION * SINC_TAPS];
+    /* The FM racks' oversampling factor at this rate, and their low-pass:
+     * b0, b1, b2, a1, a2 of each section (a0 = 1), in the order they run. */
+    int fmOversample;
+    double fmDec[FM_DEC_SECTIONS][5];
     /* An unsigned 8-bit sample as the mixer's number, (b − 127.5) / 127.5,
      * for every b: the division done once (sampler.js PCM_U8). */
     double pcmU8[256];
@@ -1515,6 +1558,9 @@ typedef struct TaudEngine {
      * the copies and frees them when they are replaced or it is. */
     uint8_t *ownPool;
     TaudImixBlock *ownImix;
+    /* The `IPit` entries (§9.18), by instrument slot; NULL = no section. An
+     * entry is applied to its instrument whenever either is (re)loaded. */
+    struct TaudPitchExt **pitchExt;
     TaudLyricEntry *ownLyrics;
     int ownLyricCount;
 } TaudEngine;
@@ -1617,10 +1663,32 @@ const TaudPatch *te_patch_at(const TaudInst *inst, int patchIndex);
 int te_inst_resolve_meta_layers(const TaudInst *inst, double noteVal, int rowVolume, const TaudMetaLayer **out);
 bool te_patch_is_stereo(const TaudPatch *p);
 bool te_patch_vibrato_inherits(const TaudPatch *p);
+/* The pitch an entry sounds for a trigger at noteVal — NOT confined to the
+ * sixteen octaves of a note value (te_layer_pitch splits it). */
 static inline double te_layer_note(const TaudMetaLayer *l, double noteVal)
 {
-    return l->fixedPitch ? (l->detune & 0xffff) : noteVal + l->detune;
+    return l->fixedPitch ? (l->detune & 0xffff) + l->dDetune : noteVal + l->detune + l->dDetune;
 }
+/* …as the note value its voice holds, and what is left over for
+ * voice.pitchExcess. */
+static inline double te_layer_pitch(const TaudMetaLayer *l, double noteVal, double *excess)
+{
+    double full = te_layer_note(l, noteVal);
+    double held = full < 0x20 ? 0x20 : full > 0xffff ? 0xffff : full;
+    *excess = full - held;
+    return held;
+}
+/* A pitch range's test: from pitchStart through the whole of the last unit
+ * pitchEnd names, each moved by its extension (§9.11, §9.18). */
+static inline bool te_pitch_in_range(double noteVal, int start, double dLo, int end, double dHi)
+{
+    return noteVal >= start + dLo && noteVal < end + 1 + dHi;
+}
+struct TaudPitchExt;
+void te_set_pitch_ext(TaudEngine *e, const uint8_t *section, size_t len);
+void te_apply_pitch_ext(TaudEngine *e, TaudInst *inst);
+void te_pitch_ext_free(TaudEngine *e);
+void te_inst_refresh_lyric(TaudInst *inst);
 void te_inst_toggle_invert_bit(TaudInst *inst, int loopOffset, int loopLen);
 bool te_inst_invert_bit(TaudInst *inst, int loopOffset, int loopLen);
 bool te_inst_set_mod_region(TaudInst *inst, double from, double to);
@@ -1691,6 +1759,10 @@ static inline bool te_is_rnd_op(int op) { return op >= MOD_RND512 && op <= MOD_R
 /* sampler.c */
 double te_compute_playback_rate(const TaudEngine *e, const TaudVoice *v, double noteVal, double tuningRatio);
 double te_fetch_tracker_sample(TaudEngine *e, TaudVoice *v, TaudInst *inst, int interpMode, double posOffset);
+double te_fetch_tracker_sample_sub(TaudEngine *e, TaudVoice *v, TaudInst *inst, int interpMode, double posOffset,
+                                   int n, bool last);
+double te_bessel_i0(double x);
+double te_fm_decimate(const TaudEngine *e, double *state, double x);
 void te_fetch_tracker_sample_stereo(TaudEngine *e, TaudVoice *v, TaudInst *inst, int interpMode, double out[2]);
 void te_start_ramp_out(TaudEngine *e, TaudVoice *v);
 void te_start_cut_ramp(TaudEngine *e, TaudVoice *v);
@@ -1948,6 +2020,8 @@ typedef struct {
     int numImix;
     TaudImixBlock *imix;        /* the IMix section's valid blocks, owned */
     int numLyrics;
+    /* The `IPit` payload, inside projData (§9.18); pitchExtLen 0 = none. */
+    size_t pitchExtOff, pitchExtLen;
     TaudLyricEntry *lyrics;     /* the ILyr section's valid entries, owned */
 } TaudDoc;
 

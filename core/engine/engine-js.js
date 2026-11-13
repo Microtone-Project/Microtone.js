@@ -23,7 +23,10 @@ import {
   BPM_MIN, BPM_MAX,
 } from "./constants.js";
 import { tuningRatioOf } from "./tables.js";
-import { TaudInst, parsePatchesBlob, writePatchesBlob, makeInstPatch, layerNote } from "./inst.js";
+import {
+  TaudInst, parsePatchesBlob, writePatchesBlob, makeInstPatch, layerNote, pitchInRange,
+  parsePitchExtSection, applyPitchExt,
+} from "./inst.js";
 import { PlayCue, TaudPlayData, Playhead } from "./state.js";
 import { makeXorshift32 } from "./rng.js";
 import {
@@ -233,6 +236,21 @@ export class TaudEngine {
     const inst = this.instruments[slot & 0x3ff];
     const patches = parsePatchesBlob(bytes);
     inst.extraPatches = patches.length === 0 ? null : patches;
+    applyPitchExt(inst);
+  }
+
+  /**
+   * Install the instruments' PITCH EXTENSIONS (the `IPit` section, §9.18): the
+   * whole payload, or null / empty for none. An entry is applied to its
+   * instrument now and again whenever the instrument's record or patch list
+   * is uploaded, so the order a host does those in does not matter.
+   */
+  setPitchExt(bytes) {
+    const by = parsePitchExtSection(bytes && bytes.length > 0 ? bytes : null);
+    for (const inst of this.instruments) {
+      inst.pitchExtEntry = by.get(inst.index) ?? null;
+      applyPitchExt(inst);
+    }
   }
 
   getInstrumentPatchCount(slot) {
@@ -667,7 +685,7 @@ export class TaudEngine {
     if (inst.isFm) {
       const o = inst.metaLayers[0];
       return inst.fmProgram !== null && o.instIdx >= 1 &&
-        note >= o.pitchStart && note <= o.pitchEnd && o.volStart <= 0x3f && o.volEnd >= 0x3f;
+        pitchInRange(note, o.pitchStart, o.dLo, o.pitchEnd, o.dHi) && o.volStart <= 0x3f && o.volEnd >= 0x3f;
     }
     let layers = inst.resolveMetaLayers(note, 0x3f);
     if (inst.metaStrict) {

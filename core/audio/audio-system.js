@@ -365,6 +365,8 @@ export class AudioSystem {
     // The lyric instruments' lyrics (item 280) — pushed whether the file has
     // any or not, so a document without them clears the previous one's.
     this.setLyrics(doc.lyrics ?? []);
+    // The instruments' pitch extensions (§9.18) — likewise pushed either way.
+    this.setPitchExt(doc.pitchExt ?? null);
 
     for (const entry of doc.ixmp) {
       const bytes = entry.blob.slice().buffer;
@@ -434,6 +436,12 @@ export class AudioSystem {
   /** Item 280: install the project's lyrics (decoded `ILyr` entries; empty =
    *  no instrument has lyrics). */
   setLyrics(entries) { this._post({ t: CMD.SET_LYRICS, entries: entries ?? [] }); }
+  /** The project's `IPit` payload (file format §9.18), or null for none: the
+   *  engine applies each entry to its instrument, now and whenever the
+   *  instrument is uploaded again. */
+  setPitchExt(bytes) {
+    this._post({ t: CMD.SET_PITCH_EXT, bytes: bytes && bytes.length > 0 ? Uint8Array.from(bytes).buffer : null });
+  }
   /** Item 217: meter one instrument's bus for the Mixing tab (slot < 0 = off),
    *  in `seat` — one per split pane, so each pane's copy of the tab meters its
    *  own instrument. Costs nothing while off; the tab turns its seat off when

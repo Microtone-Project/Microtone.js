@@ -316,6 +316,15 @@ export class WasmTaudEngine {
     }
   }
 
+  /** The instruments' pitch extensions: the whole `IPit` payload (file format
+   *  §9.18), or null / empty for none. Applied now, and again whenever an
+   *  instrument's record or patch list is uploaded. */
+  setPitchExt(bytes) {
+    const n = bytes ? bytes.length : 0;
+    this._x.tw_set_pitch_ext(this._e, n > 0 ? this._put(bytes) : 0, n);
+    if (this._x.tw_oom(this._e)) throw new Error("taud engine: out of memory");
+  }
+
   /** The project's lyrics: decoded `ILyr` entries, replacing what was there.
    *  The first entry for an instrument wins; one without syllables is none. */
   setLyrics(entries) {

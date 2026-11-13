@@ -42,6 +42,10 @@ function makeEnv(defaultValue) {
 export function makeInstPatch(fields) {
   return {
     pitchStart: 0, pitchEnd: 0, volumeStart: 0, volumeEnd: 0,
+    // The pitch extension (§9.18, applyPitchExt): what the instrument's `IPit`
+    // entry adds to the three 16-bit pitch fields, in 4096-TET units; 0
+    // without one. dHi is added to the EXCLUSIVE end of the range, pitchEnd + 1.
+    dLo: 0, dHi: 0, dDetune: 0,
     samplePtr: 0, sampleLength: 0, playStart: 0, loopStart: 0, loopEnd: 0,
     samplingRate: 0, sampleDetune: 0, loopMode: 0,
     defaultPan: 0xff, defaultNoteVolume: 0,
@@ -303,7 +307,10 @@ export function writePatchesBlob(patches) {
  */
 export function makeMetaLayer(instIdx, mixOctet, detune, pitchStart, pitchEnd, volStart, volEnd,
                               fixedPitch = false) {
-  return { instIdx, mixOctet, detune, pitchStart, pitchEnd, volStart, volEnd, fixedPitch };
+  return {
+    instIdx, mixOctet, detune, pitchStart, pitchEnd, volStart, volEnd, fixedPitch,
+    dLo: 0, dHi: 0, dDetune: 0, // the pitch extension, as a patch's (§9.18)
+  };
 }
 
 /** Entry byte +9, bit 6 — the fixed-pitch flag: a Layered record's layer and
@@ -317,7 +324,186 @@ export const META_LAYER_FIXED_PITCH = 0x40;
  * (trigger, audition probe, editor preview) goes through it.
  */
 export function layerNote(layer, noteVal) {
-  return layer.fixedPitch ? (layer.detune & 0xffff) : noteVal + layer.detune;
+  const d = layer.dDetune || 0;
+  return layer.fixedPitch ? (layer.detune & 0xffff) + d : noteVal + layer.detune + d;
+}
+
+/** A pitch range's test: from `start` through the whole of the last unit `end`
+ *  names, each moved by its extension (§9.11, §9.18). */
+export function pitchInRange(noteVal, start, dLo, end, dHi) {
+  return noteVal >= start + (dLo || 0) && noteVal < end + 1 + (dHi || 0);
+}
+
+// ── The pitch extension — the `IPit` section (file format §9.18) ───────────
+// One more byte for a 16-bit pitch field, `oooo ffff`: four more bits of
+// fraction below it (65536 steps to the octave) and four more bits of octave
+// above it, a two's-complement nibble. An extended field's value, in 65536-TET
+// units, is field × 16 + ffff + oooo × 2^20, the field read as it always was;
+// the records keep the sixteen bits where they were and the extension beside
+// them as a delta in 4096-TET units (dLo, dHi, dDetune, dSampleDetune…), 0
+// wherever there is none. A range's HIGH bound keeps its fraction complemented,
+// so that unextended it covers the whole of the unit it names.
+
+export const IPIT_BASE = 0x04;
+export const IPIT_TABLE = 0x08;
+export const IPIT_PATCHES = 0x10;
+const IPIT_RESERVED = 0xe0;
+
+/** What an extension byte adds to its field, in 4096-TET units… */
+export function pitchExtDelta(x) {
+  const o = x >>> 4;
+  return (o >= 8 ? o - 16 : o) * 65536 + (x & 15) / 16;
+}
+/** …and to the exclusive end of a range. */
+export function pitchExtDeltaHigh(x) {
+  const o = x >>> 4;
+  return (o >= 8 ? o - 16 : o) * 65536 - (x & 15) / 16;
+}
+
+/** CRC-16/CCITT-FALSE over `bytes`, continued from `crc` ($FFFF to start). */
+export function pitchExtCrc(crc, bytes) {
+  for (let i = 0; i < bytes.length; i++) {
+    crc ^= (bytes[i] & 0xff) << 8;
+    for (let b = 0; b < 8; b++) crc = (crc & 0x8000) !== 0 ? ((crc << 1) ^ 0x1021) & 0xffff : (crc << 1) & 0xffff;
+  }
+  return crc;
+}
+const crcWord = (crc, w) => pitchExtCrc(crc, [w & 0xff, (w >>> 8) & 0xff]);
+
+/**
+ * The `IPit` payload → Map(instrument id → entry): { flags, guard, base
+ * (3 bytes: sample detune, pitch-pan centre, the kind's own field) | null,
+ * table (3 per entry: detune, low, high) | null, patches (3 per patch: start,
+ * end, detune) | null }. An entry the section cannot finish — a reserved
+ * flag, a group that runs off the end — ends the read: what came before it
+ * stands. Of two entries for one instrument the later wins.
+ */
+export function parsePitchExtSection(s) {
+  const out = new Map();
+  if (!s) return out;
+  let o = 0;
+  while (o + 4 <= s.length) {
+    const flags = s[o + 1];
+    const id = s[o] | ((flags & 0x03) << 8);
+    const guard = s[o + 2] | (s[o + 3] << 8);
+    let p = o + 4;
+    let base = null, table = null, patches = null;
+    if ((flags & IPIT_RESERVED) !== 0) break;
+    if ((flags & IPIT_BASE) !== 0) {
+      if (p + 3 > s.length) break;
+      base = Uint8Array.from(s.subarray(p, p + 3));
+      p += 3;
+    }
+    if ((flags & IPIT_TABLE) !== 0) {
+      if (p + 1 > s.length) break;
+      const n = s[p];
+      if (p + 1 + n * 3 > s.length) break;
+      table = Uint8Array.from(s.subarray(p + 1, p + 1 + n * 3));
+      p += 1 + n * 3;
+    }
+    if ((flags & IPIT_PATCHES) !== 0) {
+      if (p + 2 > s.length) break;
+      const n = s[p] | (s[p + 1] << 8);
+      if (p + 2 + n * 3 > s.length) break;
+      patches = Uint8Array.from(s.subarray(p + 2, p + 2 + n * 3));
+      p += 2 + n * 3;
+    }
+    out.set(id, { flags, guard, base, table, patches });
+    o = p;
+  }
+  return out;
+}
+
+/** The 16-bit word of the pitch field an instrument's KIND keeps in its own
+ *  block: a formant instrument's reference word, an OPL instrument's
+ *  rhythm-partner pitch; 0 for a kind with none. */
+function kindPitchWord(inst) {
+  if (inst.formant !== null) return (inst.formant.refNote & 0x7fff) | (inst.formant.nasal ? 0x8000 : 0);
+  if (inst.opl !== null) return inst.opl.partnerDetune & 0xffff;
+  return 0;
+}
+
+/**
+ * The guard an entry with these groups would carry for `inst` as it is now:
+ * the CRC of the 16-bit fields the entry extends, in the section's order.
+ * null when a group cannot be about this instrument (a base group on a table
+ * record, a table group on a record without one).
+ */
+export function pitchExtGuard(inst, { base = false, table = false, patches = false }) {
+  const tabled = inst.metaLayers !== null && (inst.metaType === META_TYPE_LAYERED || inst.metaType === META_TYPE_FM);
+  if ((base && tabled) || (table && !tabled)) return null;
+  let crc = 0xffff;
+  if (base) {
+    crc = crcWord(crc, inst.sampleDetune);
+    crc = crcWord(crc, inst.pitchPanCentre);
+    crc = crcWord(crc, kindPitchWord(inst));
+  }
+  if (table) {
+    const raw = inst.metaRaw;
+    for (let n = 0; n < inst.metaEntryCount; n++) crc = pitchExtCrc(crc, raw.subarray(4 + n * 10 + 2, 4 + n * 10 + 8));
+  }
+  if (patches) {
+    for (const p of inst.extraPatches ?? []) {
+      crc = crcWord(crc, p.pitchStart);
+      crc = crcWord(crc, p.pitchEnd);
+      crc = crcWord(crc, p.sampleDetune);
+    }
+  }
+  return crc;
+}
+
+/**
+ * Bring an instrument's deltas in line with its `IPit` entry: cleared, then —
+ * when there is an entry, its groups fit the instrument as it is now and its
+ * guard matches — set. Called whenever the record, the patch list or the
+ * section is (re)loaded, in whatever order a host does those. Returns true
+ * when the entry was applied.
+ */
+export function applyPitchExt(inst, entry = inst.pitchExtEntry) {
+  inst.dSampleDetune = 0;
+  inst.dPitchPanCentre = 0;
+  if (inst.opl !== null) inst.opl.dPartnerDetune = 0;
+  const hadRef = inst.formant !== null && (inst.formant.dRefNote || 0) !== 0;
+  if (inst.formant !== null) inst.formant.dRefNote = 0;
+  if (hadRef && inst.lyric) inst._refreshLyric(); // the syllables carry the record's reference note
+  if (inst.metaLayers !== null) for (const l of inst.metaLayers) { l.dLo = 0; l.dHi = 0; l.dDetune = 0; }
+  if (inst.extraPatches !== null) for (const p of inst.extraPatches) { p.dLo = 0; p.dHi = 0; p.dDetune = 0; }
+  if (!entry) return false;
+
+  const hasBase = (entry.flags & IPIT_BASE) !== 0;
+  const hasTable = (entry.flags & IPIT_TABLE) !== 0;
+  const hasPatches = (entry.flags & IPIT_PATCHES) !== 0;
+  const guard = pitchExtGuard(inst, { base: hasBase, table: hasTable, patches: hasPatches });
+  if (guard === null) return false;
+  if (hasTable && entry.table.length !== inst.metaEntryCount * 3) return false;
+  if (hasPatches && entry.patches.length !== (inst.extraPatches?.length ?? 0) * 3) return false;
+  if (guard !== entry.guard) return false;
+
+  if (hasBase) {
+    inst.dSampleDetune = pitchExtDelta(entry.base[0]);
+    inst.dPitchPanCentre = pitchExtDelta(entry.base[1]);
+    if (inst.opl !== null) inst.opl.dPartnerDetune = pitchExtDelta(entry.base[2]);
+    if (inst.formant !== null) {
+      inst.formant.dRefNote = pitchExtDelta(entry.base[2]);
+      if (inst.lyric) inst._refreshLyric();
+    }
+  }
+  if (hasTable) {
+    for (const l of inst.metaLayers) {
+      const b = l.srcIndex * 3;
+      l.dDetune = pitchExtDelta(entry.table[b]);
+      l.dLo = pitchExtDelta(entry.table[b + 1]);
+      l.dHi = pitchExtDeltaHigh(entry.table[b + 2]);
+    }
+  }
+  if (hasPatches) {
+    inst.extraPatches.forEach((p, i) => {
+      p.dLo = pitchExtDelta(entry.patches[i * 3]);
+      p.dHi = pitchExtDeltaHigh(entry.patches[i * 3 + 1]);
+      p.dDetune = pitchExtDelta(entry.patches[i * 3 + 2]);
+    });
+  }
+  return true;
 }
 
 /** Layers a 256-byte metainstrument record can hold: byte 0 flags + byte 1
@@ -724,6 +910,12 @@ export class TaudInst {
     this.vibratoSweep = 0;
     this.defaultPan = 0x80;
     this.pitchPanCentre = 0x5000;
+    // The pitch extension of sampleDetune and pitchPanCentre (§9.18), and the
+    // `IPit` entry they came from (applyPitchExt); 0 and null without one.
+    this.dSampleDetune = 0;
+    this.dPitchPanCentre = 0;
+    this.pitchExtEntry = null;
+    this.metaEntryCount = 0;
     this.pitchPanSeparation = 0;
     this.panSwing = 0;
     this.defaultCutoff = 0xff;
@@ -977,7 +1169,7 @@ export class TaudInst {
     // a list a project carries for either is ignored on every path.
     if (patches === null || this.opl !== null || this.psg !== null || this.formant !== null) return null;
     for (const p of patches) {
-      if (noteVal >= p.pitchStart && noteVal <= p.pitchEnd &&
+      if (pitchInRange(noteVal, p.pitchStart, p.dLo, p.pitchEnd, p.dHi) &&
           rowVolume >= p.volumeStart && rowVolume <= p.volumeEnd) return p;
     }
     return null;
@@ -988,7 +1180,7 @@ export class TaudInst {
     const layers = this.metaLayers;
     if (layers === null) return [];
     return layers.filter(
-      (l) => noteVal >= l.pitchStart && noteVal <= l.pitchEnd &&
+      (l) => pitchInRange(noteVal, l.pitchStart, l.dLo, l.pitchEnd, l.dHi) &&
              rowVolume >= l.volStart && rowVolume <= l.volEnd
     );
   }
@@ -1054,10 +1246,12 @@ export class TaudInst {
           const layer = makeMetaLayer(usable ? instIdx : 0, mixOctet, detune,
             pStart, pEnd, vStart, vEnd, fixedPitch);
           layer.rawOffset = o; // metaRaw byte offset of this layer (editors target it)
+          layer.srcIndex = n;  // which entry of the record it is (a Layered record drops some)
           layers.push(layer);
         }
         o += 10;
       }
+      this.metaEntryCount = (o - 4) / 10; // every entry read, usable or not: what an `IPit` guard covers
       this.metaLayers = layers.length === 0 ? null : layers;
       this.metaRaw = this.metaLayers !== null ? Uint8Array.from(b.slice(0, 256)) : null;
       // Bit 0 is strict layering in a Layered record only; in a rack it is the
@@ -1082,6 +1276,7 @@ export class TaudInst {
       const n = Math.min(256, b.length);
       for (let i = 0; i < n; i++) this.setByte(i, b[i] & 0xff);
     }
+    applyPitchExt(this);
     this._refreshLyric();
   }
 

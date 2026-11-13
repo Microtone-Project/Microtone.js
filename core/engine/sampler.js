@@ -27,7 +27,7 @@ import {
  */
 export function computePlaybackRate(voice, noteVal, tuningRatio = 1.0) {
   return (voice.activeSamplingRate / SAMPLING_RATE) *
-         2 ** ((noteVal - MIDDLE_C + voice.activeSampleDetune) / 4096.0) *
+         2 ** ((noteVal - MIDDLE_C + voice.activeSampleDetune + voice.pitchExcess) / 4096.0) *
          tuningRatio;
 }
 
@@ -461,6 +461,41 @@ export function fetchTrackerSample(eng, voice, inst, interpMode, posOffset = 0) 
 }
 
 /**
+ * The same fetch as one of the `n` sub-steps an oversampled FM rack takes per
+ * output frame (§5.5.1): the position moves an n-th of the playback rate, and
+ * what is counted in output samples — the crossfades of funk repeat and of the
+ * sample modifications — counts once a frame, on the `last` sub-step.
+ */
+export function fetchTrackerSampleSub(eng, voice, inst, interpMode, posOffset, n, last) {
+  if (inst.index === 0) return 0.0;
+
+  const sampleLen = Math.max(voice.activeSampleLength, 1);
+  const binMax = SAMPLE_BIN_TOTAL - 1;
+  const keepPos = voice.samplePos;
+  if (posOffset !== 0) voice.samplePos = wrapReadPos(voice, keepPos + posOffset, sampleLen);
+  let sample = interpolateChannel(eng, voice, inst, interpMode, sampleLen, binMax,
+    voice.activeSamplePtr, voice);
+  if (voice.funkXfade > 0) {
+    const w = voice.funkXfade / voice.funkXfadeLen;
+    sample = funkGhostChannel(eng, voice, inst, interpMode, sampleLen, binMax,
+      voice.activeSamplePtr, voice) * w + sample * (1.0 - w);
+    if (last) voice.funkXfade--;
+  }
+  if (voice.modFunkXfade > 0) {
+    const w = voice.modFunkXfade / voice.modFunkXfadeLen;
+    sample = modFunkGhostChannel(eng, voice, inst, interpMode, sampleLen, binMax,
+      voice.activeSamplePtr, voice) * w + sample * (1.0 - w);
+    if (last) voice.modFunkXfade--;
+  }
+  if (posOffset !== 0) voice.samplePos = keepPos;
+
+  if (last && voice.modXfade > 0) voice.modXfade--;
+  if (voice.rampOutSamples > 0) return sample;
+  advanceSamplePos(voice, inst, sampleLen, voice.currentPlaybackRate / n);
+  return sample;
+}
+
+/**
  * Step samplePos by the playback rate and apply the loop/end rules.
  *
  * Funk repeat (Z $F0xx, item 161) is the one thing that can move the loop out
@@ -484,7 +519,7 @@ export function fetchTrackerSample(eng, voice, inst, interpMode, posOffset = 0) 
  * own row) is what the voice actually sounds; Z's own walk keeps running
  * underneath, ready the moment the row's `2`/`3` stops overriding it.
  */
-function advanceSamplePos(voice, inst, sampleLen) {
+function advanceSamplePos(voice, inst, sampleLen, step = voice.currentPlaybackRate) {
   // An NNA ghost inherits the window without inheriting the walk, so either
   // half of the pair on its own means the voice is sounding a moved loop.
   const zWindowed = voice.funkPos >= 0 || voice.funkWindow >= 0;
@@ -504,7 +539,7 @@ function advanceSamplePos(voice, inst, sampleLen) {
   const loopStart = extWindowed ? extLoopStart : zLoopStart;
   const loopEnd = extWindowed ? extLoopEnd : zLoopEnd;
   if (voice.forward) {
-    voice.samplePos += voice.currentPlaybackRate;
+    voice.samplePos += step;
     // Sustain bit set + key-off ⇒ escape the loop (loopMode 0 semantics).
     const effectiveLoopMode =
       voice.activeSampleLoopSustain && voice.keyOff ? 0 : voice.activeLoopMode & 3;
@@ -549,7 +584,7 @@ function advanceSamplePos(voice, inst, sampleLen) {
         break;
     }
   } else {
-    voice.samplePos -= voice.currentPlaybackRate;
+    voice.samplePos -= step;
     if (voice.samplePos < loopStart) {
       if (extWindowed) {
         const prevWindow = extLoopStart;

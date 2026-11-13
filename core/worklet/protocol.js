@@ -39,6 +39,7 @@ export const CMD = Object.freeze({
   SET_MASTER_METER: "setMasterMeter",              // {ph, on, scramble, bitDepth, histSpan} — item 178 Mastering-view tap
   SET_IMIX: "setImix",                             // {blocks} — item 217, the instruments' IMix chains
   SET_IMIX_METER: "setImixMeter",                  // {ph, slot, seat} — item 217 Mixing-tab tap (slot < 0 = off), one per split pane
+  SET_PITCH_EXT: "setPitchExt",                    // {bytes} — the instruments' IPit payload (§9.18), or null
   SET_LYRICS: "setLyrics",                         // {entries} — item 280, the lyric instruments' ILyr entries
   PLAY: "play",                                    // {ph}
   STOP: "stop",                                    // {ph}
