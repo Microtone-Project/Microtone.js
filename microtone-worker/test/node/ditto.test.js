@@ -1,5 +1,5 @@
 // Pattern-Ditto (effect 7) DISPLAY expansion — src/doc/ditto.js. The map must
-// agree with what the engine actually plays (core/engine/row.js), so the last
+// agree with what the engine actually plays (core/engine/c/src/row.c), so the last
 // test drives the real engine over the same pattern and checks the note the
 // ghost predicts is the note that sounds.
 

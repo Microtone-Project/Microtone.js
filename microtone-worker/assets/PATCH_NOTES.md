@@ -12,6 +12,7 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 - Songs sound as they did. One thing is computed differently on purpose: the default (sinc) interpolation now reads its table at the nearest of 1024 positions below the playhead instead of blending two entries, which is where part of the speed comes from. The difference is some 70 dB below the music, under the noise of an 8-bit sample.
 - The engine is the same bits everywhere now. It carries its own mathematics instead of the browser's, so a song renders to the identical file in Chrome, Firefox, Safari, the desktop app and the player libraries, whatever the machine.
 - Microtone Touch and the desktop app run the same engine.
+- The old JavaScript engine is gone rather than kept beside the new one, so the audio thread has about half as much code to load before the first note, and the `taudplay` library is a fifth smaller.
 - The `taudplay` JavaScript library is version 5.0.0 and runs this engine too, with the API it had; `libtaudplay`, the C library, is no longer a port of the engine but its source.
 - Fixed: a note whose pitch does not end in 0 in hex, which the built-in tuning systems now write, could fall into the gap between two keyboard zones of a sampled instrument and play its base sample instead; a zone, a layer's range and an operator's range now run through the whole of their last step.
 

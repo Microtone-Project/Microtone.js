@@ -1303,6 +1303,7 @@ typedef struct {
 int te_imix_parse_section(const uint8_t *b, size_t len, TaudImixBlock **out);
 bool te_imix_block_engaged(const TaudImixBlock *b);
 TaudImxChain *te_imx_chain_new(const TaudImixBlock *block, int rate, int nch, bool stereo, bool ambisonic);
+int64_t te_imx_lfo_increment(bool sync, uint32_t rate, int bpm, int fs);
 void te_imx_chain_free(TaudImxChain *c);
 void te_imx_chain_set_block(TaudImxChain *c, const TaudImixBlock *block);
 void te_imx_chain_reset(TaudImxChain *c);
@@ -1726,6 +1727,10 @@ static inline bool te_inst_mod_bit(const TaudInst *inst, int i)
 #define REGION_SET 1
 #define REGION_COMB 2
 extern const int MOD_STEP[16];
+extern const int MOD_JUMP_SLICES[2];
+extern const double MOD_SCATTER_FRAC[3];
+extern const int EXT_JUMP_N[16];
+extern const double EXT_SCATTER_FRAC[16];
 
 enum {
     EXT_KIND_NOOP, EXT_KIND_INVERT, EXT_KIND_FUNK, EXT_KIND_XOR, EXT_KIND_MIRROR,
@@ -1806,6 +1811,9 @@ void te_fm_set_operator_vibrato(TaudFmRig *rig, int p, int s, int d);
 /* opl.c */
 extern const int32_t OPL_MULTIPLE_X2[16];
 extern const int32_t OPL_SUSTAIN_LEVEL[16];
+/* The chip's two ROMs: the log-sine quarter wave and the exponent. */
+extern const uint16_t OPL_LOG_SIN[256];
+extern const uint16_t OPL_EXP[256];
 #define OPL_VIBRATO_PERIOD 8192
 #define OPL_TREMOLO_PERIOD 13440
 void te_decode_opl_patch(const uint8_t *bytes, TaudOplPatch *into);
@@ -1823,12 +1831,19 @@ void te_opl_key_scaling(double hz, int ksr, int ksl, int32_t out[2]);
 int64_t te_opl_chip_index(const TaudEngine *e, int64_t frame, double *frac);
 double te_opl_tremolo_at(int deep, int p);
 double te_opl_vibrato_at(int deep, int p);
+/* The block and F-number a driver would write for `hz` (block << 10 | fnum),
+ * and the channel's next chip sample at chip clock k. */
+int te_opl_block_fnum(double hz, bool lowFnum);
+int te_opl_chip_step(TaudOplState *st, int64_t k);
 
 /* psg.c */
 void te_psg_tables_init(TaudEngine *e);
 void te_decode_psg_patch(const uint8_t *bytes, TaudPsgPatch *into);
 void te_psg_clear_runtime(TaudPsgPatch *patch);
 bool te_psg_write_register(TaudPsgPatch *patch, int reg);
+/* An oscillator's level and mute, the run-time overlay over the record's. */
+int te_psg_level(const TaudPsgPatch *patch, int i);
+bool te_psg_muted(const TaudPsgPatch *patch, int i);
 void te_psg_state_init(TaudPsgState *st);
 void te_psg_key_on(TaudPsgState *st, TaudPsgPatch *patch, bool carry);
 void te_psg_key_off(TaudPsgState *st);
@@ -1846,6 +1861,8 @@ double te_render_psg_voice(TaudEngine *e, TaudVoice *v, int64_t frame);
 #define PHASE_CODA 2
 #define PHASE_DONE 3
 void te_formant_tables_init(TaudFormantTables *t, int rate);
+/* The equal-loudness weighting in dB at f, searching up from index *j. */
+double te_elw_db(const TaudFormantTables *T, double f, int *j);
 void te_decode_formant_block(const uint8_t *raw, TaudFormantPatch *patch);
 void te_formant_state_init(TaudFormantState *st);
 void te_formant_note_on(TaudEngine *e, TaudFormantState *st, const TaudFormantPatch *patch, bool keep);
@@ -1868,6 +1885,8 @@ double te_fold_azimuth_to_pan(double az);
 void te_direction_from_angles(double az, double el, double out[3]);
 void te_angles_from_direction(double x, double y, double z, double out[2]);
 void te_sample_channel_angles(double az, double el, double localAz, double out[2]);
+/* Where channel k of a `chans`-channel sample sits round its source (azimuth units). */
+double te_sample_channel_layout(int chans, int k);
 void te_angles_from_spatial_arg(int arg, double out[2]);
 void te_step_toward_target(double az, double el, double tgtAz, double tgtEl, double stepUnits, double out[2]);
 void te_encode_sn3d(double az, double el, int order, double *out);

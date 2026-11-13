@@ -14,7 +14,7 @@
 import { CUE_EMPTY, PATTERN_SIZE, SAMPLEBIN_SIZE, TAUD_VERSION } from "../../core/format/taud-const.js";
 import { writePatchesBlob, buildMetaRecord, layerNote } from "../../core/engine/inst.js";
 import { EffectOp } from "../../core/engine/tables.js";
-import { rowVolumeFromDefault, narrowVolAxis } from "../../core/engine/trigger.js";
+import { rowVolumeFromDefault, narrowVolAxis } from "../../core/engine/columns.js";
 import { INST_GOBACK, INST_SKIP, INST_JUMP } from "../../core/engine/state.js";
 import { sampleSpans, BANK_SECTIONS, cueInfo } from "./document.js";
 import { buildPitchExtSection, pitchPatchesOf, pitchTableOf } from "../../core/format/pitch-ext-section.js";
@@ -877,7 +877,7 @@ function patchIsShadowed(p, earlier) {
  * Usage reachability (item 74, widened by item 147).
  *
  * A patch is reachable when SOME trigger the document can perform resolves to
- * it. The engine truth is trigger.js (triggerMetaOrNote / triggerNote) and
+ * it. The engine truth is trigger.c (triggerMetaOrNote / triggerNote) and
  * inst.js TaudInst.resolvePatch — see TAUD_ENGINE_SPEC.md. Every trigger boils
  * down to a pair `(noteVal, seedVol)` handed to resolvePatch, so the analysis
  * collects the pairs the patterns can produce and resolves them.
@@ -929,7 +929,7 @@ function addDemand(demands, slot, note, vol) {
 
 /**
  * Every (slot, note, seedVol) trigger the document's pattern cells can produce.
- * Mirrors row.js's note branches one for one; anything the row leaves to the
+ * Mirrors row.c's note branches one for one; anything the row leaves to the
  * lane becomes WILD.
  */
 function collectCellDemands(doc) {
@@ -966,7 +966,7 @@ function collectCellDemands(doc) {
         const vol = cell.volumeEff === 0 ? narrowVolAxis(ts, cell.volume) : -1;
         if (note === 0x0000) {
           // No note. An instrument byte either TRIGGERS at the lane's current
-          // pitch (row.js's E/F/G branch) or swaps the instrument under the
+          // pitch (row.c's E/F/G branch) or swaps the instrument under the
           // sounding note, resolving at that pitch AND the lane's running
           // volume. Both read lane state; the second reads both axes.
           if (slot !== 0) {
@@ -990,7 +990,7 @@ function collectCellDemands(doc) {
         if (cell.effect === EffectOp.OP_G || cell.effect === EffectOp.OP_L) {
           // Tone porta: on an ALREADY SOUNDING voice the row re-resolves the
           // lane's note and volume under the new instrument instead of
-          // triggering (row.js); on a silent one it falls through to the plain
+          // triggering (row.c); on a silent one it falls through to the plain
           // trigger recorded above, so both are kept.
           addDemand(demands, slot, WILD, WILD);
         }

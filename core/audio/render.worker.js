@@ -23,7 +23,7 @@
 // The main thread bumps the doorbell after each postMessage (AudioSystem), the
 // wait wakes, and the handler for that message re-enters the clock.
 
-import { createEngine } from "../engine/create.js";
+import { WasmTaudEngine } from "../engine/wasm-engine.js";
 import { TRACKER_CHUNK } from "../engine/constants.js";
 import { CMD, MSG, SNAP_FLOATS, SNAP_SAB_I32_CELLS } from "../worklet/protocol.js";
 import {
@@ -136,7 +136,7 @@ self.onmessage = (e) => {
 };
 
 function handleMessage(m) {
-  if (m.t === CMD.INIT && engine === null) engine = createEngine(m.engine);
+  if (m.t === CMD.INIT && engine === null) engine = new WasmTaudEngine();
   if (engine !== null && applyAudioCommand(engine, m)) {
     if (isTransportReset(m.t)) flushRing();
     produceAudio();      // start filling immediately (low play/seek latency)

@@ -1,5 +1,5 @@
 // Pattern-Ditto (effect 7) display expansion — a STATIC mirror of the engine's
-// row-time expansion in core/engine/row.js applyTrackerRow, used only to paint
+// row-time expansion in core/engine/c/src/row.c te_apply_tracker_row, used only to paint
 // the would-be-repeated cells in a ghost colour. Pure: no DOM, no engine state.
 //
 // The engine copies, per covered row, every sub-column the destination row

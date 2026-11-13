@@ -9,7 +9,7 @@
 // layer only for a self-reference or an out-of-range index) and triggerMetaOrNote
 // spawns one Voice per RESOLVED layer, keyed by nothing that could collide, so
 // three layers on one child are three independently detuned voices of one
-// editable instrument. applyDuplicateCheck never sees them either: row.js/tick.js
+// editable instrument. applyDuplicateCheck never sees them either: row.c/tick.c
 // call it with the pattern's instrument byte (the meta's own slot), never per
 // layer. Splitting a shared child off into its own slot is a BANK edit, not a
 // table edit — bankmerge.planUnlinkMetaLayer.
@@ -122,7 +122,7 @@ export function removeLayer(layers, i) {
 
 /** Move layer `i` by `delta` places. Record order is PRIORITY: the first layer
  *  that resolves for a trigger becomes the lane's foreground voice, the rest
- *  spawn as background children (trigger.js triggerMetaOrNote). */
+ *  spawn as background children (trigger.c triggerMetaOrNote). */
 export function moveLayer(layers, i, delta) {
   const to = i + delta;
   if (i < 0 || i >= layers.length || to < 0 || to >= layers.length) return layers;

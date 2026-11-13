@@ -24,7 +24,7 @@
 
 import { EffectOp, tuningRatioOf } from "../../core/engine/tables.js";
 import { MIDDLE_C } from "../../core/engine/constants.js";
-import { envPresent } from "../../core/engine/envelope.js";
+import { envPresent } from "../../core/engine/inst.js";
 import { CUE_EMPTY } from "../../core/format/taud-const.js";
 import { PT_PERIODS } from "../../core/tuning/pitchtables.js";
 import { unescapeName } from "../../core/format/names.js";
@@ -99,7 +99,7 @@ export function playedCues(song) {
 
 /**
  * One lane's rows as the engine plays them in one cue: Pattern Ditto (effect
- * 7) expanded exactly as core/engine/row.js does it, rows past the cue's
+ * 7) expanded exactly as the engine's row pass (core/engine/c/src/row.c) does it, rows past the cue's
  * length left out. Null when the lane has no pattern there.
  */
 /** A volume SET as a tracker's 0…64: from the wide cell's 0…255 when there is

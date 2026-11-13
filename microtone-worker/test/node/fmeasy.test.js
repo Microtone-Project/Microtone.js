@@ -30,9 +30,8 @@ import { TaudEngine } from "../../core/engine/engine.js";
 import { TRACKER_CHUNK, setSamplingRate } from "../../core/engine/constants.js";
 import {
   makeMetaLayer, FM_WORD_OSC as OSC0, FM_WORD_MOD as MOD0, FM_WORD_FB as FB0, FmOp, TaudInst,
-  buildMetaRecord, META_TYPE_FM,
+  buildMetaRecord, META_TYPE_FM, fmPrincipalIsDsp,
 } from "../../core/engine/inst.js";
-import { fmPrincipalIsDsp } from "../../core/engine/fm.js";
 import { META_MIX_GAIN, EffectOp } from "../../core/engine/tables.js";
 
 setSamplingRate(32000);

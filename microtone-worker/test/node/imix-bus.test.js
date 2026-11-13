@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 import * as M from "../../core/engine/imix.js";
+import { engineParts } from "../fixtures/engine-parts.js";
 import {
   parseImixSection, buildImixSection, buildImixBlock, encodeEquipment, IMCN_FOURCC,
 } from "../../core/format/imix-section.js";
@@ -20,6 +21,8 @@ import { setImixOp, setInstFieldOp, setSectionOp, compositeOp } from "../../src/
 import { planImport, applyPlan } from "../../src/doc/bankmerge.js";
 
 const FS = 48000;
+/** The engine's parts: its instrument chains are what is measured here. */
+const P = engineParts();
 const DEMO = new URL("../../assets/demo_projects/Huygens_clock.taud", import.meta.url).pathname;
 
 async function render(prep, seconds = 6) {
@@ -77,7 +80,7 @@ test("the mix tool's Remove DC is bit 3 of its flags", () => {
 function runMix(e, sig, frames, chunk = 128) {
   const block = M.defaultImixBlock(1);
   block.equipment.mxtl = { ...M.defaultEquipment("mxtl"), ...e };
-  const ch = new M.InstrumentChain(block, FS, 2, true);
+  const ch = P.imixChain(block, FS, 2, true);
   const out = new Float64Array(frames * 2);
   const buf = new Float64Array(2 * chunk);
   for (let s = 0; s < frames; s += chunk) {
@@ -393,7 +396,7 @@ test("the mix tool's width is surround width on an ambisonic bus, and skipped on
   b.equipment.mxtl = { ...M.defaultEquipment("mxtl"), width: 1.5 };
   const nch = 4, N = 32;
   const run = (ambisonic) => {
-    const ch = new M.InstrumentChain(b, FS, nch, false, ambisonic);
+    const ch = P.imixChain(b, FS, nch, false, ambisonic);
     const d = new Float64Array(nch * N);
     for (let c = 0; c < nch; c++) for (let n = 0; n < N; n++) d[c * N + n] = 0.25 * (c + 1);
     ch.process(d, N, 0, N, 125, true);

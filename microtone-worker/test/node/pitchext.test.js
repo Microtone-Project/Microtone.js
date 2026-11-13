@@ -2,9 +2,7 @@
 // rule it rests on (§9.11): a pitch range runs through the WHOLE of the last
 // unit its high bound names.
 //
-// Every engine check goes through the host API on TaudEngine, so the same file
-// pins the C engine (the default) and, under tools/use-js-engine.mjs, the
-// JavaScript one.
+// Every engine check goes through the host API on TaudEngine.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";

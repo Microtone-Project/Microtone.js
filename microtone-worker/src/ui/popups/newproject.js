@@ -40,7 +40,7 @@ const clampInt = (v, lo, hi, dflt) => {
 
 // ── tap tempo (unit-tested in test/node/taptempo.test.js) ─────────────────
 // A tap marks a NOTATED beat — beatPri rows of tickRate ticks — and one tick is
-// 2.5/BPM seconds (engine tick.js), so a beat lasts beatPri·tickRate·2.5/BPM
+// 2.5/BPM seconds (engine tick.c), so a beat lasts beatPri·tickRate·2.5/BPM
 // seconds. Inverting that is the whole conversion: the tapper is calibrated
 // against the beat lamp beside it, not against the field, so on the defaults
 // (4 rows/beat × speed 6 = the classic 24 ticks) tapping 125 writes 125, while

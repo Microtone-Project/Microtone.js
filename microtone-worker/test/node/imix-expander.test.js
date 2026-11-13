@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 import * as M from "../../core/engine/imix.js";
+import { engineParts } from "../fixtures/engine-parts.js";
 import { Biquad } from "../../core/engine/mastering.js";
 import { parseImixSection, buildImixBlock, buildImixSection } from "../../core/format/imix-section.js";
 import { TaudEngine } from "../../core/engine/engine.js";
@@ -19,13 +20,17 @@ import { interpret } from "../../src/motif/build.js";
 import { MotifError } from "../../src/motif/lexer.js";
 
 const FS = 48000;
+/** The engine's parts: its instrument chains are what is measured here. */
+const P = engineParts();
+/** The expander's peak window, seconds (engine spec §12.4 `expd`). */
+const EXPD_WINDOW_SEC = 0.025;
 const DEMO = new URL("../../assets/demo_projects/Huygens_clock.taud", import.meta.url).pathname;
 
 const expander = (o = {}) => M.normaliseEquipment(M.IMX_EXPD, { ...M.defaultEquipment(M.IMX_EXPD), ...o });
 
 function run(equipment, sig, frames, chunk = 128) {
   const block = { ...M.defaultImixBlock(1), equipment };
-  const ch = new M.InstrumentChain(block, FS, 2, true);
+  const ch = P.imixChain(block, FS, 2, true);
   const L = new Float64Array(frames), R = new Float64Array(frames);
   const buf = new Float64Array(2 * 512);
   for (let s = 0; s < frames; s += chunk) {
@@ -111,8 +116,10 @@ test("expd runs right after the input trim in both pipelines", () => {
  *  reset — until its first non-zero sample (§12.4 "Idle"), and silence is
  *  something an expander acts on, so the reference starts there too. */
 function reference(e, L, R) {
-  const W = Math.max(1, Math.round(M.IMX_EXPD_WINDOW_SEC * FS));
-  const onePole = (ms) => 1 - Math.exp(-1 / ((ms / 1000) * FS));
+  // The engine's own pow and exp, so "to the bit" does not hang on the
+  // platform's libm.
+  const W = Math.max(1, Math.round(EXPD_WINDOW_SEC * FS));
+  const onePole = (ms) => 1 - P.exp(-1 / ((ms / 1000) * FS));
   const a = onePole(e.attackMs), r = onePole(e.releaseMs), rc = onePole(10);
   const H = Math.round((e.holdMs * FS) / 1000);
   const hp = new Biquad(2), lp = new Biquad(2);
@@ -143,7 +150,7 @@ function reference(e, L, R) {
     if (target >= g) { g = g + (target - g) * a; hold = H; }
     else if (hold > 0) hold--;
     else g = g + (target - g) * r;
-    const k2 = 10 ** (g / 20);
+    const k2 = P.pow(10, g / 20);
     oL[n] = L[n] * k2; oR[n] = R[n] * k2;
   }
   return { L: oL, R: oR };
@@ -213,14 +220,14 @@ test("hold keeps the gate open that long after the level falls; the key filter k
     for (let n = 4800; n < 24000; n++) if (Math.abs(L[n]) < 1e-5 && Math.abs(burst(n)[0]) > 5e-4) return n;
     return -1;
   };
-  const W = Math.round(M.IMX_EXPD_WINDOW_SEC * FS);
+  const W = Math.round(EXPD_WINDOW_SEC * FS);
   const quick = closedBy(0), held = closedBy(100);
   assert.ok(quick > 4800 + W - 1 && quick < 4800 + W + 400, `closes once the window lets go (${quick})`);
   assert.ok(Math.abs(held - quick - 4800) < 400, `100 ms of hold is 4800 samples later (${held - quick})`);
   // A loud 50 Hz under a quiet 3 kHz: unfiltered, the bass holds the gate open
   // for the quiet treble; through a 300 Hz key low cut, it does not.
   const mix = (n) => { const v = 0.5 * Math.sin((2 * Math.PI * 50 * n) / FS) + 0.002 * Math.sin((2 * Math.PI * 3000 * n) / FS); return [v, v]; };
-  const gain = (o) => run({ expd: expander({ threshDb: -30, floorDb: -30, rangeDb: 40, releaseMs: 5, ...o }) }, mix, FS).chain.readGr(M.makeImixGrReadout()).expd;
+  const gain = (o) => run({ expd: expander({ threshDb: -30, floorDb: -30, rangeDb: 40, releaseMs: 5, ...o }) }, mix, FS).chain.readGr().expd;
   assert.ok(gain({}) > -1e-6, "the bass opens it");
   assert.ok(gain({ keyFilter: true, keyLowCut: 300 }) < -39, "keyed above the bass, it stays shut");
 });
@@ -229,7 +236,7 @@ test("hold keeps the gate open that long after the level falls; the key filter k
 
 test("the meter reads the expander's deepest gain and its detector level; the snapshot carries both", async () => {
   const { chain } = run({ expd: expander({ threshDb: -20, ratio: 3, rangeDb: 24, releaseMs: 10 }) }, tone(440, -30), 9600);
-  const r = chain.readGr(M.makeImixGrReadout());
+  const r = chain.readGr();
   assert.ok(Math.abs(r.expd - -20) < 0.05, `10 dB under at 1:3 is 20 dB down (${r.expd})`);
   assert.ok(Math.abs(r.expdLvl - -30) < 0.1, `level ${r.expdLvl}`);
   const { fillSnapshotInto } = await import("../../core/worklet/engine-commands.js");

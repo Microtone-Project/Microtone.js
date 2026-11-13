@@ -9,11 +9,18 @@ import assert from "node:assert/strict";
 
 import {
   SURROUND_STEREO, SURROUND_PLANAR, SURROUND_SPATIAL,
-  AZIMUTH_TURN, ELEVATION_QUARTER, SAMPLE_CHANNEL_LAYOUT,
+  AZIMUTH_TURN, ELEVATION_QUARTER,
   wrapAzimuth, foldAzimuthToPan, lateralProjection, directionFromAngles, anglesFromDirection,
-  sampleChannelAngles, stepTowardTarget, encodeSN3D, acnChannelList,
+  stepTowardTarget, encodeSN3D, acnChannelList,
   StereoRenderer, AmbisonicRenderer, SpatialBus,
 } from "../../core/engine/spatial.js";
+import { engineParts } from "../fixtures/engine-parts.js";
+
+// Where the engine places a multichannel sample's channels round its source
+// (core/engine/c/src/spatial.c): the layout, and the angles it gives a channel.
+const PARTS = engineParts();
+const SAMPLE_CHANNEL_LAYOUT = { 2: [PARTS.sampleChannelLayout(2, 0), PARTS.sampleChannelLayout(2, 1)] };
+const sampleChannelAngles = (az, el, localAz, out) => PARTS.sampleChannelAngles(az, el, localAz, out);
 
 const vec = new Float64Array(3);
 const ang = new Float64Array(2);

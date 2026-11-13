@@ -40,7 +40,7 @@ Every file begins with the same 8-byte magic and 32-byte header. What follows de
 
 The song table sits immediately after the sample and instrument image, so its offset is `32 + (compressed size of that image)`. Each song table entry carries an absolute file offset to its own pattern bin; the cue sheet follows the pattern bin directly, at `song_offset + pattern_bin_compressed_size`. Project Data is located by an absolute offset in the header, not by position, so a writer **MAY** place it anywhere after the song bins.
 
-### Container kinds
+### 1.1 Container kinds
 
 | Kind | Version bits `kk` | Sample+inst image | Song table | Typical use |
 |---|---|---|---|---|
@@ -52,7 +52,7 @@ Bits `01` are **RESERVED**; a file carrying them is **INVALID**.
 
 `.tsii` and `.tpif` are not separate formats — they are *specialised interpretations* of this one, so a general Taud reader parses them with no extra code. A `.tpif` is played by first loading its companion `.tsii`: the pattern image loads over the **resident** bank, exactly as the device behaves. See [§8](#8-tsii-and-tpif).
 
-### Compression
+### 1.2 Compression
 
 Four payloads are compressed independently: the sample and instrument image, and each song's pattern bin and cue sheet. Each is a self-contained stream whose codec is identified by its own leading magic:
 
@@ -80,7 +80,7 @@ Fixed 32 bytes, always at file offset 0.
 
 A file whose magic does not match is **INVALID**.
 
-### Version byte
+### 2.1 Version byte
 
 ```
 0b kk x vvvvv
@@ -97,7 +97,7 @@ A version-2 reader **MUST** accept version-1 files and translate their cue image
 
 Version numbers above 3 are unassigned; a decoder that does not recognise a version **MUST** stop rather than guess.
 
-### Signature
+### 2.2 Signature
 
 Fourteen bytes naming the producer, used for diagnostics only and otherwise **IGNORED**. Known values include `mod2taud/TSVM `, `s3m2taud/TSVM `, `it2taud/TSVM  `, `xm2taud/TSVM  `, `mon2taud/TSVM `, `midi2taud/TSVM` and `Microtone.js  `. A writer that re-saves an existing file **MAY** preserve the original signature or stamp its own; neither choice affects playback.
 
@@ -148,7 +148,7 @@ Bit 9 came later than the other nine: a reader that predates it ignores it, and 
 
 The cue count at offset 26 exists so a loader can size the cue image without deriving it from the decompressed length. When it is 0 (a version-1 file, or a version-2 writer that omitted it), a reader **MUST** fall back to `decompressed_length ÷ cue_size`.
 
-### Global behaviour flags (byte 15)
+### 4.1 Global behaviour flags (byte 15)
 
 This byte is the file-level form of effect `1` and is applied before the first row.
 
@@ -164,7 +164,7 @@ This byte is the file-level form of effect `1` and is applied before the first r
 
 Effect `1` may change these at runtime, but the change does not persist: starting a song re-applies the file's byte.
 
-### Immutable song flags (byte 28)
+### 4.2 Immutable song flags (byte 28)
 
 ```
 0b p000 00ss
@@ -174,7 +174,7 @@ Effect `1` may change these at runtime, but the change does not persist: startin
 
 `p` is not a flag: it is **bit 9 of the initial BPM** ([above](#4-song-table)), lodged here for want of room in bytes 7 and 8. A reader **MUST** fold it into the tempo and **MUST NOT** read it as part of the surround model.
 
-### Tuning
+### 4.3 Tuning
 
 The pair at offsets 9 and 11 declares "note *N* sounds at *F* Hz", and the engine scales the whole song accordingly. Either field reading 0 means "assume the tracker default", which is **C9 (`$A000`) at 8363.0 Hz** — the Amiga convention, which puts A4 at roughly 439.53 Hz, about 1.87 cents flat of concert pitch. (The exact NTSC-derived reference is `(3579545 ÷ 428) × 2^(3/4) ÷ 32` ≈ 439.548 Hz; the format stores the rounded 8363.0.)
 
@@ -193,7 +193,7 @@ Well-known declarations:
 
 A song's pattern bin decompresses to `numPatterns × 64 × 16` bytes: one 1024-byte image per pattern, back to back, each 64 rows of the 16-byte cell of [§5.5](#5-5-the-pattern-cell). A Taud pattern is **single-lane** — 64 rows — which is why a cue names one pattern *per lane* rather than one pattern for the whole song. A file in the legacy format (versions 1 and 2) has an 8-byte cell instead ([§5.6](#5-6-legacy-format-the-8-byte-cell)), so its pattern image is 512 bytes and the same bin holds twice as many patterns.
 
-### 5.5 The pattern cell
+### 5.1 The pattern cell
 
 | Offset | Type | Field |
 |---|---|---|
@@ -278,7 +278,7 @@ A second effect, with the same opcode and 16-bit argument encoding as the first,
 
 An editor **MAY** leave it out of its display — it is the only cell field that carries no meaning unless a song actually writes one, and it costs a sixth column in the widest row on screen. An editor that hides it **MUST** still preserve it through every copy, paste and block operation the hidden column is not part of; silently dropping a command the file declares is **NOT** conforming. Microtone.js hides it by default and exposes it per lane.
 
-### 5.6 Legacy format — the 8-byte cell
+### 5.2 Legacy format — the 8-byte cell
 
 Format versions 1 and 2 — the **legacy format** — have an 8-byte cell with one effect, a note word with no fine nibble, and six-bit volume and panning columns. A reader **MUST** still read it; a writer **SHOULD NOT** write it, and an editor **SHOULD** upgrade a legacy song to the cell of [§5.5](#5-5-the-pattern-cell) as it opens it ([below](#upgrading-a-legacy-song)). Everything this section does not mention is as §5.5 has it.
 
@@ -330,7 +330,7 @@ Everything else copies across unchanged. Note that only the volume column is res
 
 The cue sheet is the song's order list. Unlike most trackers, one cue names a pattern **for every lane** independently, plus up to two flow instructions. A song is therefore a sequence of cues, and lanes never diverge.
 
-### 6.1 Version 2 layout
+### 6.1 Version 2 and 3 layout
 
 Each cue is an array of `S16` lane words: 32 words (64 bytes) normally, or 64 words (128 bytes) in 64-lane mode. Cues are stored back to back; the count comes from the song table (or from the decompressed length divided by the stride).
 

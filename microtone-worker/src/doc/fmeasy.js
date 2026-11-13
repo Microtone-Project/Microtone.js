@@ -36,9 +36,8 @@
 // easyDecode say why rather than guess.
 
 import {
-  FM_WORD_OSC, FM_WORD_MOD, FM_WORD_FB, FmOp, makeMetaLayer, FM_MAX_OPERATORS,
+  FM_WORD_OSC, FM_WORD_MOD, FM_WORD_FB, FmOp, makeMetaLayer, FM_MAX_OPERATORS, fmPrincipalIsDsp,
 } from "../../core/engine/inst.js";
-import { fmPrincipalIsDsp } from "../../core/engine/fm.js";
 import { META_MIX_GAIN } from "../../core/engine/tables.js";
 import { LINEAR_FREQ_C4_HZ } from "../../core/engine/constants.js";
 import {

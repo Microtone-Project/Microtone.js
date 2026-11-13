@@ -1,7 +1,7 @@
 // Bend ghosts — the pitch / volume / panning a BENDING effect leaves standing
 // on a cell that displays nothing. A static mirror of the engine's row and
-// tick arithmetic (core/engine/row.js applyTrackerRow, core/engine/effects.js
-// applyEffectRow, core/engine/tick.js applyTrackerTick), in the same spirit as
+// tick arithmetic (core/engine/c/src/row.c te_apply_tracker_row, effects.c
+// te_apply_effect_row, tick.c te_apply_tracker_tick), in the same spirit as
 // ditto.js: pure — no DOM, no engine instance, no audio.
 //
 // WHY. A slide's whole point is that the values it produces are never written
@@ -51,11 +51,10 @@ import {
   amigaSlideOnce, amigaSlideTick, linearFreqSlideOnce, linearFreqSlideTick,
   noteValToFreqHz, freqHzToNoteVal,
 } from "../../core/engine/tables.js";
-import { resolveArg } from "../../core/engine/effects.js";
 import {
-  applyVolColumn, applyPanColumn, applyPanColumnWide, rowVolumeFromDefault,
+  resolveArg, applyVolColumn, applyPanColumn, applyPanColumnWide, rowVolumeFromDefault,
   narrowVolAxis,
-} from "../../core/engine/trigger.js";
+} from "../../core/engine/columns.js";
 import {
   SURROUND_STEREO, SURROUND_SPATIAL,
   applyPanSet, applyPanSlide, applyElevation, applyNotePanSet, applyNotePanSlide,
@@ -64,9 +63,9 @@ import {
 } from "../../core/engine/spatial.js";
 import { VOLUME_MAX, VOLUME_MAX_WIDE, VOLUME_STEP_WIDE } from "../../core/engine/constants.js";
 
-/** Scratch [azimuth, elevation], the twin of effects.js's own `spatialArg`. */
+/** Scratch [azimuth, elevation], the twin of effects.c's own `spatialArg`. */
 const spatialArg = new Float64Array(2);
-/** …and of tick.js's `spatialStep`. One row is simulated at a time. */
+/** …and of tick.c's `spatialStep`. One row is simulated at a time. */
 const spatialStep = new Float64Array(2);
 
 // ── the shadow voice ─────────────────────────────────────────────────────────
@@ -152,13 +151,13 @@ function panGhostValue(ts, v) {
 function applyBendEffect(ts, st, v, op, rawArg) {
   switch (op) {
     case EffectOp.OP_A: {
-      // effects.js OP_A — speed, which is how many ticks a slide gets per row.
+      // effects.c OP_A — speed, which is how many ticks a slide gets per row.
       const tr = (rawArg >>> 8) & 0xff;
       if (tr !== 0) st.speed = tr;
       break;
     }
     case EffectOp.OP_D: {
-      // effects.js OP_D — fine forms land at tick 0, coarse arms slideMode 5.
+      // effects.c OP_D — fine forms land at tick 0, coarse arms slideMode 5.
       const arg = resolveArg(rawArg, v.mem.d);
       if (rawArg !== 0) v.mem.d = arg;
       const hi = (arg >>> 8) & 0xff;
@@ -179,7 +178,7 @@ function applyBendEffect(ts, st, v, op, rawArg) {
     }
     case EffectOp.OP_E:
     case EffectOp.OP_F: {
-      // effects.js OP_E / OP_F — the same command, mirrored. `$Fxxx` is a
+      // effects.c OP_E / OP_F — the same command, mirrored. `$Fxxx` is a
       // one-shot at tick 0; anything else arms the per-tick integrator.
       const up = op === EffectOp.OP_F;
       const arg = resolveArg(rawArg, v.mem.ef);
@@ -202,7 +201,7 @@ function applyBendEffect(ts, st, v, op, rawArg) {
       break;
     }
     case EffectOp.OP_G: {
-      // effects.js OP_G — the speed only; the TARGET is the note column's, set
+      // effects.c OP_G — the speed only; the TARGET is the note column's, set
       // in the row pass below.
       const arg = resolveArg(rawArg, v.mem.g);
       if (rawArg !== 0) v.mem.g = arg;
@@ -210,7 +209,7 @@ function applyBendEffect(ts, st, v, op, rawArg) {
       break;
     }
     case EffectOp.OP_K: {
-      // effects.js OP_K — vibrato (no effect on noteVal) + volume slide.
+      // effects.c OP_K — vibrato (no effect on noteVal) + volume slide.
       const raw = (rawArg >>> 8) & 0xff;
       const arg = raw !== 0 ? (v.mem.k = raw) : v.mem.k;
       const hi = (arg >>> 4) & 0xf;
@@ -220,7 +219,7 @@ function applyBendEffect(ts, st, v, op, rawArg) {
       break;
     }
     case EffectOp.OP_L: {
-      // effects.js OP_L — porta continuation (speed out of G's memory) + slide.
+      // effects.c OP_L — porta continuation (speed out of G's memory) + slide.
       const raw = (rawArg >>> 8) & 0xff;
       const arg = raw !== 0 ? (v.mem.l = raw) : v.mem.l;
       const hi = (arg >>> 4) & 0xf;
@@ -231,7 +230,7 @@ function applyBendEffect(ts, st, v, op, rawArg) {
       break;
     }
     case EffectOp.OP_P: {
-      // effects.js OP_P — the LANE pan axis, fine forms at tick 0.
+      // effects.c OP_P — the LANE pan axis, fine forms at tick 0.
       const arg = resolveArg(rawArg, v.mem.p);
       if (rawArg !== 0) v.mem.p = arg;
       const hi = (arg >>> 8) & 0xff;
@@ -245,7 +244,7 @@ function applyBendEffect(ts, st, v, op, rawArg) {
       break;
     }
     case EffectOp.OP_Q: {
-      // effects.js OP_Q — the retrigger's volume modifier walks noteVolume
+      // effects.c OP_Q — the retrigger's volume modifier walks noteVolume
       // across the row's ticks (applyRetrigVolMod). Not simulated: each
       // modifier is its own arithmetic and it runs off the retrigger's own
       // clock. The axis goes quiet rather than drifting wrong. `y === 0`
@@ -256,7 +255,7 @@ function applyBendEffect(ts, st, v, op, rawArg) {
     }
     case EffectOp.OP_S: applyBendSEffect(ts, st, v, rawArg); break;
     case EffectOp.OP_X: {
-      // effects.js OP_X — place the lane. An absolute statement, so it is
+      // effects.c OP_X — place the lane. An absolute statement, so it is
       // no bend: the row shows the position in its own argument.
       if (ts.surroundModel === SURROUND_STEREO) break;
       anglesFromSpatialArg(rawArg, spatialArg);
@@ -267,14 +266,14 @@ function applyBendEffect(ts, st, v, op, rawArg) {
       break;
     }
     case EffectOp.OP_4:
-      // effects.js OP_4 — where a Z slide is heading. Moves nothing by itself.
+      // effects.c OP_4 — where a Z slide is heading. Moves nothing by itself.
       if (ts.surroundModel === SURROUND_STEREO) break;
       anglesFromSpatialArg(rawArg, spatialArg);
       v.spatialTargetAz = spatialArg[0];
       v.spatialTargetEl = ts.surroundModel === SURROUND_SPATIAL ? spatialArg[1] : 0.0;
       break;
     case EffectOp.OP_Z: {
-      // effects.js OP_Z — `$Ffxx` is the funk repeat (not spatial at all);
+      // effects.c OP_Z — `$Ffxx` is the funk repeat (not spatial at all);
       // `$0xxx` arms the great-circle slide for this row.
       if ((rawArg & 0xf000) === 0xf000) break;
       if (ts.surroundModel === SURROUND_STEREO) break;
@@ -293,7 +292,7 @@ function applyBendSEffect(ts, st, v, arg) {
   const x = (arg >>> 8) & 0xf;
   switch (sub) {
     case 0x2:
-      // effects.js applySEffect $2x — set finetune. A one-shot pitch delta
+      // effects.c applySEffect $2x — set finetune. A one-shot pitch delta
       // whose RESULT is nowhere on the row, so it ghosts like a fine slide.
       v.noteVal = clamp(v.noteVal + FINETUNE_OFFSET[x], 0x20, 0xffff);
       v.amigaPeriod = -1.0;
@@ -301,7 +300,7 @@ function applyBendSEffect(ts, st, v, arg) {
       break;
     case 0x6: st.extraTicks += x; break;  // fine pattern delay — longer row
     case 0x8:
-      // effects.js applySEffect $8 — S $80xx sets the lane pan outright.
+      // effects.c applySEffect $8 — S $80xx sets the lane pan outright.
       applyPanSet(ts, v, arg & (ts.surroundModel === SURROUND_STEREO ? 0xff : 0x1ff));
       st.wrotePan = true;
       st.panKnown = true;
@@ -309,16 +308,16 @@ function applyBendSEffect(ts, st, v, arg) {
     case 0xe:
       // Pattern delay: the row runs again, ticks and tick-0 events alike. The
       // engine gives it to the first lane that asks and does NOT let a
-      // repetition re-arm it (effects.js sexWinningChannel, row.js advanceRow),
+      // repetition re-arm it (effects.c sexWinningChannel, row.c advanceRow),
       // or the row would repeat for ever; `sexArmed` is that latch.
       if (!st.sexArmed) { st.sexArmed = true; st.delayRepeats = x; }
       break;
   }
 }
 
-/** The slide half of one tick > 0 (tick.js applyTrackerTick). */
+/** The slide half of one tick > 0 (tick.c applyTrackerTick). */
 function bendTick(ts, v) {
-  if (!v.active) return; // tick.js skips an inactive voice before any of this
+  if (!v.active) return; // tick.c skips an inactive voice before any of this
 
   // Pitch slides (E/F coarse).
   if (v.slideMode === 1 || v.slideMode === 2) {
@@ -386,7 +385,7 @@ function bendTick(ts, v) {
 }
 
 /**
- * "Instrument byte without retrigger" (row.js applyInstrumentChange): the note
+ * "Instrument byte without retrigger" (row.c applyInstrumentChange): the note
  * volume goes back to the new record's default. A metainstrument has one per
  * layer, so the axis goes unknown instead.
  */
@@ -408,7 +407,7 @@ function reseedNoteVolume(ts, st, v, inst) {
 
 /**
  * Seed the two instrument-owned axes on a trigger, the way triggerNote does
- * (trigger.js: the `noteVolume` seed, then the note-pan block gated on the row
+ * (trigger.c: the `noteVolume` seed, then the note-pan block gated on the row
  * carrying an instrument byte). `inst` is a decoded TaudInst, or null when the
  * caller has no instrument table to offer — a caller without one gets the
  * behaviour of a record that says nothing, which is also what a blank slot
@@ -423,7 +422,7 @@ function seedFromInstrument(ts, st, v, inst, instId, noteVal, volOverride) {
     st.panKnown = false;
     return;
   }
-  // trigger.js's patch lookup takes the volume the trigger is ABOUT to have,
+  // trigger.c's patch lookup takes the volume the trigger is ABOUT to have,
   // narrowed to the 6-bit axis an Ixmp zone is keyed on.
   const patch = instId !== 0 && inst !== null
     ? inst.resolvePatch(noteVal, volOverride >= 0
@@ -444,10 +443,10 @@ function seedFromInstrument(ts, st, v, inst, instId, noteVal, volOverride) {
     st.wroteVol = true;
     st.volKnown = true;
   }
-  // else: a note-only retrigger inherits the lane's note volume (trigger.js).
+  // else: a note-only retrigger inherits the lane's note volume (trigger.c).
 
   if (instId === 0 || inst === null) return;
-  // trigger.js's note-pan seed, verbatim in shape: a patch's per-zone pan wins,
+  // trigger.c's note-pan seed, verbatim in shape: a patch's per-zone pan wins,
   // else the pan envelope's 'p' bit gates the record's own, and pitch-pan
   // separation shifts whatever came out of that.
   const panEnvLoop = patch !== null && patch.panEnv !== null ? patch.panEnvLoop : inst.panEnvLoop;
@@ -473,10 +472,10 @@ function seedFromInstrument(ts, st, v, inst, instId, noteVal, volOverride) {
 
 /**
  * Everything one row does at tick 0, in the engine's order: note, volume
- * column, panning column, first effect slot, second effect slot (row.js).
+ * column, panning column, first effect slot, second effect slot (row.c).
  */
 function applyBendRow(ts, st, v, row, instruments) {
-  // row.js "Reset per-row transient state" — every slide re-arms per row. The
+  // row.c "Reset per-row transient state" — every slide re-arms per row. The
   // portamento target does NOT: it is lane state that outlives the row,
   // which is why a G trail keeps going over rows carrying no command at all.
   v.slideMode = 0; v.slideArg = 0;
@@ -490,7 +489,7 @@ function applyBendRow(ts, st, v, row, instruments) {
 
   const instOf = (id) => (instruments !== null ? instruments[id] ?? null : null);
   const note = row.note;
-  // row.js reads toneG off the FIRST slot only, and so does this.
+  // row.c reads toneG off the FIRST slot only, and so does this.
   const toneG = row.effect === EffectOp.OP_G || row.effect === EffectOp.OP_L;
   const volOverride = row.volumeEff === 0 ? row.volume : -1;
 
@@ -506,10 +505,10 @@ function applyBendRow(ts, st, v, row, instruments) {
     } else if (row.instrment !== 0) {
       const inst = instOf(row.instrment);
       if (inst !== null && inst.isMeta) {
-        // row.js latches nothing for a meta on a note-less row.
+        // row.c latches nothing for a meta on a note-less row.
       } else {
         // Instrument byte alone: re-seed the note volume from the new record's
-        // default without retriggering (row.js applyInstrumentChange).
+        // default without retriggering (row.c applyInstrumentChange).
         reseedNoteVolume(ts, st, v, inst);
       }
     }
@@ -524,7 +523,7 @@ function applyBendRow(ts, st, v, row, instruments) {
       // Tone porta: the note is the TARGET, and no sample retriggers.
       v.tonePortaTarget = clamp(note, 0x20, 0xffff);
       // An instrument byte on a porta row reloads the default volume without
-      // retriggering, same call as the note-less row above (row.js).
+      // retriggering, same call as the note-less row above (row.c).
       if (row.instrment !== 0) reseedNoteVolume(ts, st, v, instOf(row.instrment));
     } else {
       // A fresh trigger. Pitch is simulated in WRITTEN-note space: a
@@ -558,7 +557,7 @@ function applyBendRow(ts, st, v, row, instruments) {
 }
 
 /**
- * The row the ENGINE plays on a pattern-ditto-covered row — row.js's own
+ * The row the ENGINE plays on a pattern-ditto-covered row — row.c's own
  * expansion, not ditto.js's display map. The two agree on every column but
  * one: on the ARMING row the engine suppresses the `7` and plays the source's
  * effect, where the display keeps showing the command the user typed. A trail
@@ -667,7 +666,7 @@ export function createBendSim(opts = {}) {
      * Run one pattern through the sim and report its ghosts.
      *
      * @param {Array|null} pattern  TaudPlayData rows; null (an unmaterialised
-     *   gap, or an empty cue slot) advances NOTHING — row.js skips a lane
+     *   gap, or an empty cue slot) advances NOTHING — row.c skips a lane
      *   whose cue slot is empty before it resets any per-row state, so the
      *   voice simply rings on with everything it was holding.
      * @param {object} runOpts  `rowLimit` (rows the cue plays), `ditto`
@@ -718,7 +717,7 @@ export function createBendSim(opts = {}) {
 
         // …and the rest of the row's ticks, which is where a coarse slide
         // moves. A pattern delay replays the whole row, tick-0 events and all
-        // (row.js advanceRow), so the trail sees every repetition.
+        // (row.c advanceRow), so the trail sees every repetition.
         for (;;) {
           const ticks = Math.max(st.speed + st.extraTicks, 1);
           for (let t = 1; t < ticks; t++) bendTick(ts, v);

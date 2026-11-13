@@ -232,9 +232,8 @@ export function renderToWav(docLike, songIndex, maxSeconds, outRate = 48000, mon
 export async function renderToWavAsync(docLike, songIndex, maxSeconds,
                                        { outRate = 48000, onProgress = null, signal = null,
                                          monitor = "fold", quality = WAV_CLEAN, makeEngine = null } = {}) {
-  // `makeEngine` lets a host render with the engine of its choice — the
-  // tracker passes the WebAssembly one (core/engine/create.js); with none
-  // given this module needs nothing beyond the JavaScript engine it imports.
+  // `makeEngine` lets a host supply the engine object (one it has set up, or
+  // the bare wasm-engine.js); by default it is engine.js's TaudEngine.
   const eng = makeEngine !== null ? makeEngine() : new TaudEngine();
   loadIntoEngine(eng, docLike, songIndex);
   applyMonitor(eng, monitor);

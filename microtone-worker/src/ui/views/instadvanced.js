@@ -18,11 +18,10 @@ import {
   rangeEnds, rangeTop,
 } from "../../doc/pitchedit.js";
 import {
-  writePatchesBlob, makeInstPatch, patchVibratoInherits, baseStereoPatchIndex,
+  writePatchesBlob, makeInstPatch, patchVibratoInherits, baseStereoPatchIndex, envPresent, envCarry,
 } from "../../../core/engine/inst.js";
 import { TOTAL_VOICES } from "../../../core/engine/constants.js";
 import { encodeNameTable } from "../../doc/cleanup.js";
-import { envPresent, envCarry } from "../../../core/engine/envelope.js";
 import {
   envActiveCount, envAddNode, envRemoveNode, envFollowTailSustain, envClampWrap,
   envClip, envPaste,

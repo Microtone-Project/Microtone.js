@@ -15,55 +15,30 @@ import { fileURLToPath } from "node:url";
 const root = fileURLToPath(new URL("../", import.meta.url));
 
 const FILES = [
-  "core/engine/constants.js",
-  "core/engine/minifloat.js",
-  "core/engine/rng.js",
-  "core/engine/dither.js",
-  "core/engine/tables.js",
-  "core/engine/spatial.js",
-  "core/engine/hrir-sadie.js",  // …which binaural.js decodes
-  "core/engine/binaural.js",
-  "core/engine/speakers.js",  // …which analysis.js needs
-  "core/engine/analysis.js",  // before state.js (TrackerState builds a tap) AND
-                             // before protocol.js (the snapshot layout sizes
-                             // its blocks from the tap's own constants)
-  "core/engine/mastering.js", // …and both of these before state.js too, which
-  "core/engine/loudness.js",  // builds a chain and a meter tap (item 178);
-                             // loudness.js reads analysis.js's oversampler
-  "core/engine/imix.js",      // …the instrument chains (item 217): after the
-                             // mastering stages it reuses, before state.js
-  "core/engine/samplemod.js",  // …before sampler.js (readSamplePoint) and inst.js
-  "core/engine/opl.js",        // …before inst.js (a type-8 record decodes its patch)
-  "core/engine/psg.js",        // …after opl.js (whose envelope and LFOs it runs), before inst.js
-  "core/engine/chip.js",       // …the two chip kinds as one, for formant.js
-  "core/engine/inst.js",
-  "core/engine/voice.js",
-  "core/engine/state.js",
-  "core/engine/sampler.js",
-  "core/engine/formant.js",    // …after sampler.js, whose fetch and ramp it calls
-  "core/engine/filter.js",
-  "core/engine/fm.js",   // …after sampler + filter, whose per-sample calls it makes
-  "core/engine/envelope.js",
-  "core/engine/trigger.js",
-  "core/engine/effects.js",
-  "core/engine/row.js",
-  "core/engine/tick.js",
-  "core/engine/chase.js",
-  "core/engine/mixer.js",
-  "core/engine/engine-js.js",  // the JavaScript engine (`?engine=js`)
-  // The C engine as WebAssembly (item 312) and what its JavaScript half builds
-  // its uploads with: the mastering and mixing-chain codecs, which cross the
-  // boundary as the file's own bytes.
-  "core/format/mastering-section.js",
-  "core/format/imix-section.js",
+  // The engine: the C engine built as WebAssembly (item 312) and the
+  // JavaScript half that drives it (wasm-engine.js), in dependency order.
   "core/engine/taud-engine.wasm.js",
   "core/engine/wasm-module.js",
+  "core/engine/constants.js",
+  "core/engine/rng.js",
+  "core/engine/tables.js",
+  "core/engine/spatial.js",
+  "core/engine/speakers.js",
+  "core/engine/analysis.js",   // the master strip's tap (JavaScript, on the module's memory)
+  "core/engine/dither.js",
+  "core/engine/loudness.js",   // the Mastering view's tap, likewise
+  "core/engine/mastering.js",
+  "core/engine/imix.js",
+  // The mastering and mixing-chain blocks cross into the engine as the file's
+  // own bytes, built by their codecs.
+  "core/format/mastering-section.js",
+  "core/format/imix-section.js",
   "core/engine/wasm-engine.js",
-  "core/engine/create.js",
+  // The host.
   "core/worklet/protocol.js",
+  "core/worklet/engine-commands.js",
   "core/audio/audio-ring.js",
   "core/audio/resampler.js",
-  "core/worklet/engine-commands.js",
   "core/worklet/taud-processor.js",
 ];
 

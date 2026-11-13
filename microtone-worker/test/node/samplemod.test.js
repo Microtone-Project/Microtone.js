@@ -15,23 +15,39 @@ import assert from "node:assert/strict";
 
 import { TaudEngine } from "../../core/engine/engine.js";
 import { TRACKER_CHUNK, setSamplingRate } from "../../core/engine/constants.js";
+// The address and level transforms the Samples view draws with
+// (samplemod.js) — the page's twins of the engine's own…
 import {
-  decodeSampleRegion, MOD_STEP, MOD_MAX, MOD_COMB_MAX, MOD_COMB_ODD_MAX,
-  MOD_SCATTER_FRAC, MOD_JUMP_SLICES, MOD_JUMP8, MOD_JUMP16, MOD_JUMP_ALL,
-  MOD_RND512, MOD_RND8,
-  MOD_XFADE_SAMPLES, modStepPeriod, isJumpOp, isRndOp, jumpRot, scatterReach,
   scatterSource, ModGeom, resolveModGeom, modTouches, modAddress,
-  REGION_NONE, REGION_SET, REGION_COMB,
   // Argument extension (item 162)
-  fModTouches, extModTouches, decodeExtOp, EXT_JUMP_N, extJitterFrac,
-  EXT_SCATTER_FRAC, EXT_BITPERM_LUT, extYkPeriodTicks, modAddressExt,
-  bitRotate8, applyExtLevel, applyExtLevelPrev,
+  fModTouches, extModTouches, EXT_BITPERM_LUT, modAddressExt,
+  bitRotate8, applyExtLevel,
 } from "../../core/engine/samplemod.js";
 import { setRandomSource, makeSeededRandom } from "../../core/engine/rng.js";
 import { engineParts } from "../fixtures/engine-parts.js";
 import { EffectOp } from "../../core/engine/tables.js";
 
 setSamplingRate(32000);
+
+// …and what only the engine decodes: the command's own fields, its random
+// throws and its tables (core/engine/c/src/samplemod.c, through its parts).
+const PARTS = engineParts();
+const {
+  decodeSampleRegion, modStepPeriod, jumpRot, scatterReach, decodeExtOp, extJitterFrac,
+  extYkPeriodTicks, applyExtLevelPrev,
+} = PARTS.samplemod;
+const MOD_STEP = PARTS.table("MOD_STEP");
+const MOD_JUMP_SLICES = PARTS.table("MOD_JUMP_SLICES");
+const MOD_SCATTER_FRAC = PARTS.table("MOD_SCATTER_FRAC");
+const EXT_JUMP_N = PARTS.table("EXT_JUMP_N");
+const EXT_SCATTER_FRAC = PARTS.table("EXT_SCATTER_FRAC");
+
+// The command's operation nibbles ($x of notefx 2/3, TAUD_NOTE_EFFECTS.md) and
+// region codes, as the engine's header names them.
+const MOD_JUMP8 = 0xa, MOD_JUMP16 = 0xb, MOD_JUMP_ALL = 0xc, MOD_RND512 = 0xd, MOD_RND8 = 0xf;
+const MOD_COMB_MAX = 0xe, MOD_COMB_ODD_MAX = 0xd;
+const MOD_XFADE_SAMPLES = 64; // the anti-click crossfade, output samples
+const REGION_NONE = 0, REGION_SET = 1, REGION_COMB = 2;
 
 const out = new Float64Array(4);
 /** decodeSampleRegion, as [from, to] fractions + the comb pair. */
@@ -140,13 +156,10 @@ test("operation steps: rotate by 1/2/4/8 bytes, subtract 2/8/32/128", () => {
   assert.deepEqual([...MOD_STEP].slice(0, 10), [0, 0, 1, 2, 4, 8, 2, 8, 32, 128]);
   assert.equal(MOD_STEP.length, 16, "one entry per $x nibble");
   // $A..$F are the two random families: $A/$B/$C throw the whole region,
-  // $D/$E/$F throw its bytes. No operation nibble is reserved any more.
-  assert.equal(MOD_MAX, 0xf);
+  // $D/$E/$F throw its bytes; neither has a fixed step.
+  assert.deepEqual([...MOD_STEP].slice(0xa), [0, 0, 0, 0, 0, 0]);
   assert.deepEqual([...MOD_JUMP_SLICES], [8, 16], "$A eighths, $B sixteenths");
   assert.deepEqual([...MOD_SCATTER_FRAC], [1 / 512, 1 / 64, 1 / 8]);
-  assert.deepEqual([0x9, 0xa, 0xb, 0xc, 0xd].map(isJumpOp),
-    [false, true, true, true, false]);
-  assert.deepEqual([0xc, 0xd, 0xe, 0xf].map(isRndOp), [false, true, true, true]);
 });
 
 // ── the domain: everything is relative to the loop region (item 153) ─────────
@@ -1269,8 +1282,13 @@ test("applyExtLevel/applyExtLevelPrev: sub/add share modSub, xor its own, bit op
   inst.modBitRot = 0; inst.modBitPermOn = true; inst.modBitPermIdx = 0; // NOT
   assert.equal(applyExtLevel(inst, 0x0f), 0xf0);
   inst.modBitPermOn = false;
-  inst.modPrevSub = 5;
-  assert.equal(applyExtLevelPrev(inst, 50), (50 - 5) & 0xff);
+  // The previous step's level, which the crossfade reads beside the new one:
+  // the engine's, on an instrument of its own.
+  const prev = PARTS.eng.instruments[1];
+  Object.assign(prev, { modPrevSub: 5, modPrevXor: 0 });
+  assert.equal(applyExtLevelPrev(prev, 50), (50 - 5) & 0xff);
+  prev.modPrevXor = 0x0f;
+  assert.equal(applyExtLevelPrev(prev, 50), ((50 - 5) & 0xff) ^ 0x0f);
 });
 
 test("extended `:` in a narrow (Format 1/2) cell's single effect slot is a structural no-op", () => {

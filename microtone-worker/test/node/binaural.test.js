@@ -5,27 +5,34 @@
 // out, one convolution per harmonic — and then that the cues which come out the
 // far end are a real head's. A wrong channel order, a dropped harmonic or a
 // flipped ear all survive a "does it make sound" check and none of these.
+//
+// The head is the engine's (core/engine/c/src/binaural.c), driven through its
+// parts (test/fixtures/engine-parts.js).
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import {
-  BinauralRenderer, binauralChannelList, binauralHrirTable,
-  MONITOR_FOLD, MONITOR_BINAURAL,
-} from "../../core/engine/binaural.js";
-import {
-  HRIR_ORDER, HRIR_CHANNELS, HRIR_LENGTH, HRIR_RATE, decodeShHrir,
-} from "../../core/engine/hrir-sadie.js";
-import {
-  StereoRenderer, encodeSN3D, SURROUND_PLANAR, SURROUND_SPATIAL,
-} from "../../core/engine/spatial.js";
+import { MONITOR_FOLD, MONITOR_BINAURAL } from "../../core/engine/binaural.js";
+import { StereoRenderer, SURROUND_PLANAR, SURROUND_SPATIAL } from "../../core/engine/spatial.js";
 import { SAMPLING_RATE } from "../../core/engine/constants.js";
 import { TaudEngine } from "../../core/engine/engine.js";
 import { parseTaud } from "../../core/format/taud-parse.js";
 import { Document } from "../../src/doc/document.js";
 import { loadIntoEngine, renderSong } from "../../core/audio/offline-render.js";
+import { engineParts } from "../fixtures/engine-parts.js";
+
+/** The measured set (GoogleVR/SADIE, tools/make-hrir-table.js): order 3, 256
+ *  taps at 48 kHz. */
+const HRIR_ORDER = 3;
+const HRIR_CHANNELS = (HRIR_ORDER + 1) ** 2;
+const HRIR_LENGTH = 256;
+const HRIR_RATE = 48000;
+
+const P = engineParts();
+const head = (sphere, rate) => P.binaural(sphere, rate);
+const encodeSN3D = (az, el, order, out) => P.encodeSN3D(az, el, order, out);
 
 /** The head's own impulse response for a source at (az, el): [L, R]. */
 function headIR(r, az, el, frames = 512) {
@@ -33,21 +40,7 @@ function headIR(r, az, el, frames = 512) {
   r.channelGains(az, el, gains, 0);
   const bus = new Float64Array(r.numChannels * frames);
   for (let c = 0; c < r.numChannels; c++) bus[c * frames] = gains[c];
-  return decode(r, bus, frames);
-}
-
-/** Push a filled bus through the renderer frame by frame; returns [L, R]. */
-function decode(r, bus, frames) {
-  const l = new Float64Array(frames);
-  const rr = new Float64Array(frames);
-  const pair = new Float64Array(2);
-  r.reset();
-  for (let n = 0; n < frames; n++) {
-    r.monitorStereo(bus, frames, n, pair);
-    l[n] = pair[0];
-    rr[n] = pair[1];
-  }
-  return [l, rr];
+  return r.decode(bus, frames);
 }
 
 /** One DFT bin of an impulse response, as [re, im]. */
@@ -92,13 +85,13 @@ const heightTilt = (ir, rate) => db(band(ir, 6000, 10000, rate) / band(ir, 2000,
 const frontTilt = (ir, rate) => db(band(ir, 3000, 6000, rate) / band(ir, 500, 2000, rate));
 
 test("the harmonic sets are ACN, and the planar one is exactly the horizon's", () => {
-  const sphere = binauralChannelList(true);
+  const sphere = head(true).acn;
   assert.equal(sphere.length, (HRIR_ORDER + 1) ** 2);
   assert.deepEqual([...sphere], [...sphere.keys()], "a spatial head keeps the whole set, in ACN order");
 
   // Y_lm vanishes on the horizon whenever l − |m| is odd; those are the six a
   // planar song can never excite.
-  const planar = binauralChannelList(false);
+  const planar = head(false).acn;
   assert.deepEqual([...planar], [0, 1, 3, 4, 6, 8, 9, 11, 13, 15]);
   const sh = new Float64Array((HRIR_ORDER + 1) ** 2);
   const kept = new Set(planar);
@@ -113,8 +106,8 @@ test("the harmonic sets are ACN, and the planar one is exactly the horizon's", (
 test("a horizontal source decodes identically through either head", () => {
   // Which is the whole claim the planar reduction makes: not "close enough",
   // the same samples.
-  const spatial = new BinauralRenderer(true);
-  const planar = new BinauralRenderer(false);
+  const spatial = head(true);
+  const planar = head(false);
   for (const az of [0, 37, 128, 200, 256, 400]) {
     const [ls, rs] = headIR(spatial, az, 0);
     const [lp, rp] = headIR(planar, az, 0);
@@ -124,8 +117,8 @@ test("a horizontal source decodes identically through either head", () => {
 });
 
 test("the bus carries the same ambisonic scene the AmbiX export writes", () => {
-  const r = new BinauralRenderer(true);
-  const acn = binauralChannelList(true);
+  const r = head(true);
+  const acn = r.acn;
   const got = new Float64Array(r.numChannels);
   const want = new Float64Array((HRIR_ORDER + 1) ** 2);
   for (const [az, el] of [[128, 0], [0, 0], [383, -40], [64, 96]]) {
@@ -142,26 +135,31 @@ test("the bus carries the same ambisonic scene the AmbiX export writes", () => {
   }
 });
 
-test("the HRIR module decodes to the set it advertises", () => {
-  assert.equal(HRIR_CHANNELS, (HRIR_ORDER + 1) ** 2);
-  const raw = decodeShHrir();
-  assert.equal(raw.length, HRIR_CHANNELS * HRIR_LENGTH);
-  for (const v of raw) assert.ok(v > -1 && v < 1, "samples are int16 scaled to ±1");
+// Omnitone's copy of the GoogleVR resource, where it sits beside this repository.
+const HRIR_WAV = new URL("../../../../omnitone/src/resources/sh_hrir_order_3.wav", import.meta.url);
 
-  // The base64 decoder is hand-rolled (AudioWorkletGlobalScope has no atob),
-  // so check it against the platform's, on the real payload.
-  const src = readFileSync(fileURLToPath(new URL("../../core/engine/hrir-sadie.js", import.meta.url)), "utf8");
-  const b64 = [...src.matchAll(/^ {2}"([A-Za-z0-9+/=]+)",$/gm)].map((m) => m[1]).join("");
-  assert.ok(b64.length > 0, "no payload found in hrir-sadie.js");
-  const bytes = Buffer.from(b64, "base64");
-  assert.equal(bytes.length, raw.length * 2);
-  for (let i = 0; i < raw.length; i++) {
-    assert.equal(raw[i], bytes.readInt16LE(i * 2) / 32768, `sample ${i}`);
+test("the engine carries the measured set, channel-major, as measured", { skip: !existsSync(HRIR_WAV) && "the Omnitone checkout is not beside this repository" }, () => {
+  const table = P.hrirTable();
+  assert.equal(table.length, HRIR_CHANNELS * HRIR_LENGTH);
+  // The WAV interleaves the sixteen channels; the engine stores each
+  // channel's taps together, which is the layout the convolver reads.
+  const wav = readFileSync(fileURLToPath(HRIR_WAV));
+  let off = 12, data = null;
+  while (off + 8 <= wav.length) {
+    const size = wav.readUInt32LE(off + 4);
+    if (wav.toString("ascii", off, off + 4) === "data") data = wav.subarray(off + 8, off + 8 + size);
+    off += 8 + size + (size & 1);
+  }
+  assert.ok(data !== null && data.length === table.length * 2, "a 16-channel, 256-frame data chunk");
+  for (let c = 0; c < HRIR_CHANNELS; c++) {
+    for (let n = 0; n < HRIR_LENGTH; n++) {
+      assert.equal(table[c * HRIR_LENGTH + n], data.readInt16LE((n * HRIR_CHANNELS + c) * 2), `channel ${c} tap ${n}`);
+    }
   }
 });
 
 test("the near ear leads by a real head's interaural delay", () => {
-  const r = new BinauralRenderer(true);
+  const r = head(true);
   const rate = SAMPLING_RATE;
   const at = (az) => {
     const [l, rr] = headIR(r, az, 0);
@@ -184,7 +182,7 @@ test("the near ear leads by a real head's interaural delay", () => {
 });
 
 test("the far ear sits in the head's shadow", () => {
-  const r = new BinauralRenderer(true);
+  const r = head(true);
   const rate = SAMPLING_RATE;
   const [l, rr] = headIR(r, 0, 0); // hard left
   assert.ok(db(energy(l) / energy(rr)) > 8, "broadband ILD at 90° is ~10 dB");
@@ -195,7 +193,7 @@ test("the far ear sits in the head's shadow", () => {
 });
 
 test("left and right are mirror images of each other", () => {
-  const r = new BinauralRenderer(true);
+  const r = head(true);
   for (const [az, el] of [[64, 40], [32, 0], [420, -60]]) {
     const [l1, r1] = headIR(r, az, el);
     const [l2, r2] = headIR(r, 256 - az, el); // mirrored about the front axis
@@ -205,7 +203,7 @@ test("left and right are mirror images of each other", () => {
 });
 
 test("height and front/back are audible, which is the entire point", () => {
-  const r = new BinauralRenderer(true);
+  const r = head(true);
   const rate = SAMPLING_RATE;
   const tiltAt = (az, el) => {
     const [l, rr] = headIR(r, az, el);
@@ -247,7 +245,7 @@ test("height and front/back are audible, which is the entire point", () => {
 });
 
 test("a centred source keeps exactly the level the fold gives it", () => {
-  const r = new BinauralRenderer(true);
+  const r = head(true);
   // cos² + sin² = 1: the pan law hands a centred source unit power, 0.707 per
   // ear, and the calibration pins the head to the same figure.
   const [l, rr] = headIR(r, 128, 0);
@@ -272,7 +270,7 @@ test("a centred source keeps exactly the level the fold gives it", () => {
 
 test("the pan stays continuous all the way round", () => {
   for (const sphere of [false, true]) {
-    const r = new BinauralRenderer(sphere);
+    const r = head(sphere);
     const gains = new Float64Array(r.numChannels);
     let prev = null;
     for (let az = 0; az < 512; az += 4) {
@@ -291,7 +289,7 @@ test("the set follows the engine's rate (item 108)", () => {
   const rates = [32000, HRIR_RATE, 96000];
   const itds = [];
   for (const rate of rates) {
-    const r = new BinauralRenderer(true, rate);
+    const r = head(true, rate);
     const want = Math.ceil((HRIR_LENGTH * rate) / HRIR_RATE);
     assert.ok(r.taps >= want && r.taps < want + 4, `${rate} Hz: ${r.taps} taps, wanted ~${want}`);
     assert.equal(r.taps % 4, 0, "the unrolled convolution needs a multiple of four");
@@ -304,10 +302,8 @@ test("the set follows the engine's rate (item 108)", () => {
   for (const itd of itds) {
     assert.ok(Math.abs(itd / itds[1] - 1) < 0.05, `ITD moved with the rate: ${itds.join(", ")} ms`);
   }
-  assert.equal(new BinauralRenderer(true, HRIR_RATE).taps, HRIR_LENGTH,
+  assert.equal(head(true, HRIR_RATE).taps, HRIR_LENGTH,
     "at the measured rate the set must be used as measured");
-  assert.equal(binauralHrirTable(HRIR_RATE), binauralHrirTable(HRIR_RATE),
-    "the table is built once per rate, not once per renderer");
 });
 
 test("the engine installs and removes the head on demand", () => {

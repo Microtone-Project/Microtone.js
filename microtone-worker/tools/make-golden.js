@@ -11,8 +11,7 @@
 //
 // What is recorded is what THE engine renders — the C engine built as
 // WebAssembly (core/engine/engine.js). Its digests are the same on every
-// machine: the module carries its own pow, where the JavaScript engine it was
-// ported from used the platform's.
+// machine: the module carries its own pow rather than the platform's.
 
 import { readFile, writeFile, access } from "node:fs/promises";
 import { fileURLToPath } from "node:url";

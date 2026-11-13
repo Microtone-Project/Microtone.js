@@ -3,7 +3,7 @@
 // about the argument an interrupt can carry; this asks both questions at once:
 // which interrupt (Int0…IntF, note words $0010‥$001F) and, optionally, the
 // 16-bit number it hands the program playing the song — the `: MMMM` effect
-// on the same row (core/engine/row.js interruptArgOf).
+// on the same row (core/engine/c/src/row.c interrupt_arg_of).
 //
 // With an argument it writes `IntN` AND `: MMMM`; with none, only `IntN`, and
 // every other field of the cell is left exactly as it was.

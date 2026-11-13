@@ -182,7 +182,7 @@ bool te_psg_write_register(TaudPsgPatch *patch, int reg)
     return true;
 }
 
-static int psg_level(const TaudPsgPatch *patch, int i)
+int te_psg_level(const TaudPsgPatch *patch, int i)
 {
     int v = patch->rtLevel[i];
     return v >= 0 ? v : patch->osc[i].op.tl;
@@ -194,7 +194,7 @@ static int psg_advance(const TaudPsgPatch *patch, int i)
     return v >= 0 ? v : patch->osc[i].advance;
 }
 
-static bool psg_muted(const TaudPsgPatch *patch, int i)
+bool te_psg_muted(const TaudPsgPatch *patch, int i)
 {
     if (patch->rtMute >= 0) return ((patch->rtMute >> i) & 1) != 0;
     return i == 0 ? patch->muteA : patch->muteB;
@@ -338,7 +338,7 @@ static double psg_osc_step(const TaudEngine *e, TaudPsgState *st, int i, int64_t
     if (steps != 0) st->noise[i] = fmod(st->noise[i] + steps, PSG_NOISE_WRAP);
     st->phase[i] = next >= PSG_TWO32 ? next - PSG_TWO32 * floor(next / PSG_TWO32) : next;
     if (st->state[i] == EG_OFF) { st->gain[i] = 0; return 0; }
-    att = (st->env[i] + st->kslAtt[i]) * PSG_ENV_TO_LOG + psg_level(patch, i) * PSG_TL_TO_LOG;
+    att = (st->env[i] + st->kslAtt[i]) * PSG_ENV_TO_LOG + te_psg_level(patch, i) * PSG_TL_TO_LOG;
     if (osc->tremolo != 0) att += te_opl_tremolo_at(osc->tremolo - 1, (int)fmod(lk, OPL_TREMOLO_PERIOD));
     st->gain[i] = te_opl_expand(att);
     w = te_psg_current_wave(st, i);
@@ -355,7 +355,7 @@ static double psg_chip_step(const TaudEngine *e, TaudPsgState *st, int64_t k)
     double b = psg_osc_step(e, st, 1, k);
     double ga = st->gain[0], gb = st->gain[1];
     const TaudPsgPatch *patch = st->patch;
-    bool ma = psg_muted(patch, 0), mb = psg_muted(patch, 1);
+    bool ma = te_psg_muted(patch, 0), mb = te_psg_muted(patch, 1);
     if (ma) return mb ? 0 : (2 * b - 1) * gb;
     if (mb) return (2 * a - 1) * ga;
     return patch->multiply

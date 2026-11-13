@@ -13,7 +13,6 @@ import { fileURLToPath } from "node:url";
 
 import { parseTaud } from "../core/format/taud-parse.js";
 import { TaudEngine } from "../core/engine/engine.js";
-import { TaudEngine as JsTaudEngine } from "../core/engine/engine-js.js";
 import { setSamplingRate } from "../core/engine/constants.js";
 import { setRandomSource, makeSeededRandom } from "../core/engine/rng.js";
 import { MONITOR_BINAURAL } from "../core/engine/binaural.js";
@@ -123,18 +122,13 @@ export function goldenPath(entry) { return ROOT + entry.file; }
 
 const sha256 = (u8) => createHash("sha256").update(u8).digest("hex");
 
-/**
- * Render one golden entry and return the PCM itself: { frames, u8, f32 }.
- * `engine` picks who renders it — "wasm" (the engine: core/engine/engine.js,
- * the C engine built as WebAssembly) or "js" (the JavaScript engine it was
- * ported from, core/engine/engine-js.js) — from the same uploads either way.
- */
-export async function renderGoldenPcm(entry, engine = "wasm") {
+/** Render one golden entry and return the PCM itself: { frames, u8, f32 }. */
+export async function renderGoldenPcm(entry) {
   setSamplingRate(GOLDEN_RATE);
   setRandomSource(makeSeededRandom(GOLDEN_SEED));
   try {
     const doc = parseTaud(await readFile(goldenPath(entry)));
-    const eng = engine === "js" ? new JsTaudEngine() : new TaudEngine(GOLDEN_RATE);
+    const eng = new TaudEngine(GOLDEN_RATE);
     loadIntoEngine(eng, doc, 0);
     if (entry.monitor !== undefined) eng.setMonitorMode(0, entry.monitor);
     if (entry.imix) installGoldenImix(eng, entry.imix === "bus", entry.imix === "tsh", entry.imix === "expd");
@@ -145,8 +139,8 @@ export async function renderGoldenPcm(entry, engine = "wasm") {
 }
 
 /** Render one golden entry; returns the digests the fixture records. */
-export async function renderGolden(entry, engine = "wasm") {
-  const r = await renderGoldenPcm(entry, engine);
+export async function renderGolden(entry) {
+  const r = await renderGoldenPcm(entry);
   return {
     frames: r.frames,
     u8: sha256(r.u8),

@@ -960,7 +960,7 @@ static const double ISO226_TF[ISO226_N] = { 78.5, 68.7, 59.5, 51.1, 44.0, 37.5, 
 #define ELW_LAST (ISO226_N - 1)
 
 /* The equal-loudness weighting in dB at f, searching up from index *j. */
-static double elw_db(const TaudFormantTables *T, double f, int *j)
+double te_elw_db(const TaudFormantTables *T, double f, int *j)
 {
     double lf = js_log2(f), u;
     int i = *j;
@@ -997,7 +997,7 @@ void te_formant_tables_init(TaudFormantTables *T, int rate)
     for (i = 0; 50 * js_pow(2, i / 6.0) <= 0.45 * rate && i < BANK_GRID_MAX; i++) {
         double f = 50 * js_pow(2, i / 6.0), om;
         int j = 0;
-        T->bankW[i] = js_pow(10, elw_db(T, f, &j) / 10) * f * band;
+        T->bankW[i] = js_pow(10, te_elw_db(T, f, &j) / 10) * f * band;
         om = (2 * PI * f) / rate;
         T->bankC1[i] = js_cos(om);
         T->bankS1[i] = js_sin(om);
@@ -1579,7 +1579,7 @@ static double cascade_norm(const TaudEngine *e, const double *co, double f0, con
             double gg = (A * A) / (re * re + im * im);
             h *= n == 1 ? 1 / gg : gg;
         }
-        lw = w[k] * js_pow(10, elw_db(T, k * f0, &j) / 10);
+        lw = w[k] * js_pow(10, te_elw_db(T, k * f0, &j) / 10);
         p += h * lw;
         ref += lw;
         nc = ck * c1 - sk * s1;

@@ -21,7 +21,7 @@
 // (taud-processor.bundle.js) is the non-module-worklet fallback — regenerate
 // with tools/make-worklet-bundle.js after any change here.
 
-import { createEngine } from "../engine/create.js";
+import { WasmTaudEngine } from "../engine/wasm-engine.js";
 import { SAMPLING_RATE, TRACKER_CHUNK } from "../engine/constants.js";
 import { CMD, MSG, SNAP_FLOATS, SNAP_SAB_I32_CELLS } from "./protocol.js";
 import {
@@ -41,7 +41,6 @@ class TaudProcessor extends AudioWorkletProcessor {
     // Built at INIT, not here: on a cross-origin-isolated page the render
     // Worker hosts the engine and this processor only plays its ring, so an
     // engine made now would be compiled, instantiated and thrown away.
-    this.engineKind = options?.processorOptions?.engine;
     this.engine = null;
     this.playhead = 0; // the browser player drives playhead 0
 
@@ -113,7 +112,7 @@ class TaudProcessor extends AudioWorkletProcessor {
     }
     if (this.audioRing) return; // consume mode: no engine commands routed here
 
-    if (this.engine === null) this.engine = createEngine(this.engineKind);
+    if (this.engine === null) this.engine = new WasmTaudEngine();
     const eng = this.engine;
     if (applyAudioCommand(eng, m)) {
       // Transport reset (play/seek/stop): drop the local look-ahead ring's
@@ -173,12 +172,7 @@ class TaudProcessor extends AudioWorkletProcessor {
       this.pfRenderBusy += dt;
       if (dt > this.pfRenderMax) this.pfRenderMax = dt;
       this.pfRenderCount++;
-      const ts0 = this.engine.playheads[this.playhead].trackerState;
-      let nv = ts0.soundingVoices;
-      if (nv === undefined) { // the JavaScript engine: count them here
-        nv = ts0.backgroundVoices.length;
-        for (let i = 0; i < ts0.voices.length; i++) if (ts0.voices[i].active) nv++;
-      }
+      const nv = this.engine.playheads[this.playhead].trackerState.soundingVoices;
       if (nv > this.pfPeakVoices) this.pfPeakVoices = nv;
     }
     const mask = RING_FRAMES - 1;

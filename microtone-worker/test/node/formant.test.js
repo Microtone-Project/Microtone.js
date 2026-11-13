@@ -36,6 +36,10 @@ import {
 import { FormantMachine, rangeCandidates, spanOf, poolSpan, gainOctet } from "../../src/doc/formantrecipe.js";
 import { buildRegionPayload } from "../../src/doc/sampleregions.js";
 import { META_MIX_GAIN } from "../../core/engine/tables.js";
+import { engineParts } from "../fixtures/engine-parts.js";
+
+/** The engine's parts: its equal-loudness weighting (formant.c). */
+const E = engineParts();
 
 const C4_HZ = 261.6255653005986;
 const id = (ipa) => F.CONSONANT_LIST.find((r) => r.ipa === ipa).id;
@@ -175,7 +179,7 @@ function loudDb(a, t0, t1, f0) {
       re += v * c; im -= v * sn;
       const nc = c * c1 - sn * s1; sn = sn * c1 + c * s1; c = nc;
     }
-    p += (re * re + im * im) * F.equalLoudness(k * f0);
+    p += (re * re + im * im) * E.equalLoudness(k * f0);
   }
   return 10 * Math.log10(p / (N * N));
 }
@@ -364,11 +368,10 @@ test("a sung vowel's formants are where the chart puts them, the lips' included"
 });
 
 test("the equal-loudness weighting is ISO 226:2003's 60-phon contour, inverted", () => {
-  const rel = (f) => 10 * Math.log10(F.equalLoudness(f) / F.equalLoudness(1000));
+  const rel = (f) => 10 * Math.log10(E.equalLoudness(f) / E.equalLoudness(1000));
   // The contour's SPL at 1 kHz is the loudness level itself; 250 Hz needs
   // 7.5 dB more and 100 Hz 18.6 dB more to sound as loud; 3.15 kHz, where
-  // hearing is keenest, 3.6 dB less.
-  assert.equal(F.LOUDNESS_PHON, 60);
+  // hearing is keenest, 3.6 dB less — the 60-phon contour's figures.
   for (const [f, want] of [[250, -7.52], [100, -18.64], [3150, 3.59], [500, -2.04]]) {
     assert.ok(Math.abs(rel(f) - want) < 0.01, `${f} Hz: ${rel(f).toFixed(3)} dB`);
   }
@@ -1080,8 +1083,7 @@ test("the new fields have their bytes, old records have none of them, and the sy
   assert.deepEqual([q.refNote, q.nasal, q.semivowel, q.secondary, q.codaArt, q.rhotic], [0x4567, true, 2, 3, 1, true]);
   const old = F.decodeFormantBlock(patchBytes(), 0);
   assert.deepEqual([old.refNote, old.nasal, old.secondary, old.codaArt], [0x4000, false, 0, 0]);
-  assert.ok(F.formantHasVowel(old) && !F.formantHasVowel({ refNote: 0 }));
-  assert.equal(F.formantRefNote({ refNote: 0 }), F.FORMANT_DEFAULT_REF);
+  assert.ok(old.refNote !== 0, "an old record sings its vowel (reference word 0 = no vowel)");
   assert.deepEqual(formantRefBytes(0x4567, true).map(([, v]) => v), [0x67, 0xc5]);
   assert.deepEqual(formantRefBytes(5, false).map(([, v]) => v), [0x20, 0], "a sung reference stays clear of 0");
   assert.deepEqual(formantRefBytes(0, true).map(([, v]) => v), [0, 0x80], "…and 0 is no vowel");

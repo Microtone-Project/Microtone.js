@@ -59,16 +59,6 @@ import { prepareEngineModule } from "../engine/wasm-module.js";
 
 const WORKLET_BUNDLE = new URL("../worklet/taud-processor.bundle.js", import.meta.url);
 
-/** `?engine=js` on the page's address runs the JavaScript engine instead of
- *  the WebAssembly one (core/engine/create.js) — the way back while the C
- *  engine is young, and the way to hear the two side by side. */
-const ENGINE_FROM_URL = (() => {
-  try {
-    return new URLSearchParams(globalThis.location?.search ?? "").get("engine") === "js" ? "js" : "wasm";
-  } catch {
-    return "wasm";
-  }
-})();
 const RENDER_WORKER = new URL("./render.worker.js", import.meta.url);
 
 export class AudioSystem {
@@ -122,9 +112,7 @@ export class AudioSystem {
    *  at the default 48 kHz the engine's rate IS the context rate). */
   async init({
     snapshotIntervalMs = 16, forceBundle = false, sampleRate = 48000, profile = false,
-    engine = ENGINE_FROM_URL,
   } = {}) {
-    this.engineKind = engine === "js" ? "js" : "wasm";
     // The page builds engines of its own later (an export, a pattern rendered
     // to a sample): have the module compiled off the main thread by then, so
     // `new TaudEngine()` only has to instantiate it. Not awaited — the audio
@@ -156,7 +144,7 @@ export class AudioSystem {
       numberOfInputs: 0,
       numberOfOutputs: 1,
       outputChannelCount: [2],
-      processorOptions: { snapshotIntervalMs, profile, engine: this.engineKind },
+      processorOptions: { snapshotIntervalMs, profile },
     });
     this.node.port.onmessage = (e) => this._onEngineMessage(e.data);
     this.node.connect(ctx.destination);
@@ -184,7 +172,7 @@ export class AudioSystem {
         this.node.port.postMessage({ t: CMD.USE_AUDIO_SAB, sab: audioSab }); // worklet → consume
         this._postWorker({ t: CMD.USE_SAB, sab: snapSab });           // worker fills snapshots
         this._postWorker({ t: CMD.USE_AUDIO_SAB, sab: audioSab });    // worker produces into the ring
-        this._postWorker({ t: CMD.INIT, snapshotIntervalMs, engine: this.engineKind });
+        this._postWorker({ t: CMD.INIT, snapshotIntervalMs });
         this.engineTarget = this.worker; // route engine commands to the worker
         this.usingWorker = true;
       } catch (e) {
@@ -193,10 +181,10 @@ export class AudioSystem {
         this.worker = null;
         this.workerDoorbell = null;
         this.node.port.postMessage({ t: CMD.USE_SAB, sab: snapSab });
-        this.node.port.postMessage({ t: CMD.INIT, snapshotIntervalMs, engine: this.engineKind });
+        this.node.port.postMessage({ t: CMD.INIT, snapshotIntervalMs });
       }
     } else {
-      this.node.port.postMessage({ t: CMD.INIT, snapshotIntervalMs, engine: this.engineKind });
+      this.node.port.postMessage({ t: CMD.INIT, snapshotIntervalMs });
     }
     return this;
   }

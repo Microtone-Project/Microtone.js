@@ -36,7 +36,7 @@ Field tables use the Taud File Format's type names: `U8`/`U16`/`U32` for unsigne
 
 The pattern blob begins immediately after the header, at offset 32, and runs to the Project-Data offset — or to the end of the file when there is no Project Data. Its compressed size is therefore implied, never stored.
 
-### Compression
+### 1.1 Compression
 
 The pattern blob is compressed exactly as a Taud payload is ([Taud File Format §1](TAUD_FILE_FORMAT.md#compression)): a self-contained gzip (`1F 8B 08`) or Zstandard (`28 B5 2F FD`) stream, identified by its own leading magic.
 
@@ -62,7 +62,7 @@ Fixed 32 bytes, always at file offset 0 — the same size as a Taud header, thou
 
 A file whose magic does not match is **INVALID**. A decoder that does not recognise the format version **MUST** stop rather than guess; version 1 is the only one assigned.
 
-### Song flags (byte 9)
+### 2.1 Song flags (byte 9)
 
 ```
 0b ssss 000r
@@ -76,7 +76,7 @@ A file whose magic does not match is **INVALID**. A decoder that does not recogn
 
 The count is stored rather than inferred from the patterns, so a section that is deliberately empty — a rest before the song loops — is kept even when it is the last.
 
-### Feature flags (byte 10)
+### 2.2 Feature flags (byte 10)
 
 ```
 0b 0000 ttpp
@@ -90,13 +90,13 @@ The count is stored rather than inferred from the patterns, so a section that is
 
 The three named declarations are concert pitch, the modern Chinese *a-ak* convention and the Korean *hyang-ak* standard — the same pairs the Taud File Format lists under [Tuning](TAUD_FILE_FORMAT.md#tuning), and between them every tuning Microtone Touch offers. Code 3 with no `tune` block in the Project Data is **INVALID**.
 
-### Tempo
+### 2.3 Tempo
 
 The stored BPM is the ten-bit value `pp` × 256 + byte 11, biased by −25 exactly as a Taud song table's is: the tempo in beats per minute is that value plus 25, from 25 to 1048.
 
 A `.taud` song table holds the same ten bits, 25…1048 ([Taud File Format §4](TAUD_FILE_FORMAT.md#4-song-table)), so a converter to Taud carries the tempo across unchanged.
 
-### Signature
+### 2.4 Signature
 
 Fourteen bytes naming the encoder, used for diagnostics only and otherwise **IGNORED**. Microtone Touch writes `MicrotoneTouch`.
 

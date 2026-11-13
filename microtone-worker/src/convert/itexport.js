@@ -37,9 +37,8 @@
 
 import { EffectOp, tuningRatioOf, attenGainOf } from "../../core/engine/tables.js";
 import { MIDDLE_C } from "../../core/engine/constants.js";
-import { envPresent } from "../../core/engine/envelope.js";
 import { minifloatToDouble } from "../../core/engine/minifloat.js";
-import { patchVibratoInherits, patchIsStereo } from "../../core/engine/inst.js";
+import { patchVibratoInherits, patchIsStereo, envPresent } from "../../core/engine/inst.js";
 import { unescapeName } from "../../core/format/names.js";
 import { isDefaultMastering } from "../../core/format/mastering-section.js";
 import { cueInfo } from "../doc/document.js";
@@ -435,7 +434,7 @@ function isRendered(inst) {
   return inst.isMeta || inst.isOpl || inst.isPsg || inst.isFormant;
 }
 
-/** The note volume a trigger resolves its key-map patch at (trigger.js). */
+/** The note volume a trigger resolves its key-map patch at (trigger.c). */
 function defaultVolume(inst) {
   const dnv = inst.defaultNoteVolume & 0xff;
   return dnv === 0 ? 63 : Math.trunc((dnv * 63 + 127) / 255);
@@ -555,7 +554,7 @@ function itEnvelope(nodes, loopWord, susWord, kind, tps, counts) {
 }
 
 /** IT's cutoff (0…127) for a SoundFont cutoff in absolute cents, by the
- *  frequency each means (core/engine/filter.js: 110 × 2^(c/24 + 1/4) Hz). */
+ *  frequency each means (core/engine/c/src/filter.c: 110 × 2^(c/24 + 1/4) Hz). */
 function itCutoffOfCents(cents) {
   const hz = 8.176 * 2 ** (cents / 1200);
   return Math.round(24 * (Math.log2(hz / 110) - 0.25));

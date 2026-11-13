@@ -37,40 +37,34 @@ const outDir = process.argv[2] ??
 
 // ── the module graph, in dependency order (mirrors make-worklet-bundle.js) ──
 const ENGINE = [
-  "core/engine/constants.js",
-  "core/engine/minifloat.js",
-  "core/engine/rng.js",
-  "core/engine/dither.js",
-  "core/engine/tables.js",
-  "core/engine/spatial.js",
-  "core/engine/hrir-sadie.js",
-  "core/engine/binaural.js",
-  "core/engine/speakers.js",
-  "core/engine/analysis.js",
-  "core/engine/mastering.js",
-  "core/engine/loudness.js",
-  "core/engine/imix.js",       // …after mastering.js and analysis.js, whose stages it reuses
-  "core/engine/samplemod.js",
-  "core/engine/opl.js",
-  "core/engine/psg.js",        // …after opl.js (whose envelope and LFOs it runs), before inst.js
-  "core/engine/chip.js",       // …the two chip kinds as one, for formant.js
-  "core/engine/inst.js",
-  "core/engine/voice.js",
-  "core/engine/sampler.js",
-  "core/engine/formant.js",
-  // The engine itself (item 312): the C engine built as WebAssembly, what its
-  // JavaScript half builds its uploads with, and the views engine.js reads its
-  // state through. The JavaScript modules above are what the page and the
-  // player still compute with (record codecs, the pan law, the WAV dither, the
-  // metering taps) — none of the old JavaScript render engine is among them.
-  "core/format/mastering-section.js",
-  "core/format/imix-section.js",
+  // The engine (item 312): the C engine built as WebAssembly and the
+  // JavaScript half that drives it — the metering taps it runs on the module's
+  // memory, the codecs its uploads are built with…
   "core/engine/taud-engine.wasm.js",
   "core/engine/wasm-module.js",
+  "core/engine/constants.js",
+  "core/engine/rng.js",
+  "core/engine/tables.js",
+  "core/engine/spatial.js",
+  "core/engine/speakers.js",
+  "core/engine/analysis.js",
+  "core/engine/dither.js",
+  "core/engine/loudness.js",
+  "core/engine/mastering.js",
+  "core/engine/imix.js",
+  "core/format/mastering-section.js",
+  "core/format/imix-section.js",
   "core/engine/wasm-engine.js",
+  // …and the views engine.js reads its state through, with the record codecs
+  // its instrument views decode with.
   "core/engine/taud-engine.layout.js",
   "core/engine/wasm-reflect.js",
+  "core/engine/opl.js",
+  "core/engine/psg.js",
+  "core/engine/formant.js",
+  "core/engine/inst.js",
   "core/engine/engine.js",
+  "core/engine/binaural.js",   // the monitor modes the offline renderer names
 ];
 
 /** Everything the worklet bundle concatenates, in order. */
@@ -392,7 +386,7 @@ where it is authored; this repository is generated from there.
 The vendored decompressors keep their own (MIT) licences:
 [fflate](https://github.com/101arrowz/fflate) and
 [fzstd](https://github.com/101arrowz/fzstd). The binaural filter set in
-\`core/engine/hrir-sadie.js\` is the GoogleVR/SADIE set, Apache-2.0.
+\`core/engine/c/src/hrir_sadie.c\` is the GoogleVR/SADIE set, Apache-2.0.
 
 ---
 

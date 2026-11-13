@@ -12,6 +12,10 @@ import * as P from "../../core/engine/psg.js";
 import { PSG_BLOCK_START, PSG_B_OSC, PSG_OSC_BYTES } from "../../core/engine/psg.js";
 import { buildFormantRecord } from "../../core/engine/inst.js";
 import * as F from "../../core/engine/formant.js";
+import { engineParts } from "../fixtures/engine-parts.js";
+
+/** The engine's parts: the walk the picker names is the C engine's. */
+const E = engineParts();
 import { Document } from "../../src/doc/document.js";
 import { UndoStack } from "../../src/doc/undo.js";
 import { importBankOp, setInstBytesOp } from "../../src/doc/ops.js";
@@ -154,13 +158,13 @@ test("the pattern picker names each pattern by the waveforms it actually plays",
   // each step, for one lap of the pattern.
   for (let w = 1; w <= 7; w++) {
     for (let p = 0; p < 4; p++) {
-      const patch = P.decodePsgPatch(P.encodePsgPatch({ osc: [{ wave: w, ar: 15, advance: 1, pattern: p }, {}] }));
-      const st = new P.PsgState();
-      P.psgKeyOn(st, patch, false);
-      let played = String(P.psgCurrentWave(st, 0));
+      const patch = E.psg.patch(P.encodePsgPatch({ osc: [{ wave: w, ar: 15, advance: 1, pattern: p }, {}] }));
+      const st = E.psg.state();
+      E.psg.keyOn(st, patch, false);
+      let played = String(E.psg.currentWave(st, 0));
       for (let q = 1; q < P.PSG_ADVANCE_PATTERNS[p].length; q++) {
-        P.psgQuarterTick(st);
-        played += P.psgCurrentWave(st, 0);
+        E.psg.quarterTick(st);
+        played += E.psg.currentWave(st, 0);
       }
       assert.equal(psgPatternLabels(w)[p], played, `pulse ${w}, pattern ${p}`);
     }

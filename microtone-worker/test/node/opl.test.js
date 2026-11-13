@@ -18,6 +18,10 @@ import {
   TaudInst, buildOplRecord, META_TYPE_OPL, OPL_RECORD_HEADER,
 } from "../../core/engine/inst.js";
 import * as O from "../../core/engine/opl.js";
+import { engineParts } from "../fixtures/engine-parts.js";
+
+/** The engine's parts: the chip that sounds is the C engine's (opl.c). */
+const P = engineParts();
 
 const C4_HZ = 261.6255653005986;
 
@@ -90,23 +94,24 @@ function zeroCrossHz(a, from, to) {
 // ── tables ───────────────────────────────────────────────────────────────
 
 test("the chip's two ROM tables are their closed forms", () => {
+  const logSin = P.opl.logSin(), exp = P.opl.exp();
   for (let i = 0; i < 256; i++) {
-    assert.equal(O.OPL_LOG_SIN[i], Math.round(-Math.log2(Math.sin(((i + 0.5) * Math.PI) / 512)) * 256));
-    assert.equal(O.OPL_EXP[i], Math.round((2 ** (i / 256) - 1) * 1024));
+    assert.equal(logSin[i], Math.round(-Math.log2(Math.sin(((i + 0.5) * Math.PI) / 512)) * 256));
+    assert.equal(exp[i], Math.round((2 ** (i / 256) - 1) * 1024));
   }
-  assert.equal(O.oplExpand(0), 4084, "full scale is ±4084");
-  assert.equal(O.oplExpand(0x1800), 0, "past −96 dB the chip gives up");
+  assert.equal(P.opl.expand(0), 4084, "full scale is ±4084");
+  assert.equal(P.opl.expand(0x1800), 0, "past −96 dB the chip gives up");
 });
 
 test("block and F-number follow the register's own ceiling, or Note's", () => {
   // The AdLib driver's middle C: F-number 0x2B2 at block 3.
   const hz = (0x2b2 * O.OPL_RATE) / (1 << 17);
-  assert.equal(O.oplBlockFnum(hz, false), (3 << 10) | 0x2b2);
+  assert.equal(P.opl.blockFnum(hz, false), (3 << 10) | 0x2b2);
   // Note's middle C sits a block higher, at F-number 343.
   const sopHz = (343 * O.OPL_RATE) / (1 << 16);
-  assert.equal(O.oplBlockFnum(sopHz, true), (4 << 10) | 343);
-  assert.equal(O.oplBlockFnum(sopHz, false), (3 << 10) | 686);
-  assert.equal(O.oplBlockFnum(1e6, false), (7 << 10) | 1023, "clamped at the top");
+  assert.equal(P.opl.blockFnum(sopHz, true), (4 << 10) | 343);
+  assert.equal(P.opl.blockFnum(sopHz, false), (3 << 10) | 686);
+  assert.equal(P.opl.blockFnum(1e6, false), (7 << 10) | 1023, "clamped at the top");
 });
 
 // ── the record ───────────────────────────────────────────────────────────
@@ -150,12 +155,11 @@ test("key-scale level is halved in envelope units, as the chip does it", () => {
   // KSL 3. KSL 1 is half of it, 7.125 dB — 38 envelope steps — where halving
   // the 0.75 dB count first would give 9 × 0.75 = 6.75.
   const level = (ksl) => {
-    const st = new O.OplState();
-    const patch = O.decodeOplPatch(O.encodeOplPatch({ ops: [{ mult: 1, ksl, tl: 0 }, { mult: 1 }] }));
-    O.oplKeyOn(st, patch, false);
+    const st = P.opl.state();
+    const patch = P.opl.patch(O.encodeOplPatch({ ops: [{ mult: 1, ksl, tl: 0 }, { mult: 1 }] }));
+    P.opl.keyOn(st, patch, false);
     const hz = (690 * O.OPL_RATE) / (1 << 17);
-    O.renderOplVoice({ opl: st, keyOff: false, active: true, currentMixVolume: 1,
-      currentPlaybackRate: hz / (SAMPLING_RATE * (C4_HZ / O.OPL_C4_RATE)) }, 0);
+    P.opl.render(st, 0, hz / (SAMPLING_RATE * (C4_HZ / O.OPL_C4_RATE)), 1, false);
     return st.kslAtt[0];
   };
   assert.deepEqual([0, 1, 2, 3].map(level), [0, 38, 19, 76]);
@@ -318,18 +322,17 @@ function writeOp(chip, off, o) {
 }
 /** Run our channel for `n` chip samples from a cold key-on, keying off at `off`. */
 function ours(patch, fnum, block, n, off, noise = 1, raw = false) {
-  const st = new O.OplState();
-  O.oplKeyOn(st, O.decodeOplPatch(O.encodeOplPatch(patch)), false);
+  const st = P.opl.state();
+  const decoded = P.opl.patch(O.encodeOplPatch(patch));
+  P.opl.keyOn(st, decoded, false);
   const hz = (fnum * O.OPL_RATE) / (1 << (20 - block));
-  const voice = { opl: st, keyOff: false, active: true, currentMixVolume: 1,
-    currentPlaybackRate: hz / (SAMPLING_RATE * (C4_HZ / O.OPL_C4_RATE)) };
-  O.renderOplVoice(voice, 0);            // retune, anchor
-  O.oplKeyOn(st, st.patch, false);       // …and start over at chip sample 0
+  P.opl.render(st, 0, hz / (SAMPLING_RATE * (C4_HZ / O.OPL_C4_RATE)), 1, false); // retune, anchor
+  P.opl.keyOn(st, decoded, false);       // …and start over at chip sample 0
   st.noise = noise;
   const out = new Float32Array(n);
   for (let k = 0; k < n; k++) {
-    if (k === off) O.oplKeyOff(st);
-    const v = O.oplChipStep(st, k);
+    if (k === off) P.opl.keyOff(st);
+    const v = P.opl.chipStep(st, k);
     out[k] = raw ? v : Math.fround(v / 16384);
   }
   return out;

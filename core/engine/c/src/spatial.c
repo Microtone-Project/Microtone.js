@@ -43,7 +43,7 @@ void te_angles_from_direction(double x, double y, double z, double out[2])
 }
 
 /* ITU placement of a sample's channels as azimuth offsets (stereo = ±30°). */
-static double sample_channel_layout(int chans, int k)
+double te_sample_channel_layout(int chans, int k)
 {
     if (chans == 2) return (k == 0 ? -30 : 30) * AZ_PER_DEG;
     return 0 * AZ_PER_DEG;
@@ -520,7 +520,7 @@ static const double *voice_gains_cache(TaudSpatialBus *bus, TaudSpatialCache *sc
         int k;
         for (k = 0; k < chans; k++) {
             double ang[2];
-            te_sample_channel_angles(az, el, sample_channel_layout(chans, k), ang);
+            te_sample_channel_angles(az, el, te_sample_channel_layout(chans, k), ang);
             bus_channel_gains(bus, ang[0], ang[1], sc->gains, k * nc);
         }
         sc->valid = true;

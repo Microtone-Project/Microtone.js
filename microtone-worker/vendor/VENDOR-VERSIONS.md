@@ -61,13 +61,13 @@ the same Korean BBS scene and write their titles in it. Port the two together:
 ## Third-party DATA in `core/engine/` — the binaural HRIR set
 
 **The other exception to "never imported by `core/engine/`"**, and the only one:
-`core/engine/hrir-sadie.js` is a *data* module, not a library — no code of
-anyone else's runs, and nothing in it touches the DOM or Web Audio, so the
-engine's layering rules are intact.
+`core/engine/c/src/hrir_sadie.c` is a *data* table compiled into the engine,
+not a library — no code of anyone else's runs, so the engine's layering rules
+are intact.
 
 | File | Source | Version | Licence |
 |---|---|---|---|
-| `core/engine/hrir-sadie.js` | [Google Omnitone](https://github.com/GoogleChrome/omnitone) `src/resources/sh_hrir_order_3.wav` (md5 `310d2836b94909a9b49a84c2ebbf3552`) | GoogleVR resource v1.0.0, 2017-08-22 | Apache-2.0 — Google Inc. and University of York |
+| `core/engine/c/src/hrir_sadie.c` | [Google Omnitone](https://github.com/GoogleChrome/omnitone) `src/resources/sh_hrir_order_3.wav` (md5 `310d2836b94909a9b49a84c2ebbf3552`) | GoogleVR resource v1.0.0, 2017-08-22 | Apache-2.0 — Google Inc. and University of York |
 
 The measurements are the [SADIE project's Google/VR binaural filter
 set](https://www.york.ac.uk/sadie-project/GoogleVRSADIE.html): 16 ambisonic
@@ -78,4 +78,5 @@ its own ambisonic scene already and must stay Web-Audio-free.
 
 To update: replace the WAV in the Omnitone checkout and re-run
 `node tools/make-hrir-table.js [path/to/sh_hrir_order_3.wav]`, then
-`node tools/make-worklet-bundle.js` and `node --test 'test/node/*.test.js'`.
+`node tools/make-engine-wasm.js`, `node tools/make-worklet-bundle.js` and
+`node --test 'test/node/*.test.js'`.

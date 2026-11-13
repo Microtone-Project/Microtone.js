@@ -842,14 +842,12 @@ with **Shift**. On a layout that leaves the bottom row free (see
 | **Shift+X** | `0002` | `^^^` | Note cut — stop immediately |
 | **Shift+C** | `0003` | `~~~` | Note fade — fade out at the instrument's fade rate |
 | **Shift+V** | `0004` | `~^~` | Fast fade |
-| **Shift+B** | `0010`–`001F` | `I·0`–`I·F` | Interrupt marker — see [Interrupts](#interrupts) |
-| **Delete**, **Backspace** or **.** | — | | Clear the note (and instrument) |
+| **Shift+B** | `0010`–`001F` | `Int0`–`IntF` | Interrupt marker — see [Interrupts](#interrupts) |
+| **Delete** or **Backspace**| — | | Clear the note (and instrument) |
 
-**Delete**, **Backspace** and **.** are interchangeable everywhere on the
+**Delete** and **Backspace** are interchangeable everywhere on the
 pattern grids and in the Cues view: whichever one you reach for erases the
-column under the caret. The one exception is the note column under a layout
-that takes the bottom row, the default included: there **.** is a piano key, so
-use **Delete** or **Backspace**.
+column under the caret.
 
 ### Interrupts
 
@@ -1632,7 +1630,7 @@ it move the window from there.
 
 ## The Sample Lab
 
-The Sample Lab is *the* sample editor — a tiny Audacity that opens whenever
+The Sample Lab is *the* sample editor — a tiny audio editor that opens whenever
 audio enters the project from outside (**Sample…** for audio files,
 **Record…** for the microphone) and whenever you edit a sample already
 in the project (the Samples view's **Edit…** and **Chord…**). It works on a

@@ -118,7 +118,7 @@ const SEL_FINE = 3;
 
 /**
  * An 8-bit column value back in 6-bit units: `v8 >> 2`, the engine's own
- * reading of a wide volume against 6-bit data (trigger.js narrowVolAxis), so an
+ * reading of a wide volume against 6-bit data (columns.js narrowVolAxis), so an
  * exporter that picks a key-map zone or a layer by the narrowed volume picks
  * the one Microtone plays. It is also the exact inverse of widenVolume:
  * round(v × 255 ÷ 63) lies in 4v…4v+3 for every v of 0…63.

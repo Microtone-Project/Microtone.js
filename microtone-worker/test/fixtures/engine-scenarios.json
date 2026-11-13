@@ -1,0 +1,189 @@
+{
+  "rate": 48000,
+  "scenarios": {
+    "play: Daisy_bell (lyrics + chains)": {
+      "file": "assets/demo_projects/Daisy_bell.taud",
+      "chunks": 3000,
+      "f32": "ab8b5a1021b59366511f4130ed44866b7996be9d46f20d046b1b227ec26f92a2",
+      "u8": "5dcd2e1125bf47128c9a600e1ca95d5eab5bb506c2cdff7cac69e6371e3cf644",
+      "notes": "0f05832fe18fe1b4fc1efefdfa548320a263cdd4f218b045aaded51fbf67b048",
+      "peak": 0.688
+    },
+    "play: Troll_Chord": {
+      "file": "assets/demo_projects/Troll_Chord.taud",
+      "chunks": 3000,
+      "f32": "7526b776dbb30a1044a4fa23725738833fa38741325a568048b9bf0d7481b79c",
+      "u8": "3bfa9c5aac2f02f8d6c1bd587373e52b2bb76fa9ee5b5da236062928cbabe746",
+      "notes": "8a6656119e2a887a48df6ae1e979cfb586de271bdaa7626a38887795091d396c",
+      "peak": 0.599
+    },
+    "play: every song of WHEN_AMBI": {
+      "file": "assets/demo_projects/WHEN_AMBI.taud",
+      "chunks": 2100,
+      "f32": "9f18d2e71b8c031237b3d96c5b948308810c2c098ffb7fa07b816bce3c53bed5",
+      "u8": "f6ecf2d7c68d8b5722fcaa961081e9ffe3127a9c91884acea9e7b62a17ef28f0",
+      "notes": "e57eb41229bc226206d0492a37493d6b6ab6b67084ca7731efc094a2d8b73211",
+      "peak": 0.899
+    },
+    "jam on a stopped transport": {
+      "file": "assets/demo_projects/Huygens_clock.taud",
+      "chunks": 745,
+      "f32": "b76ac2b4441b04051260088935cd008bc16a4678268ada358e94adc2e15ff334",
+      "u8": "4c2e7797b17bf7824725b4d5fa0c52583e479ab715d1b042f7e64a2431019154",
+      "notes": "a88207afa813482893060603c54250fc9ac03c9ef3d36240196e0cd25e72f49a",
+      "peak": 0.571
+    },
+    "jam every instrument of 16uba_baion": {
+      "file": "assets/demo_projects/16uba_baion.taud",
+      "chunks": 560,
+      "f32": "f15a771ee77b7be9c485db9a5ab4405f3f02a4141834aca58b803065421e49de",
+      "u8": "079db13af284cac80d71895678a57acf377284e259c308a00acd3247305700da",
+      "notes": "1b4d7da48b5e9ea0f166274d5775895f3d233cdaa1beaeb8cb70de9ae038d770",
+      "peak": 0.977
+    },
+    "jam a lyric instrument": {
+      "file": "assets/demo_projects/Daisy_bell.taud",
+      "chunks": 1380,
+      "f32": "a1b048e7fa2e109a52f794f702f27c680d77b3a3e80bf1eee811f8246ac0504f",
+      "u8": "3dc81cd285e00d41c13ac79018d63b572583ed0f91f75a2e403ca9209feb6c26",
+      "notes": "534cd77281b705f4ced601881dd149c1f81989b08a38dc27d7129d48091341dc",
+      "peak": 0.532
+    },
+    "jam the formant voices of Temjin_speaki": {
+      "file": "assets/demo_projects/Temjin_speaki.taud",
+      "chunks": 2120,
+      "f32": "c662852cc633e6edde28dee6bffc150d4ccf81c8e7298f81cea5c097538134b2",
+      "u8": "adef1176b2b42ac496efcc01fcfbeff18da3e18aecd9688dd3da16851d5d7653",
+      "notes": "4411fb84e286a76659ce60c6ecfc824700e36fefc3812ad6ef09d68a38d9e54f",
+      "peak": 0.581
+    },
+    "jam over playback, stop, play again": {
+      "file": "assets/demo_projects/Zeta_valley.taud",
+      "chunks": 778,
+      "f32": "041b0deddd9ead919cfb06380f647b363a0f09e906a7f648d5cde8cde2379ec3",
+      "u8": "576990a8111e65d5150322841766dae917281ab612c8b573de0fc7daf0bbe476",
+      "notes": "82638dc3dc8f7e31ba020d8fef196eb9d1c93f13c318bfbc5ec78bbffa0df2f1",
+      "peak": 0.574
+    },
+    "jam a pooled sample, mono and as a pair": {
+      "file": "assets/demo_projects/Huygens_clock.taud",
+      "chunks": 600,
+      "f32": "28b8c8d20e01d455292ccab76d24c426ff4edfd53d879bb7904aaf2a72cf3cb5",
+      "u8": "e981203d1e6e4b5cd0e601cf4b077433f6915b4e8d9dd44651ec0e5f956fb17e",
+      "notes": "0d66c98b80bb690ebca46f2f4b9251f964914cb2b7e9d6bd6cb6116b2a117c0d",
+      "peak": 0.977
+    },
+    "chase to a row": {
+      "file": "assets/demo_projects/Huygens_clock.taud",
+      "chunks": 1320,
+      "f32": "d737e6449a19bcdb92e6e6760ac4fdd5d6636a5a51ccc82d84fc4994ba36f6e0",
+      "u8": "701ba2fae3998573ecfb6862706d1962d07f6d53d94ebcbfec725165e1a28379",
+      "notes": "ae108976e28cca7e0831ebb60d7c8f8483ea17a9ecacc881771af966b28d9046",
+      "peak": 0.718
+    },
+    "chase through Zeta_valley and Temjin_speaki": {
+      "file": "assets/demo_projects/Zeta_valley.taud",
+      "chunks": 1820,
+      "f32": "eea59f79f27c19ceff343ccd648163f826523d24f36d842d53a68fbdcaf0218c",
+      "u8": "01c29833e15fa5fc6c49546e0fb2803b27eed9f62827633c01fb570064ab7c8e",
+      "notes": "8e47759efef02b9ce5ddd76c00cff3d4ba1c4a4397aaee50f8517d7dd4b49d05",
+      "peak": 0.894
+    },
+    "start at a row without chasing": {
+      "file": "assets/demo_projects/16uba_baion.taud",
+      "chunks": 968,
+      "f32": "4d33a42adfa396e7949a5d0fdba0da1d17c841d9e5258eb72ce5a14bab7e03e9",
+      "u8": "7375fe799692266ef885a2044362e3dd17119d3ca58444158a212b0a80c83552",
+      "notes": "1c1f6d52420ac12bf9813a58ae6b66fc28077c33cc74b1636a032a4056b7785d",
+      "peak": 0.977
+    },
+    "the desk: faders and mutes under playback": {
+      "file": "assets/demo_projects/Huygens_clock.taud",
+      "chunks": 900,
+      "f32": "77881631da149a39f00992a1a8ba1f6c30db942a17fe56fc54179fc2e08f8d6c",
+      "u8": "cc3c1513b1d0576136794416c5a55362c3d5c6943d90da872f7c526c923481bc",
+      "notes": "0d16dcd6664417f2d4180f58a6e322ad1933fc576e91efbc2dda7cb328627e21",
+      "peak": 0.262
+    },
+    "the song's parameters moved under playback": {
+      "file": "assets/demo_projects/WHEN_AMBI.taud",
+      "chunks": 830,
+      "f32": "c382d4ec6d4e97eadcaf99e0d9676f9eed5a8508fd0c2fb0a97098f4c33669f9",
+      "u8": "6699d818117094d8bcd17e68df310d5348205e3b3b06ee9947f7751991c322e4",
+      "notes": "8feb9e269553c635164598aa5e8739bc982dc342f537327b3effe6b9f9574dfc",
+      "peak": 0.18
+    },
+    "an instrument re-uploaded while its notes sound": {
+      "file": "assets/demo_projects/Huygens_clock.taud",
+      "chunks": 836,
+      "f32": "de9d803efc8abdcb0b5d0166a2e501f9fd9160151f44c18c7d2d2c0e8e87176e",
+      "u8": "d291a1d9be30e9cdc275f35ef3babf15509f4d40ba00a77f33ae441adb27b5a4",
+      "notes": "b4203d950e1830e04b702e1c1dfe9ce456ecbf20043217dcb311c94a3cef9564",
+      "peak": 0.296
+    },
+    "patches and records re-uploaded hundreds of times under playback": {
+      "file": "assets/demo_projects/16uba_baion.taud",
+      "chunks": 800,
+      "f32": "93a88c7036c123714e7cca546ceda5430048695399ed3c51584cfc8479a9b8f2",
+      "u8": "a1417093d5edf3bcb01b5580cd8fe97a2ccf6668bfa06d5a86fb38216a64f4ab",
+      "notes": "290d4b7f4141ac644243291fd0806d3e094efe3fc599bd1d958eec60de5464b0",
+      "peak": 0.695
+    },
+    "the master strip and the Mastering view metering a song": {
+      "file": "assets/demo_projects/Daisy_bell.taud",
+      "chunks": 660,
+      "f32": "d529661e3558360214c148fe2092308c131edae1ef11473cde91a527407e9647",
+      "u8": "691491eedc12a3e5b08ee4c22e44205572408948ce0c36ddd73f7978b13cd78d",
+      "notes": "4df6afb78288129c62c3a6cf69822f41e2f5291c01e05aa61b6ca55d7f13c5c0",
+      "peak": 0.348
+    },
+    "the master strip metering a surround song, field and speakers": {
+      "file": "assets/demo_projects/WHEN_AMBI.taud",
+      "chunks": 1140,
+      "f32": "7ac594ca1097400b51652640b5bdc73c9b72841b5499e205a570b35c749116a7",
+      "u8": "52d605110ec14451982869bd3186d142e0b39b11c39e587cf76ea548f2d039bf",
+      "notes": "a605693f6d34ca72cd8597de3ba752a48fca3b66fa3977cdba85fcd6987ee15d",
+      "peak": 0.753
+    },
+    "the Mixing tab's meters on two instruments' chains": {
+      "file": "assets/demo_projects/Zeta_valley.taud",
+      "chunks": 1140,
+      "f32": "540e8ab7fc417fb9929b8b823dd1241b18eb3356fbd86dc2665379022a244f85",
+      "u8": "bc6f58f8541b474fb9d91fc7820fce41e9489567ce1bd925c6d3a833bf51bf01",
+      "notes": "caad3ca08404a656d2380aaabc04d6de41013811246034c6f3c0b375e7d349fb",
+      "peak": 0.186
+    },
+    "chains, mastering and lyrics pushed again under playback": {
+      "file": "assets/demo_projects/Daisy_bell.taud",
+      "chunks": 1300,
+      "f32": "cbaf04e50ca68d41ac95eac1ce029a163caf035597797d1adf1b1169d3ced59b",
+      "u8": "a7907bc40b5cd0a26495235da12ccd2793994b913ef7f3fd17dd51ab8b4e4f18",
+      "notes": "ae9d9cd8835f5685b4de8e9cb0a79430a70f28b4d56cff03067fbf37d0d2b899",
+      "peak": 0.412
+    },
+    "pitch extensions installed, outdated by an edit, and taken away": {
+      "file": "assets/demo_projects/Huygens_clock.taud",
+      "chunks": 1300,
+      "f32": "79edce513ee6f16abcc3fb4ecfc588a8e119324eac664f555365767c5180e8f5",
+      "u8": "82ae1e83e8c7447e7dc0cb235992f3ad4f1dfc919b2b58fa7e15a13151bc52f5",
+      "notes": "c1dbd7c8ae28cad20dedab87c530e0df0854a357b08c705816cb9d2db03e0f78",
+      "peak": 0.311
+    },
+    "FM racks at their own rate: feedback, a filtered modulator, chip operators, ghosts": {
+      "file": "assets/demo_projects/Troll_Chord.taud",
+      "chunks": 2100,
+      "f32": "7bd103ade0f58656809559fc30dc39af5f904e1d8961484db8690880ac6c7ff6",
+      "u8": "657a75a99c79eb5b5682df40a2b5f8dca0ae10b0d735e42c87214a807dc77ed7",
+      "notes": "5f32422f892b41db286318b9be4e3d37430779f68e79924cbfaf1561fc5aea6d",
+      "peak": 0.891
+    },
+    "a full reset and a second file": {
+      "file": "assets/demo_projects/Zeta_valley.taud",
+      "chunks": 503,
+      "f32": "7ddcd7d2042223ef753071010503d5de6970562987dc0846e1ee96d3de1d35f6",
+      "u8": "7800bf4939a0f33a82cb1c5ce3aef01ca82938ebca2baf456060a37cc1d3f369",
+      "notes": "00d16ccfa4c05b697bfd40d785f06246e40fce4f69462fd5b5babbeebf9f1ee8",
+      "peak": 0.693
+    }
+  }
+}

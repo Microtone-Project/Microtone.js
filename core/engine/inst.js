@@ -7,16 +7,28 @@ import {
   OplPatch, decodeOplPatch, OPL_BLOCK_START, OPL_BLOCK_LEN,
 } from "./opl.js";
 import {
-  PsgPatch, decodePsgPatch, psgClearRuntime, PSG_BLOCK_START, PSG_BLOCK_LEN,
+  PsgPatch, decodePsgPatch, PSG_BLOCK_START, PSG_BLOCK_LEN,
 } from "./psg.js";
 import {
   FormantPatch, decodeFormantBlock, lyricSyllable, FORMANT_BLOCK_START, FORMANT_BLOCK_LEN,
   FORMANT_RECORD_HEADER, META_TYPE_FORMANT, formantSourceInstOf,
 } from "./formant.js";
 
-
 export function envPoint(value, offset = 0) {
   return { value, offset };
+}
+
+/** Envelope-present test — the P bit at LOOP word bit 13. */
+export function envPresent(loopWord) {
+  return ((loopWord >>> 13) & 1) !== 0;
+}
+
+/** Envelope-carry test — the `c` bit at LOOP word bit 6 (engine spec: a
+ *  carried envelope keeps its playhead across a retrigger instead of rewinding
+ *  to node 0; whether the trigger is ALLOWED to carry depends on the voice,
+ *  not on the envelope — the engine's te_trigger_note decides that). */
+export function envCarry(loopWord) {
+  return ((loopWord >>> 6) & 1) !== 0;
 }
 
 function makeEnv(defaultValue) {
@@ -71,26 +83,11 @@ export const INST_VOLENV8 = 0x40;
 export const CHAN_MODE_DISCRETE = 0; // XY stereo, 4-track quad — one channel per speaker feed
 export const CHAN_MODE_MATRIX = 1;   // M/S stereo, ambisonic B-format — decoded before panning
 
-export function patchSampleLoopSustain(patch) {
-  return (patch.loopMode & 0x04) !== 0;
-}
-
 /** Every pool span the patch plays, channel order: [samplePtr, ...chanPtrs]. */
 export function patchChannelPtrs(patch) {
   return patch.hasChanBlock && patch.chanCount > 1
     ? [patch.samplePtr, ...patch.chanPtrs.slice(0, patch.chanCount - 1)]
     : [patch.samplePtr];
-}
-
-/**
- * The Ixmp patch a voice is actually sounding, from the index applyActiveSample
- * recorded on it (-1 = the base record). Bounds-checked: a mid-playback patch
- * re-upload (the Advanced editor) can shorten the list under a live voice.
- */
-export function patchAt(inst, patchIndex) {
-  if (inst == null || patchIndex < 0) return null;
-  const patches = inst.extraPatches;
-  return patches !== null && patchIndex < patches.length ? patches[patchIndex] : null;
 }
 
 /** True when the patch plays exactly two channels (the only multi-channel case
@@ -630,6 +627,25 @@ export const FmOp = {
   END: 0xffff,   // stop; the stack top is the patch's output
 };
 
+/**
+ * True when operator 0 is a DSP-ONLY principal: the program ends by
+ * multiplying everything above it by operator 0 (`$0000 $FF01`) and names it
+ * nowhere else, so it shapes the finished patch and is not one of the
+ * oscillators. That is the layout an editor's Easy Mode writes (a constant
+ * whose envelope, filter and pan are the whole instrument's), and it is what
+ * `S $Apsd` counts its operators past (§5.5.1; the engine's twin is fm.c
+ * te_fm_principal_is_dsp).
+ */
+export function fmPrincipalIsDsp(program) {
+  const n = program === null ? 0 : program.length;
+  if (n < 3 || program[n - 1] !== FmOp.MUL || program[n - 2] !== FM_WORD_OSC) return false;
+  for (let i = 0; i < n - 2; i++) {
+    const w = program[i];
+    if (w < FM_WORD_OP && (w & FM_INDEX_MASK) === 0) return false;
+  }
+  return true;
+}
+
 /** Deepest the evaluation stack may go. A program that pushes past it is
  *  invalid (buildFmProgram refuses it; the engine treats the overflow as END). */
 export const FM_STACK_MAX = 16;
@@ -710,7 +726,7 @@ export function fmRecordBytes(n, words) {
 /**
  * Pack a 256-byte metainstrument record — the byte-inverse of loadRecord's meta
  * branch. `layers` are makeMetaLayer shapes; layer 0 is the FOREGROUND layer and
- * the rest spawn as background children (trigger.js triggerMetaOrNote). Layers
+ * the rest spawn as background children (trigger.c triggerMetaOrNote). Layers
  * beyond the type's capacity are dropped.
  *
  * A layer child must NOT itself be a metainstrument: triggerMetaOrNote resolves
@@ -1038,13 +1054,13 @@ export class TaudInst {
     // (the region's own length) at a time. modFunkWalk is the deterministic
     // grid position; modFunkPos is this step's pointer WITH $12x's jitter
     // added — latched into a sounding voice's own modFunkWindow only when
-    // that voice's loop actually wraps (sampler.js advanceSamplePos), same
+    // that voice's loop actually wraps (sampler.c advanceSamplePos), same
     // as Z's funkPos -> funkWindow latch.
     this.modFunkWalk = -1;
     this.modFunkPos = -1;
     this.modFunkLen = 0;          // this step's window width (= dl, the resolved
                                    // region's own length) — stashed here because
-                                   // sampler.js's advanceSamplePos runs on the
+                                   // sampler.c's advanceSamplePos runs on the
                                    // per-sample clock and must not re-resolve
                                    // modGeom itself to find it
   }
@@ -1368,12 +1384,6 @@ export class TaudInst {
     this.pf2EnvLoop = 0;
     this.pf2EnvSustainWord = 0;
     this.pf2Envelopes = makeEnv(0x80);
-  }
-
-  /** Drop the S $Axxx overlay (a new playback, §7.9): the patch sounds as its
-   *  record says again. A no-op on anything but a PSG instrument. */
-  resetPsgRuntime() {
-    if (this.psg !== null) psgClearRuntime(this.psg);
   }
 
   /**

@@ -1,10 +1,10 @@
-/* GENERATED FILE — do not edit. Rebuild with: node tools/gen_hrir.mjs <microtone-taudplay>
+/* GENERATED FILE — do not edit. Rebuild with: node tools/make-hrir-table.js
  *
  * GoogleVR / SADIE spherical-harmonic HRIR set, order 3 (16 ambisonic
  * channels), 256 taps at 48000 Hz, as taken from Google Omnitone
- * (src/resources/sh_hrir_order_3.wav). Channel k is the LEFT ear's impulse
- * response for ambisonic channel k in ACN order, SN3D normalised; stored
- * channel-major as int16 (value / 32768 = tap).
+ * (src/resources/sh_hrir_order_3.wav, md5 310d2836b94909a9b49a84c2ebbf3552). Channel k is the LEFT
+ * ear's impulse response for ambisonic channel k in ACN order, SN3D normalised;
+ * stored channel-major as int16 (value / 32768 = tap).
  *
  * Copyright (c) 2017 Google Inc. and (c) 2017 University of York, licensed
  * under the Apache License 2.0. The measurements are the SADIE project's

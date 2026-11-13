@@ -513,7 +513,7 @@ static void lfo_reset(ImxLfo *l) { l->phase = 0; l->held = 0; l->rng = 0x9e3779b
 
 /* Phase increment per sample (lfoIncrement): floor(R·2^16 / fs) in Hz mode,
  * floor(2^51·bpm / (5·P·fs)) in sync mode, at most 2^31 − 1. */
-static int64_t lfo_increment(bool sync, uint32_t rate, int bpm, int fs)
+int64_t te_imx_lfo_increment(bool sync, uint32_t rate, int bpm, int fs)
 {
     int64_t inc;
     if (!sync) {
@@ -532,7 +532,7 @@ static void lfo_tempo(ImxLfo *l, int bpm, int fs)
     int sync = l->p.sync ? 1 : 0;
     if (sync != l->kSync || (int64_t)l->p.rate != l->kRate || fs != l->kFs || (sync == 1 && bpm != l->kBpm)) {
         l->kSync = sync; l->kRate = l->p.rate; l->kBpm = bpm; l->kFs = fs;
-        l->inc = lfo_increment(l->p.sync, l->p.rate, bpm, fs);
+        l->inc = te_imx_lfo_increment(l->p.sync, l->p.rate, bpm, fs);
     }
 }
 

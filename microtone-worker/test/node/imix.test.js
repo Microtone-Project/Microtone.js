@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 import * as M from "../../core/engine/imix.js";
+import { engineParts } from "../fixtures/engine-parts.js";
 import {
   parseImixSection, buildImixSection, buildImixBlock, encodeEquipment, freeImixId, IMIX_FOURCC,
   imixWithFolded, imixCarryFolds,
@@ -24,6 +25,10 @@ import { setImixOp, setInstFieldOp, compositeOp } from "../../src/doc/ops.js";
 import { planImport, applyPlan } from "../../src/doc/bankmerge.js";
 
 const FS = 48000;
+/** The engine's parts: its instrument chains are what is measured here. */
+const P = engineParts();
+/** Remove DC (the mix tool's dc_reject, engine spec §12.4): k and the corner in Hz. */
+const DC_K = 6.3, DC_HZ = 3;
 const DEMO = new URL("../../assets/demo_projects/Huygens_clock.taud", import.meta.url).pathname;
 
 /** A block with every piece of equipment inserted at its defaults. */
@@ -37,7 +42,7 @@ function fullBlock(id = 1) {
 function runOne(eq, mod, sig, frames = FS, chunk = 128, opts = {}) {
   const block = M.defaultImixBlock(1);
   block.equipment[eq] = mod(M.defaultEquipment(eq));
-  const ch = new M.InstrumentChain(block, FS, 2, true);
+  const ch = P.imixChain(block, FS, 2, true);
   const out = new Float64Array(frames * 2);
   const buf = new Float64Array(2 * chunk);
   for (let s = 0; s < frames; s += chunk) {
@@ -194,11 +199,11 @@ test("freeImixId hands out the lowest free id, and 0 when all 255 are taken", ()
 
 test("LFO increments are the specified integer formulas", () => {
   // Hz: floor(R · 2^16 / fs).
-  assert.equal(M.lfoIncrement(false, M.FX16, 125, FS), Math.floor(2 ** 32 / FS));
+  assert.equal(P.imixLfoIncrement(false, M.FX16, 125, FS), Math.floor(2 ** 32 / FS));
   // Sync: floor(2^51 · bpm / (5 · P · fs)) — one cycle per P quarter ticks.
-  const P = 24 * M.FX16;
-  const inc = M.lfoIncrement(true, P, 125, FS);
-  assert.equal(BigInt(inc), (1n << 51n) * 125n / (5n * BigInt(P) * 48000n));
+  const period = 24 * M.FX16;
+  const inc = P.imixLfoIncrement(true, period, 125, FS);
+  assert.equal(BigInt(inc), (1n << 51n) * 125n / (5n * BigInt(period) * 48000n));
   const samplesPerCycle = (24 / 4) * (FS * 2.5 / 125);
   assert.ok(Math.abs(inc * samplesPerCycle - 2 ** 32) < samplesPerCycle, "a cycle is 24 quarter ticks long");
 });
@@ -270,7 +275,7 @@ test("saturator: no DC offset leaves it, whatever the curve, the bias or the inp
   // linear part: the anti-aliased shaper gives the mean of f over 0…0.25
   // first (0.125), then 0.25; the blocker takes y = x − m, m = a·x + (1 − a)·m.
   const step = runOne("satu", (e) => ({ ...e, curve: M.IMX_SAT_HARD, driveDb: 0, bias: 0 }), () => [0.25, 0.25], 3).out;
-  const a = (M.IMX_DC_K * M.IMX_DC_HZ) / FS;
+  const a = (DC_K * DC_HZ) / FS;
   assert.equal(step[0], 0.125, "m = 0 at reset");
   assert.ok(Math.abs(step[2] - (0.25 - a * 0.125)) < 1e-15, "then the mean follows at a");
 });
@@ -336,7 +341,7 @@ test("a chain's output does not depend on how the bus is cut into spans", () => 
   b.equipment.unis.detuneLfo.depth = 0.7;
   b.equipment.deq1.bands[3].on = true;
   const run = (chunk) => {
-    const ch = new M.InstrumentChain(b, FS, 2, true);
+    const ch = P.imixChain(b, FS, 2, true);
     const out = [];
     const buf = new Float64Array(2 * 512);
     for (let s = 0; s < 20000; s += chunk) {
@@ -356,7 +361,7 @@ test("a chain's output does not depend on how the bus is cut into spans", () => 
 test("a chain fed silence goes idle — exactly zero — after every delay inside it has drained", () => {
   const b = M.defaultImixBlock(1);
   b.equipment.verb = { ...M.defaultEquipment("verb"), decay: 0.3 };
-  const ch = new M.InstrumentChain(b, FS, 2, true);
+  const ch = P.imixChain(b, FS, 2, true);
   const buf = new Float64Array(256);
   let last = 0;
   for (let s = 0; s < FS * 3; s += 128) {
@@ -612,7 +617,7 @@ test("a dynamic EQ band's actor gain scales its dynamic part: static + e × 10^(
     const e = M.defaultEquipment("deq1");
     Object.assign(e.bands[2], { on: true, freq: 1000, senseFreq: 1000, threshDb: -40, ratio: 4, rangeDb: 12, attackMs: 1, gainDb: 2, actorDb });
     block.equipment.deq1 = e;
-    const ch = new M.InstrumentChain(block, FS, 2, true);
+    const ch = P.imixChain(block, FS, 2, true);
     const chunk = 128;
     const buf = new Float64Array(2 * chunk);
     let n = 0;
@@ -620,7 +625,7 @@ test("a dynamic EQ band's actor gain scales its dynamic part: static + e × 10^(
       for (let i = 0; i < chunk; i++, n++) buf[i] = buf[chunk + i] = 0.5 * Math.sin((2 * Math.PI * 1000 * n) / FS);
       ch.process(buf, chunk, 0, chunk, 125, true);
     }
-    return ch.readGr(M.makeImixGrReadout()).deq1[2];
+    return ch.readGr().deq1[2];
   };
   const plain = run(0), doubled = run(20 * Math.log10(2));
   assert.ok(plain < -1, `the band cuts (${plain} dB)`);

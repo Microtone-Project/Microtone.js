@@ -60,7 +60,6 @@ import {
 } from "../spinmaps.js";
 import { dragGrip, focusGrip } from "../components/dragsort.js";
 import { lampButton } from "../components/lampbutton.js";
-import { envPresent, envCarry } from "../../../core/engine/envelope.js";
 import { hex2, rangeToStr } from "../notenames.js";
 import { noteGlyph, rangeGlyph } from "../components/noteglyph.js";
 import { MOTIF } from "../../../core/fonts/motifglyphs.js";
@@ -91,7 +90,7 @@ import { themeColors } from "../theme.js";
 import { canvasMonoFont } from "../fonts.js";
 import { unescapeName, escapeNonAscii } from "../../../core/format/names.js";
 import { isStereoSample } from "../../doc/document.js";
-import { baseStereoPatchIndex, packDupCheck, DCT_LANE } from "../../../core/engine/inst.js";
+import { baseStereoPatchIndex, packDupCheck, DCT_LANE, envPresent, envCarry } from "../../../core/engine/inst.js";
 import {
   annHex2, annFilter, annFadeout, azimuthLabel, elevationLabel,
   SEG_MINIFLOAT_MAP,
@@ -1458,7 +1457,7 @@ export class InstrumentsView {
         map: widePitchMap(this.store.pitchPreset, { min: 0, max: 0xffff + 15 / 16 }), title: t("inst.pitchPanCentreTitle"),
         fine: true, annNode: (v) => noteGlyph(clampN(v, 0x20, 0xffff + 15 / 16), this.store.pitchPreset),
       }),
-      // Pan LOOP word bit 7 = "use default pan" (engine trigger.js:280).
+      // Pan LOOP word bit 7 = "use default pan" (engine trigger.c:280).
       this.checkRow(t("inst.useDefaultPan"), ((inst.panEnvLoop >> 7) & 1) !== 0,
         (on) => this.setEnvWordBit("panEnvLoop", 7, on), { title: t("inst.useDefaultPanTitle") }),
     );

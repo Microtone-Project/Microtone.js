@@ -12,10 +12,14 @@ import { TRACKER_CHUNK, setSamplingRate } from "../../core/engine/constants.js";
 import {
   buildMetaRecord, makeMetaLayer, META_TYPE_FM, FM_WORD_OSC, FM_WORD_MOD, FmOp,
 } from "../../core/engine/inst.js";
-import { META_MIX_GAIN, FM_OVERSAMPLE, FM_OVERSAMPLE_MAX } from "../../core/engine/tables.js";
+import { META_MIX_GAIN } from "../../core/engine/tables.js";
 import { engineParts } from "../fixtures/engine-parts.js";
 
 const RATE = 48000;
+/** The most sub-steps a rack takes (engine spec §5.5.1 "The rack's own rate"). */
+const FM_OVERSAMPLE_MAX = 8;
+/** The sub-steps a rack takes at the engine's rate: the engine's own figure. */
+const oversampleOf = (eng) => eng.playheads[0].trackerState.fmOversample;
 setSamplingRate(RATE);
 
 /** A sixteen-sample sine that sounds `hz` at C-4 — short, so the rate field
@@ -67,19 +71,8 @@ function binPower(x, b) {
   return re * re + im * im;
 }
 
-test("the factor is the smallest that reaches 192 kHz, and the engine and its tables agree on it", () => {
-  const factorAt = (rate) => {
-    setSamplingRate(rate);
-    try {
-      // The C engine keeps its own copy of the figure (the JavaScript one
-      // reads the table); where there is one, the two must agree.
-      const own = new TaudEngine().playheads[0].trackerState.fmOversample;
-      if (own !== undefined) assert.equal(own, FM_OVERSAMPLE, `${rate} Hz: engine vs tables`);
-      return FM_OVERSAMPLE;
-    } finally {
-      setSamplingRate(RATE);
-    }
-  };
+test("the factor is the smallest that reaches 192 kHz", () => {
+  const factorAt = (rate) => oversampleOf(new TaudEngine(rate));
   assert.equal(factorAt(48000), 4);
   assert.equal(factorAt(32000), 6);
   assert.equal(factorAt(44100), 5, "220.5 kHz: four times would stop short");
@@ -159,13 +152,13 @@ test("an operator's own filter runs at the rack's rate and keeps its cutoff wher
   // A jammed note waits for the next tick to have its coefficients made.
   for (let i = 0; i < 10; i++) eng.renderChunk(0, new Uint8Array(TRACKER_CHUNK * 2));
   const op = operators(eng).find((v) => v.instrumentId === 2);
-  assert.equal(op.filterOversample, FM_OVERSAMPLE, "the modulator is filtered once a sub-step");
+  assert.equal(op.filterOversample, oversampleOf(eng), "the modulator is filtered once a sub-step");
   assert.equal(voice0(eng).filterOversample, 0, "operator 0's filter is the mixer's, at the engine's rate");
   assert.equal(op.filterActive, true);
 
   // The coefficients a voice of an engine running at 192 kHz makes for the
   // same cutoff: the operator's, to the bit.
-  setSamplingRate(RATE * FM_OVERSAMPLE);
+  setSamplingRate(RATE * oversampleOf(eng));
   try {
     const P = engineParts();
     const v = P.voice();

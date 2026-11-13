@@ -25,7 +25,6 @@
 // ("Spatial panning effects" + S $80xx), terranmon.txt (song flag `ss`).
 
 import { clamp } from "./tables.js";
-import { isSoundingChild } from "./voice.js";
 
 /** Song-immutable surround model (terranmon.txt song table, `ss` bits). */
 export const SURROUND_STEREO = 0;
@@ -36,12 +35,9 @@ export const SURROUND_SPATIAL = 2;  // full sphere
 export const AZIMUTH_TURN = 512;
 /** Elevation units in a quarter turn (effect X's signed byte). */
 export const ELEVATION_QUARTER = 128;
-/** Widest multi-channel sample the placement table knows (terranmon.txt 's'). */
-export const MAX_SAMPLE_CHANNELS = 8;
 
 const AZ_TO_RAD = (2 * Math.PI) / AZIMUTH_TURN;
 const EL_TO_RAD = Math.PI / 2 / ELEVATION_QUARTER;
-const AZ_PER_DEG = AZIMUTH_TURN / 360;
 /** Taud azimuth 128 is straight ahead — the ambisonic 0° — and runs the other way. */
 const AZ_FRONT = 128;
 
@@ -80,48 +76,6 @@ export function anglesFromDirection(x, y, z, out) {
   out[0] = wrapAzimuth(AZ_FRONT - Math.atan2(y, x) / AZ_TO_RAD);
   out[1] = Math.asin(clamp(z, -1.0, 1.0)) / EL_TO_RAD;
   return out;
-}
-
-const layoutOf = (...deg) => Float64Array.from(deg, (d) => d * AZ_PER_DEG);
-
-/**
- * ITU-style placement of a MULTI-CHANNEL sample's channels (#998.0), as azimuth
- * offsets from the source's own direction, in WAV channel order. Stereo is the
- * ±30° "equilateral triangle" of BS.775; the surround sets are the BS.775 /
- * BS.2051 angles. Only 1 and 2 are reachable today — the sampler plays at most
- * two pool spans (terranmon.txt Ixmp note 8) — but the placement RULE is what
- * #998.0 pins down, so the whole table lives here.
- */
-export const SAMPLE_CHANNEL_LAYOUT = Object.freeze({
-  1: layoutOf(0),
-  2: layoutOf(-30, 30),                            // L R
-  4: layoutOf(-30, 30, -110, 110),                 // L R Ls Rs
-  6: layoutOf(-30, 30, 0, 0, -110, 110),           // L R C LFE Ls Rs
-  8: layoutOf(-30, 30, 0, 0, -90, 90, -135, 135),  // L R C LFE Lss Rss Lrs Rrs
-});
-
-/**
- * World (azimuth, elevation) of a sample channel sitting `localAz` off the
- * source's own direction. The layout is a rigid body aimed at the source: it
- * yaws AND pitches with it, so a stereo pair keeps its 60° width however high
- * the source flies instead of collapsing at the poles the way a plain azimuth
- * offset would.
- */
-export function sampleChannelAngles(az, el, localAz, out) {
-  if (localAz === 0) { out[0] = az; out[1] = el; return out; }
-  if (el === 0) { out[0] = az + localAz; out[1] = 0; return out; } // exact, and the common case
-  const psi = -localAz * AZ_TO_RAD; // layout offset is clockwise; ambisonic azimuth is not
-  const th = (AZ_FRONT - az) * AZ_TO_RAD;
-  const ph = el * EL_TO_RAD;
-  const cpsi = Math.cos(psi), spsi = Math.sin(psi);
-  const cph = Math.cos(ph), sph = Math.sin(ph);
-  const cth = Math.cos(th), sth = Math.sin(th);
-  return anglesFromDirection(
-    cpsi * cph * cth - spsi * sth,
-    cpsi * cph * sth + spsi * cth,
-    cpsi * sph,
-    out,
-  );
 }
 
 /**
@@ -419,11 +373,6 @@ export function applyElevation(ts, voice, el) {
 // centre themselves — an Ixmp patch pan of $80 and a column SET of centre both
 // mean "no shift", whatever the lane is doing.
 
-/** Fold a note offset into range: clamped like a stereo pan, wrapped like an angle. */
-export function boundNotePan(ts, off) {
-  return boundNoteOffset(ts, off);
-}
-
 function boundNoteOffset(ts, off) {
   if (ts.surroundModel === SURROUND_STEREO) return clamp(off, -0xff, 0xff);
   return wrapAzimuth(off + AZIMUTH_TURN / 2) - AZIMUTH_TURN / 2;
@@ -506,6 +455,17 @@ function displayWeight(v) {
     ((255 - v.fader) / 255.0);
 }
 
+/**
+ * Is background voice `bg` part of the note lane `vi` is sounding RIGHT NOW?
+ * A layer child is, and so is a live FM operand; a GHOSTED rack's operands
+ * are not (they belong to a note the pattern has already let go). The
+ * engine's own is te_is_sounding_child (core/engine/c/src/spatial.c).
+ */
+function isSoundingChild(ts, bg, vi) {
+  if (!bg.isLayerChild || bg.sourceChannel !== vi) return false;
+  return !bg.fmOperator || bg.fmParent === ts.voices[vi];
+}
+
 /** Every voice lane `vi` is sounding — the foreground plus its layer
  *  children — visited with its display weight. */
 function forEachSoundingLayer(ts, vi, voice, fn) {
@@ -550,48 +510,3 @@ export function displayAngles(ts, vi, voice, out) {
 }
 
 const dirScratch = new Float64Array(3);
-
-const angleScratch = new Float64Array(2);
-
-/**
- * Renderer gains for every channel of `voice`, cached in `sc` and recomputed
- * only when the source actually moves (a direction changes at most once per
- * tick, the mixer asks once per sample). Returns the cache entry, which the
- * caller stores back — each BUS needs its own, or two buses alternating on the
- * same voice would invalidate each other's on every single sample.
- */
-function voiceGainsCache(bus, voice, sc) {
-  const nc = bus.numChannels;
-  const layout = SAMPLE_CHANNEL_LAYOUT[voice.activeChanCount] ?? SAMPLE_CHANNEL_LAYOUT[1];
-  const chans = layout.length;
-  // The RAMPED azimuth (item 141) — the mixer advanced it once for this sample,
-  // and the stereo path is smoothing the very same number, which is what keeps a
-  // planar song rendering identically to its stereo twin.
-  const az = voice.currentPan;
-  // …and the ramped elevation (advanceElevRamp), for the same reason.
-  const el = voice.elevCur === voice.elevCur ? voice.elevCur : voiceElevation(voice);
-  if (sc === null || sc.gains.length < nc * MAX_SAMPLE_CHANNELS) {
-    sc = {
-      az: NaN, el: NaN, chans: 0, renderer: null,
-      gains: new Float64Array(nc * MAX_SAMPLE_CHANNELS),
-    };
-  }
-  if (sc.az !== az || sc.el !== el || sc.chans !== chans || sc.renderer !== bus.renderer) {
-    for (let k = 0; k < chans; k++) {
-      sampleChannelAngles(az, el, layout[k], angleScratch);
-      bus.renderer.channelGains(angleScratch[0], angleScratch[1], sc.gains, k * nc);
-    }
-    sc.az = az; sc.el = el; sc.chans = chans; sc.renderer = bus.renderer;
-  }
-  return sc;
-}
-
-/** Gains for the MONITOR / export bus (voice.spatial). */
-export function spatialVoiceGains(bus, voice) {
-  return (voice.spatial = voiceGainsCache(bus, voice, voice.spatial)).gains;
-}
-
-/** Gains for the master-strip analysis bus (item 98) — its own cache slot. */
-export function analysisVoiceGains(bus, voice) {
-  return (voice.analysisSpatial = voiceGainsCache(bus, voice, voice.analysisSpatial)).gains;
-}

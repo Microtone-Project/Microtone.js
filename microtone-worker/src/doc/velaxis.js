@@ -4,7 +4,7 @@
 //
 // The record keeps it six-bit: instrument data is format-neutral (file format
 // §5.5), so one bank loads into any project. A format-3 song's volume is
-// 0…255, and the engine gates it by `v >> 2` (trigger.js narrowVolAxis), so a
+// 0…255, and the engine gates it by `v >> 2` (columns.js narrowVolAxis), so a
 // stored value k answers the volumes 4k…4k+3. The low bound of a range
 // therefore reads 4k and the high bound 4k+3 (63 → 255): showing anything else
 // would claim a gate the engine does not apply.

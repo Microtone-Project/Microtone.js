@@ -13,11 +13,15 @@ import assert from "node:assert/strict";
 
 import { TaudEngine } from "../../core/engine/engine.js";
 import * as C from "../../core/engine/constants.js";
-import * as T from "../../core/engine/tables.js";
-import { BinauralRenderer } from "../../core/engine/binaural.js";
-import { HRIR_LENGTH, HRIR_RATE } from "../../core/engine/hrir-sadie.js";
+import { engineParts } from "../fixtures/engine-parts.js";
 
 const AMIGA_A500_LP_FC = 4420.971; // the A500's RC corner, in Hz — rate-independent
+const HRIR_LENGTH = 256;           // the measured set's taps…
+const HRIR_RATE = 48000;           // …and the rate they were measured at
+
+/** What the engine derives from its rate: its TaudEngine record's fields
+ *  (rampOutSamples, volRampSamples, a500A0, a500B1, …). */
+const engineAt = (rate) => new TaudEngine(rate).playheads[0].trackerState;
 
 /** Engine with a looping ramp sample in slot 1 (engine-scenarios' recipe),
  *  playing C4 on row 0 of a one-channel song at BPM 125, speed 6. */
@@ -74,15 +78,15 @@ test("the web default is the browser's own rate, so playback resamples nothing",
 });
 
 test("the anti-click ramps are times, not sample counts", () => {
-  assert.equal(C.RAMP_OUT_SAMPLES / C.SAMPLING_RATE, 0.008);
-  assert.equal(C.VOL_RAMP_SAMPLES / C.SAMPLING_RATE, 0.002);
-  C.setSamplingRate(32000);
+  const at48 = engineAt(48000);
+  assert.equal(at48.rampOutSamples / 48000, 0.008);
+  assert.equal(at48.volRampSamples / 48000, 0.002);
   // …and at Kotlin's rate they are Kotlin's numbers, to the sample.
-  assert.equal(C.RAMP_OUT_SAMPLES, 256);
-  assert.equal(C.VOL_RAMP_SAMPLES, 64);
-  C.setSamplingRate(48000);
-  assert.equal(C.RAMP_OUT_SAMPLES, 384);
-  assert.equal(C.VOL_RAMP_SAMPLES, 96);
+  const at32 = engineAt(32000);
+  assert.equal(at32.rampOutSamples, 256);
+  assert.equal(at32.volRampSamples, 64);
+  assert.equal(at48.rampOutSamples, 384);
+  assert.equal(at48.volRampSamples, 96);
 });
 
 test("the Amiga low-pass keeps its corner at 4421 Hz, whatever the rate", () => {
@@ -90,11 +94,11 @@ test("the Amiga low-pass keeps its corner at 4421 Hz, whatever the rate", () => 
   // warps a little at these fc/rate ratios, so this is not exactly the nominal
   // corner at either rate — what matters is that the two land together.
   const cornerAt = (rate) => {
-    C.setSamplingRate(rate);
+    const { a500A0, a500B1 } = engineAt(rate);
     let lo = 500, hi = 15000;
     for (let i = 0; i < 60; i++) {
       const mid = (lo + hi) / 2;
-      if (onePoleMag(T.AMIGA_A500_A0, T.AMIGA_A500_B1, mid, rate) > Math.SQRT1_2) lo = mid;
+      if (onePoleMag(a500A0, a500B1, mid, rate) > Math.SQRT1_2) lo = mid;
       else hi = mid;
     }
     return (lo + hi) / 2;
@@ -109,9 +113,7 @@ test("the Amiga low-pass keeps its corner at 4421 Hz, whatever the rate", () => 
   // filter sits CLOSER to the analogue 4421 Hz than Kotlin's 32 kHz one.
   assert.ok(Math.abs(c48 - AMIGA_A500_LP_FC) < Math.abs(c32 - AMIGA_A500_LP_FC));
   // Kotlin precomputes b1 at 32 kHz; ours must land on the same double.
-  C.setSamplingRate(32000);
-  assert.equal(T.AMIGA_A500_B1, Math.exp((-2 * Math.PI * AMIGA_A500_LP_FC) / 32000));
-  C.setSamplingRate(48000);
+  assert.equal(engineAt(32000).a500B1, Math.exp((-2 * Math.PI * AMIGA_A500_LP_FC) / 32000));
 });
 
 test("the binaural HRIR set is rate-converted, not stretched", () => {
@@ -120,12 +122,13 @@ test("the binaural HRIR set is rate-converted, not stretched", () => {
   // has to keep its LENGTH IN SECONDS: reading 256 taps at 32 kHz would move
   // the whole head model 50 % further away from the listener.
   const seconds = HRIR_LENGTH / HRIR_RATE;
+  const P = engineParts();
   for (const rate of [32000, 48000, 96000]) {
-    const r = new BinauralRenderer(true, rate);
+    const r = P.binaural(true, rate);
     assert.ok(Math.abs(r.taps / rate - seconds) < 4 / rate,
       `${rate} Hz: ${r.taps} taps is ${(1000 * r.taps) / rate} ms, wanted ${1000 * seconds} ms`);
   }
-  assert.equal(new BinauralRenderer(true, HRIR_RATE).taps, HRIR_LENGTH);
+  assert.equal(P.binaural(true, HRIR_RATE).taps, HRIR_LENGTH);
 });
 
 test("a song plays at the same speed at either rate", () => {

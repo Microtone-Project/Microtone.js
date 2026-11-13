@@ -63,7 +63,7 @@ The interpreter **MUST** give a program nothing but the values and builtins this
 
 ## 3. Lexical structure
 
-### Comments and line breaks
+### 3.1 Comments and line breaks
 
 `//` starts a comment that runs to the end of the line; `/*` … `*/` encloses one that may span lines (they do not nest).
 
@@ -77,7 +77,7 @@ let chord = [
 ]
 ```
 
-### Numbers
+### 3.2 Numbers
 
 | Form | Example | Value |
 |---|---|---|
@@ -88,7 +88,7 @@ let chord = [
 
 A number may not run straight into letters: `12ab` is an error. Every number is an IEEE 754 double; the bitwise operators work on whole numbers as 32-bit integers.
 
-### Strings
+### 3.3 Strings
 
 `"…"` is a string on one line. Escapes: `\n` `\t` `\r` `\0` `\\` `\"` `\'` `\$` `\{` `\}`, `é` (four hexadecimal digits) and `\u{1F3B5}` (one to six).
 
@@ -106,11 +106,11 @@ let ABOUT = """
 
 reads `"First paragraph.\n\nSecond paragraph."`.
 
-### Pitches
+### 3.4 Pitches
 
 `'…'` is a pitch: a note name in the song's tuning, such as `'C4'` or `'Cp4'` (§7.2). It is a number — a count of steps.
 
-### Names and reserved words
+### 3.5 Names and reserved words
 
 A name is ASCII letters, digits and `_`, not starting with a digit; case matters. These words are reserved and cannot be names:
 

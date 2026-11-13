@@ -796,7 +796,7 @@ function retuneUses(score) {
       let vol = 63;
       if (c.vol !== undefined) {
         // The step the engine gates a zone on: a wide volume reads as v >> 2
-        // against the 6-bit rectangles (trigger.js narrowVolAxis).
+        // against the 6-bit rectangles (columns.js narrowVolAxis).
         const v = Math.round(c.vol * lane.trim);
         vol = Math.max(0, Math.min(63, wide ? Math.min(255, v) >> 2 : v));
       }

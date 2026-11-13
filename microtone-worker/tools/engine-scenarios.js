@@ -1,22 +1,27 @@
 #!/usr/bin/env node
-// The JavaScript engine against the C engine built as WebAssembly, driven
-// through everything a HOST does besides playing a file from the top:
-// auditioning on the jam bank, the chase, starting at a row, the desk's
-// faders, edits that land while notes are sounding, resets. Each scenario is
-// a script run on one engine and then on the other; what they render — the
-// f32 mix bus and the 8-bit output — and everything the script notes along
-// the way must be the same.
+// The engine driven through everything a HOST does besides playing a file
+// from the top: auditioning on the jam bank, the chase, starting at a row,
+// the desk's faders, edits that land while notes are sounding, resets, the
+// meters. Each scenario is a script; what it renders — the f32 mix bus and the
+// 8-bit output — and everything the script notes along the way (the snapshot
+// the page draws from, the readbacks) are digested, and the digests are the
+// golden gate's second half (test/fixtures/engine-scenarios.json, checked by
+// engine-golden.test.js). They were recorded when the C engine had been shown
+// identical, scenario for scenario, to the JavaScript engine it replaced.
 //
-//   node --no-use-std-math-pow tools/engine-scenarios-diff.js [scenario …]
+//   node --no-use-std-math-pow tools/engine-scenarios.js [scenario …]          check
+//   node --no-use-std-math-pow tools/engine-scenarios.js --write [scenario …]  re-record
 //
-// The flag is tools/engine-diff.js's: it makes V8 compute the pow the C
-// engine carries, and only then is "the same" exact. Exits 1 on a difference.
+// The flag makes V8 compute Math.pow with its own fdlibm port — the one the C
+// engine carries — so the JavaScript meter taps a scenario records are the
+// same bits on every machine. A deliberate change to what a host hears or
+// reads re-records the scenarios it moved, in the same batch, saying which.
 
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 import { parseTaud } from "../core/format/taud-parse.js";
-import { TaudEngine } from "../core/engine/engine-js.js";
 import { WasmTaudEngine } from "../core/engine/wasm-engine.js";
 import {
   TaudInst, parsePatchesBlob, buildMetaRecord, makeMetaLayer, META_TYPE_FM, FM_WORD_OSC, FM_WORD_MOD, FM_WORD_FB, FmOp,
@@ -619,12 +624,12 @@ export const SCENARIOS = {
   },
 };
 
-function runScenario(scenario, kind) {
+function runScenario(scenario) {
   setSamplingRate(RATE);
   setRandomSource(makeSeededRandom(1));
   try {
     const doc = parseTaud(readFileSync(ROOT + scenario.file));
-    const eng = kind === "wasm" ? new WasmTaudEngine(RATE) : new TaudEngine();
+    const eng = new WasmTaudEngine(RATE);
     loadIntoEngine(eng, doc, 0);
     const run = new Run(eng, doc);
     scenario.script(run);
@@ -634,52 +639,62 @@ function runScenario(scenario, kind) {
   }
 }
 
-/** Compare one scenario's two runs; null when they agree, else what differs. */
-function compare(a, b) {
-  if (a.f32.length !== b.f32.length) return `rendered ${a.f32.length} chunks against ${b.f32.length}`;
-  for (let c = 0; c < a.f32.length; c++) {
-    const x = a.f32[c], y = b.f32[c];
-    for (let i = 0; i < x.length; i++) {
-      if (x[i] !== y[i] && !(x[i] !== x[i] && y[i] !== y[i])) {
-        return `f32 differs at chunk ${c}, ${i < TRACKER_CHUNK ? "left" : "right"} frame ${i % TRACKER_CHUNK}: ${x[i]} against ${y[i]}`;
-      }
-    }
-    const p = a.u8[c], q = b.u8[c];
-    for (let i = 0; i < p.length; i++) if (p[i] !== q[i]) return `u8 differs at chunk ${c}, byte ${i}`;
+const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
+
+/** One scenario's digests: { chunks, f32, u8, notes, peak }. */
+export function digestScenario(scenario) {
+  const r = runScenario(scenario);
+  const f32 = createHash("sha256"), u8 = createHash("sha256");
+  let peak = 0;
+  for (const f of r.f32) {
+    f32.update(new Uint8Array(f.buffer, f.byteOffset, f.byteLength));
+    for (let i = 0; i < f.length; i++) { const v = Math.abs(f[i]); if (v > peak) peak = v; }
   }
-  if (a.notes.length !== b.notes.length) return `noted ${a.notes.length} values against ${b.notes.length}`;
-  for (let i = 0; i < a.notes.length; i++) {
-    if (a.notes[i] !== b.notes[i]) return `noted value ${i} is ${a.notes[i]} against ${b.notes[i]}`;
-  }
-  return null;
+  for (const b of r.u8) u8.update(b);
+  return {
+    chunks: r.f32.length,
+    f32: f32.digest("hex"),
+    u8: u8.digest("hex"),
+    notes: sha256(r.notes.map((v) => (typeof v === "number" ? (Object.is(v, -0) ? "-0" : String(v)) : JSON.stringify(v))).join("\n")),
+    // A scenario that renders silence proves nothing: how loud it got.
+    peak: Math.round(peak * 1000) / 1000,
+  };
 }
 
-export function diffScenarios(names = [], log = () => {}) {
-  let bad = 0, ran = 0;
-  for (const [name, scenario] of Object.entries(SCENARIOS)) {
-    if (names.length && !names.includes(name)) continue;
-    if (!existsSync(ROOT + scenario.file)) { log(`${name}: ${scenario.file} is not on this machine`); continue; }
-    const js = runScenario(scenario, "js");
-    const wasm = runScenario(scenario, "wasm");
-    const diff = compare(js, wasm);
-    ran++;
-    if (diff !== null) bad++;
-    // A scenario that renders silence proves nothing: say how loud it got.
-    let peak = 0;
-    for (const f of js.f32) for (let i = 0; i < f.length; i++) { const v = Math.abs(f[i]); if (v > peak) peak = v; }
-    log(`${name}: ${diff === null ? "identical" : diff} (${js.f32.length} chunks, peak ${peak.toFixed(3)})`);
-  }
-  return { ran, bad };
+export const SCENARIO_FIXTURE = fileURLToPath(new URL("../test/fixtures/engine-scenarios.json", import.meta.url));
+
+/** The scenarios present on this machine (their files exist), by name. */
+export function scenarioNames() {
+  return Object.keys(SCENARIOS).filter((n) => existsSync(ROOT + SCENARIOS[n].file));
 }
+
+export function scenarioByName(name) { return SCENARIOS[name]; }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const { ran, bad } = diffScenarios(process.argv.slice(2), console.log);
+  const args = process.argv.slice(2);
+  const write = args.includes("--write");
+  const names = args.filter((a) => a !== "--write");
   if (!process.execArgv.includes("--no-use-std-math-pow")) {
-    console.log("\nMath.pow here is the platform's; run with node --no-use-std-math-pow for the exact comparison.");
+    console.error("run with node --no-use-std-math-pow: the recorded meters need V8's own pow");
+    process.exit(2);
   }
-  if (bad) {
-    console.error(`\n${bad} of ${ran} scenarios differ`);
+  let fixture = { rate: RATE, scenarios: {} };
+  try { fixture = JSON.parse(readFileSync(SCENARIO_FIXTURE, "utf8")); } catch { /* first run */ }
+  let bad = 0;
+  for (const name of scenarioNames()) {
+    if (names.length && !names.includes(name)) continue;
+    const d = digestScenario(SCENARIOS[name]);
+    const prev = fixture.scenarios[name];
+    const moved = !prev || prev.f32 !== d.f32 || prev.u8 !== d.u8 || prev.notes !== d.notes || prev.chunks !== d.chunks;
+    if (write) fixture.scenarios[name] = { file: SCENARIOS[name].file, ...d };
+    else if (moved) bad++;
+    console.log(`${name}: ${prev ? (moved ? "CHANGED" : "unchanged") : "new"} (${d.chunks} chunks, peak ${d.peak})`);
+  }
+  if (write) {
+    writeFileSync(SCENARIO_FIXTURE, JSON.stringify(fixture, null, 2) + "\n");
+    console.log(`wrote ${SCENARIO_FIXTURE}`);
+  } else if (bad) {
+    console.error(`\n${bad} scenario(s) differ from the fixture`);
     process.exit(1);
   }
-  console.log(`\n${ran} scenarios compared, none differ`);
 }

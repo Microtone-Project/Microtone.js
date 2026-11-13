@@ -1,5 +1,5 @@
 // Item 215 — a play that starts in the middle of the song finds every lane
-// where the song itself leaves it there: the chase (core/engine/chase.js,
+// where the song itself leaves it there: the chase (core/engine/c/src/host.c,
 // TAUD_ENGINE_SPEC.md §15.1).
 //
 // The reference is a real render: play the song from its start and note the

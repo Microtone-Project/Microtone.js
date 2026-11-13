@@ -17,6 +17,10 @@ import {
   META_TYPE_PSG, META_TYPE_FM, PSG_RECORD_HEADER, metaTierOf, META_TIER_LOW,
 } from "../../core/engine/inst.js";
 import * as P from "../../core/engine/psg.js";
+import { engineParts } from "../fixtures/engine-parts.js";
+
+/** The engine's parts: the chip that sounds is the C engine's (psg.c). */
+const E = engineParts();
 
 const C4_HZ = 261.6255653005986;
 const OP_S = 0x1c;
@@ -137,18 +141,20 @@ test("the oscillator bytes are the layout the format gives them", () => {
 });
 
 test("an edit to the patch block re-decodes in place, keeping the run-time overlay", () => {
-  const inst = new TaudInst(1);
-  inst.loadRecord(psgInst({ osc: [sq(), sq()] }));
+  const eng = new TaudEngine();
+  const parts = engineParts(eng);
+  eng.uploadInstrument(1, psgInst({ osc: [sq(), sq()] }));
+  const inst = eng.instruments[1];
   const patch = inst.psg;
-  P.psgWriteRegister(patch, 0x120);
+  parts.psg.writeRegister(patch, 0x120);
   inst.setByte(199, 0x9f);
-  assert.equal(inst.psg, patch, "the same object a voice holds");
+  assert.equal(inst.psg.$ptr, patch.$ptr, "the same record a voice holds");
   assert.equal(patch.osc[0].wave, 9);
-  assert.equal(P.psgLevel(patch, 0), 0x20, "S $A120 survives an edit");
-  inst.loadRecord(psgInst({ osc: [sq(), sq()] }));
-  assert.equal(P.psgLevel(patch, 0), 0x20, "…and a reload of the record");
-  inst.resetPsgRuntime();
-  assert.equal(P.psgLevel(patch, 0), 0);
+  assert.equal(parts.psg.level(patch, 0), 0x20, "S $A120 survives an edit");
+  eng.uploadInstrument(1, psgInst({ osc: [sq(), sq()] }));
+  assert.equal(parts.psg.level(eng.instruments[1].psg, 0), 0x20, "…and a reload of the record");
+  eng.resetSampleFxState(0);
+  assert.equal(parts.psg.level(eng.instruments[1].psg, 0), 0, "a new playback drops it");
 });
 
 // ── the waveforms ────────────────────────────────────────────────────────
@@ -319,13 +325,13 @@ test("a retrigger the NNA cuts keys the SAME pair on, envelopes where they stand
 test("auto-advance walks its pattern as offsets among the pulses, wrapping 7 to 1", () => {
   /** The waveform after each of `steps` steps, `n` quarter ticks a step. */
   const walk = (wave, pattern, steps, n = 1) => {
-    const patch = P.decodePsgPatch(P.encodePsgPatch({ osc: [{ ...HELD, wave, advance: n, pattern }, sq()] }));
-    const st = new P.PsgState();
-    P.psgKeyOn(st, patch, false);
+    const patch = E.psg.patch(P.encodePsgPatch({ osc: [{ ...HELD, wave, advance: n, pattern }, sq()] }));
+    const st = E.psg.state();
+    E.psg.keyOn(st, patch, false);
     const out = [];
     for (let q = 0; q < steps * n; q++) {
-      P.psgQuarterTick(st);
-      if ((q + 1) % n === 0) out.push(P.psgCurrentWave(st, 0));
+      E.psg.quarterTick(st);
+      if ((q + 1) % n === 0) out.push(E.psg.currentWave(st, 0));
     }
     return out;
   };
@@ -351,12 +357,12 @@ test("auto-advance walks its pattern as offsets among the pulses, wrapping 7 to 
   // Every non-pulse waveform holds.
   for (const w of [0, 8, 9, 0xa, 0xd, 0xf]) assert.deepEqual(walk(w, 0, 5), [w, w, w, w, w], `wave ${w} holds`);
   // A pattern changed mid-note is read at the position reached, mod its length.
-  const patch = P.decodePsgPatch(P.encodePsgPatch({ osc: [{ ...HELD, wave: 1, advance: 1, pattern: 0 }, sq()] }));
-  const st = new P.PsgState();
-  P.psgKeyOn(st, patch, false);
-  for (let q = 0; q < 5; q++) P.psgQuarterTick(st);
+  const patch = E.psg.patch(P.encodePsgPatch({ osc: [{ ...HELD, wave: 1, advance: 1, pattern: 0 }, sq()] }));
+  const st = E.psg.state();
+  E.psg.keyOn(st, patch, false);
+  for (let q = 0; q < 5; q++) E.psg.quarterTick(st);
   patch.osc[0].pattern = 3;
-  assert.equal(P.psgCurrentWave(st, 0), 4, "position 5 of a 2-step pattern is its second entry");
+  assert.equal(E.psg.currentWave(st, 0), 4, "position 5 of a 2-step pattern is its second entry");
 });
 
 test("the speed is in quarter ticks, and the mixer runs each quarter at its own frame", () => {
@@ -364,13 +370,14 @@ test("the speed is in quarter ticks, and the mixer runs each quarter at its own 
    *  sampled at every frame-chunk. */
   const changes = (advance, nTicks) => {
     const eng = new TaudEngine();
+    const parts = engineParts(eng);
     eng.uploadInstrument(1, psgInst({ muteB: true, osc: [sq({ wave: 1, advance }), sq()] }));
     loadSong(eng, [{ row: 0, note: 0x5000, inst: 1 }]);
     let last = -1, n = 0;
     const chunks = Math.round(ticks(nTicks) / TRACKER_CHUNK);
     for (let c = 0; c < chunks; c++) {
       renderLeft(eng, TRACKER_CHUNK);
-      const w = P.psgCurrentWave(ts0(eng).voices[0].psg, 0);
+      const w = parts.psg.currentWave(ts0(eng).voices[0].psg, 0);
       if (last >= 0 && w !== last) n++;
       last = w;
     }
@@ -422,19 +429,19 @@ test("internal status carries from note to note, unless the X flag resets it", (
 const lfoPair = (reset) => ({ muteB: true, osc: [sq({ wave: P.PSG_WAVE_SAW, vibrato: 1, tremolo: 1, reset }), sq()] });
 
 test("the LFO origin is set at every key-on: X anchors it, and without X it is the chip clock's 0", () => {
-  const x = P.decodePsgPatch(P.encodePsgPatch(lfoPair(true)));
-  const plain = P.decodePsgPatch(P.encodePsgPatch(lfoPair(false)));
-  const st = new P.PsgState();
-  const run = (from, n) => Array.from({ length: n }, (_, f) => P.psgRender(st, from + f, 1, false));
-  P.psgKeyOn(st, x, false);
+  const x = E.psg.patch(P.encodePsgPatch(lfoPair(true)));
+  const plain = E.psg.patch(P.encodePsgPatch(lfoPair(false)));
+  const st = E.psg.state();
+  const run = (from, n) => Array.from({ length: n }, (_, f) => E.psg.render(st, from + f, 1, false));
+  E.psg.keyOn(st, x, false);
   run(200000, 10);
   assert.ok(st.lfo[0] > 0, "X anchored the origin at the note's first frame");
-  P.psgKeyOn(st, plain, false);
+  E.psg.keyOn(st, plain, false);
   assert.equal(st.lfo[0], 0, "the next note without X is back on the chip clock");
   run(200010, 10);
   // A replay restarts the chip clock below the origin X anchored: an origin
   // carried over would read the LFO tables at a negative index, then NaN.
-  P.psgKeyOn(st, plain, false);
+  E.psg.keyOn(st, plain, false);
   for (const v of run(0, 64)) assert.ok(Number.isFinite(v));
 });
 
@@ -455,18 +462,18 @@ test("a note without X replayed after an X note sounds, and never NaN", () => {
 // ── S $Axxx ──────────────────────────────────────────────────────────────
 
 test("S $Axxx decodes to the overlay's registers, and nothing else", () => {
-  const p = new P.PsgPatch();
-  assert.ok(P.psgWriteRegister(p, 0x005)); assert.equal(p.rtAdvance[0], 5);
-  assert.ok(P.psgWriteRegister(p, 0x8ff)); assert.equal(p.rtAdvance[1], 0xff);
-  assert.ok(P.psgWriteRegister(p, 0x13f)); assert.equal(p.rtLevel[0], 0x3f);
-  assert.ok(P.psgWriteRegister(p, 0x920)); assert.equal(p.rtLevel[1], 0x20);
+  const p = E.psg.patch(P.encodePsgPatch({ osc: [sq(), sq()] }));
+  assert.ok(E.psg.writeRegister(p, 0x005)); assert.equal(p.rtAdvance[0], 5);
+  assert.ok(E.psg.writeRegister(p, 0x8ff)); assert.equal(p.rtAdvance[1], 0xff);
+  assert.ok(E.psg.writeRegister(p, 0x13f)); assert.equal(p.rtLevel[0], 0x3f);
+  assert.ok(E.psg.writeRegister(p, 0x920)); assert.equal(p.rtLevel[1], 0x20);
   for (const [r, a, b] of [[0xf01, true, false], [0xf02, false, true], [0xf03, true, true], [0xf00, false, false]]) {
-    assert.ok(P.psgWriteRegister(p, r));
-    assert.deepEqual([P.psgMuted(p, 0), P.psgMuted(p, 1)], [a, b], `$${r.toString(16)}`);
+    assert.ok(E.psg.writeRegister(p, r));
+    assert.deepEqual([E.psg.muted(p, 0), E.psg.muted(p, 1)], [a, b], `$${r.toString(16)}`);
   }
   const gen = p.rtGen;
   for (const r of [0x140, 0x1ff, 0x200, 0x7ff, 0x940, 0xa00, 0xeff, 0xf04, 0xfff]) {
-    assert.equal(P.psgWriteRegister(p, r), false, `$${r.toString(16)} is reserved`);
+    assert.equal(E.psg.writeRegister(p, r), false, `$${r.toString(16)} is reserved`);
   }
   assert.equal(p.rtGen, gen, "a reserved write changes nothing");
 });
@@ -494,7 +501,7 @@ test("S $Axxx writes the instrument, lasts across notes, and is gone on a new pl
   assert.equal(st.rtMute, 3);
   // A new playback starts from the record again — every path that clears
   // invert loop's mask: play from the start, a full reset, the sample-FX reset.
-  const again = () => { P.psgWriteRegister(eng.instruments[1].psg, 0x120); };
+  const again = () => { engineParts(eng).psg.writeRegister(eng.instruments[1].psg, 0x120); };
   for (const replay of [() => eng.chaseTrackerRow(0, 0, 0), () => eng.resetParams(0),
     () => eng.resetSampleFxState(0)]) {
     replay();
@@ -552,7 +559,6 @@ test("a PSG instrument sounds as a layer, as a rack operator and as a formant so
   eng3.uploadInstrument(3, buildFormantRecord(F.encodeFormantBlock(fp), SAW, { sourceInst: 0x101 }));
   loadSong(eng3, [{ row: 0, note: 0x5000, inst: 3 }]);
   assert.ok(rms(renderLeft(eng3, 24000), 9600) > 0.001, "a formant instrument sings from it");
-  // (the JavaScript engine's PsgState object, or the C engine's record of the same name)
   const src = ts0(eng3).voices[0].formant.src;
-  assert.ok(src instanceof P.PsgState || src?.constructor.typeName === "TaudPsgState", "the pair is the source");
+  assert.equal(src?.constructor.typeName, "TaudPsgState", "the pair is the source");
 });

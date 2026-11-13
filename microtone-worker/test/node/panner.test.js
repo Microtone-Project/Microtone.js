@@ -1,6 +1,6 @@
 // Spatial panner (#998.6) — the pure half: pointer ↔ angle mapping, the labels,
 // and the X / 4 argument codec the dials write through. The codec is the
-// engine's own (effects.js decodes with the same pair), so a round-trip failure
+// engine's own (effects.c decodes with the same pair), so a round-trip failure
 // here means the dial and the playing note would disagree.
 
 import { test } from "node:test";

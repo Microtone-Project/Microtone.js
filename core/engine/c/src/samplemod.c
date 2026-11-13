@@ -4,8 +4,8 @@
 #include "taud_internal.h"
 
 const int MOD_STEP[16] = { 0, 0, 1, 2, 4, 8, 2, 8, 32, 128, 0, 0, 0, 0, 0, 0 };
-static const int MOD_JUMP_SLICES[2] = { 8, 16 };
-static const double MOD_SCATTER_FRAC[3] = { 1.0 / 512, 1.0 / 64, 1.0 / 8 };
+const int MOD_JUMP_SLICES[2] = { 8, 16 };
+const double MOD_SCATTER_FRAC[3] = { 1.0 / 512, 1.0 / 64, 1.0 / 8 };
 #define MOD_COMB_ODD_MAX 0xd
 
 /** Step period in TICKS for speed nibble $y: $F every tick … $1 every 15th, $0 frozen. */
@@ -169,11 +169,11 @@ bool te_ext_mod_touches(const TaudModGeom *g, bool invert, int f, int stepIndex,
     return te_mod_touches(g, invert, i) && f_mod_touches(f, i, g->es, g->ee, stepIndex);
 }
 
-static const int EXT_JUMP_N[16] = { 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 16, 18, 21, 24, 32 };
+const int EXT_JUMP_N[16] = { 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 16, 18, 21, 24, 32 };
 
 double te_ext_jitter_frac(int x) { return js_pow(2.0, (x & 0xf) - 15); }
 
-static const double EXT_SCATTER_FRAC[16] = {
+const double EXT_SCATTER_FRAC[16] = {
     0, 1.0 / 16384, 1.0 / 8192, 1.0 / 4096, 1.0 / 2048, 1.0 / 1024, 1.0 / 512, 1.0 / 256,
     1.0 / 128, 1.0 / 64, 1.0 / 32, 1.0 / 16, 1.0 / 8, 1.0 / 4, 1.0 / 2, 1,
 };

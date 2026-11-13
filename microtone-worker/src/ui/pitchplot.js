@@ -157,7 +157,7 @@ export function plotSeries(rows, preset) {
 
 /**
  * The two pitch deltas an arpeggio on this row cycles through, or null when
- * the row does not arpeggiate. A mirror of effects.js `OP_J` and row.js's `:`
+ * the row does not arpeggiate. A mirror of effects.c `OP_J` and row.c's `:`
  * pairing, close enough to be read against them.
  *
  * `mem` is the lane's running argument memory (`{j, jExt1, jExt2}`, all 0 to
@@ -174,7 +174,7 @@ export function arpOffsets(row, wide, mem) {
   const op2 = wide ? (row.effect2 | 0) : 0;
   const arg2 = wide ? (row.effectArg2 | 0) : 0;
   // A `:` in either slot is a modifier for the OTHER one, never a command of
-  // its own — and two colons extend nothing (row.js applyTrackerRow).
+  // its own — and two colons extend nothing (row.c applyTrackerRow).
   let ext1 = null, ext2 = null;
   if (wide && op1 === OP_COLON && op2 !== OP_COLON) ext2 = arg1;
   else if (wide && op2 === OP_COLON && op1 !== OP_COLON) ext1 = arg2;

@@ -6,56 +6,23 @@
 
 import { PATTERN_BYTES, PATTERN_BYTES_WIDE } from "../engine/constants.js";
 import {
-  CMD,
-  SNAP_CUE_POS, SNAP_ROW_INDEX, SNAP_TICK_IN_ROW, SNAP_BPM, SNAP_TICK_RATE,
-  SNAP_FLAGS, SNAP_CHANNEL_COUNT, SNAP_HEADER_SIZE,
-  SNAP_INTERRUPT_MASK, SNAP_INTERRUPT_ARGS,
-  SNAP_SAB_I32_MASK, SNAP_SAB_I32_ARGS,
-  SNAP_V_ACTIVE, SNAP_V_EFF_VOL, SNAP_V_EFF_PAN, SNAP_V_NOTE, SNAP_V_INST,
-  SNAP_V_SAMPLE_POS, SNAP_V_SAMPLE_PTR, SNAP_V_SAMPLE_LEN,
-  SNAP_V_ENV_VOL_IDX, SNAP_V_ENV_VOL_TIME, SNAP_V_ENV_PAN_IDX, SNAP_V_ENV_PAN_TIME,
-  SNAP_V_ENV_PITCH_IDX, SNAP_V_ENV_PITCH_TIME, SNAP_V_ENV_FILTER_IDX, SNAP_V_ENV_FILTER_TIME,
-  SNAP_V_AZIMUTH, SNAP_V_ELEVATION,
-  SNAP_VOICE_STRIDE, SNAP_MAX_VOICES, SNAP_GLOBAL_VOLUME,
-  SNAP_V_FUNK_WINDOW, SNAP_V_FUNK_POS, SNAP_V_FUNK_LEN, SNAP_V_FUNK_MODE,
-  SNAP_V_MOD_FUNK_WINDOW,
-  SNAP_V_CHAN_VOL, SNAP_V_CHAN_AZ, SNAP_V_CHAN_EL,
-  SNAP_V_CHAN_SET, SNAP_V_CHAN_SET_VOL, SNAP_V_CHAN_SET_PAN,
-  SNAP_AN_METERS, SNAP_AN_FRAMES, SNAP_AN_FIELD,
-  SNAP_AN_CORR_LL, SNAP_AN_CORR_RR, SNAP_AN_CORR_LR, SNAP_AN_RING_WRITE,
-  SNAP_METER_BASE, SNAP_METER_STRIDE,
-  SNAP_M_PEAK, SNAP_M_TRUE_PEAK, SNAP_M_MEAN_SQUARE, SNAP_M_CLIP,
-  SNAP_SCOPE_BASE,
-  SNAP_MM_FRAMES, SNAP_MM_COMP_GR, SNAP_MM_LIM_GR, SNAP_MM_HIST_TOTAL,
-  SNAP_MM_BASE, SNAP_MM_SUM_Z, SNAP_MM_CH, SNAP_MM_C_PEAK, SNAP_MM_C_TRUE_PEAK,
-  SNAP_MM_C_MEAN_SQUARE, SNAP_MM_C_CLIP, SNAP_MM_C_STRIDE, SNAP_MM_STAGE_STRIDE,
-  SNAP_MM_AP_PEAK, SNAP_MM_AP_SUM_SQ,
-  SNAP_MM_STAGES, SNAP_HIST_BASE, SNAP_HIST_BINS,
-  SNAP_MM_SPEC_WRITE, SNAP_SPEC_BASE, SNAP_SPEC_FRAMES, SNAP_PAIR_BASE,
-  SNAP_MM_HIST_DEPTH, SNAP_MM_HIST_USED, SNAP_MM_HIST_MIN, SNAP_MM_HIST_MAX,
-  SNAP_MM_HIST_ENTROPY,
-  SNAP_IM_BASE, SNAP_IM_STRIDE, SNAP_IM_SEATS, SNAP_IM_FRAMES, SNAP_IM_SLOT, SNAP_IM_RING_WRITE, SNAP_IM_LIM_GR,
-  SNAP_IM_COMP_GR, SNAP_IM_DEQ1, SNAP_IM_DEQ2, SNAP_IM_LEVELS, SNAP_IM_RING, SNAP_IM_RING_PRE,
-  SNAP_IM_UNIS_CENTS, SNAP_IM_UNIS_WIDTH, SNAP_IM_STAGE_WRITE, SNAP_IM_STAGE_RINGS, SNAP_IM_RING_FRAMES,
-  SNAP_IM_COMP_LVL, SNAP_IM_DEQ1_LVL, SNAP_IM_DEQ2_LVL, SNAP_IM_TSH1, SNAP_IM_EXPD_GR, SNAP_IM_EXPD_LVL,
-  SNAP_EP_COUNT, SNAP_EP_ENTRIES, SNAP_EP_STRIDE, SNAP_EP_MAX, SNAP_EP_INST,
-  SNAP_EP_VOL_IDX, SNAP_EP_VOL_TIME, SNAP_EP_PAN_IDX, SNAP_EP_PAN_TIME,
-  SNAP_EP_PITCH_IDX, SNAP_EP_PITCH_TIME, SNAP_EP_FILTER_IDX, SNAP_EP_FILTER_TIME,
-  SNAP_FLOATS,
+  CMD, SNAP_HEADER_SIZE, SNAP_INTERRUPT_MASK, SNAP_INTERRUPT_ARGS, SNAP_SAB_I32_MASK,
+  SNAP_SAB_I32_ARGS, SNAP_AN_METERS, SNAP_AN_FRAMES, SNAP_AN_FIELD, SNAP_AN_CORR_LL,
+  SNAP_AN_CORR_RR, SNAP_AN_CORR_LR, SNAP_AN_RING_WRITE, SNAP_METER_BASE, SNAP_METER_STRIDE,
+  SNAP_M_PEAK, SNAP_M_TRUE_PEAK, SNAP_M_MEAN_SQUARE, SNAP_M_CLIP, SNAP_SCOPE_BASE, SNAP_MM_FRAMES,
+  SNAP_MM_COMP_GR, SNAP_MM_LIM_GR, SNAP_MM_HIST_TOTAL, SNAP_MM_BASE, SNAP_MM_SUM_Z, SNAP_MM_CH,
+  SNAP_MM_C_PEAK, SNAP_MM_C_TRUE_PEAK, SNAP_MM_C_MEAN_SQUARE, SNAP_MM_C_CLIP, SNAP_MM_C_STRIDE,
+  SNAP_MM_STAGE_STRIDE, SNAP_MM_AP_PEAK, SNAP_MM_AP_SUM_SQ, SNAP_MM_STAGES, SNAP_HIST_BASE,
+  SNAP_HIST_BINS, SNAP_MM_SPEC_WRITE, SNAP_SPEC_BASE, SNAP_SPEC_FRAMES, SNAP_PAIR_BASE,
+  SNAP_MM_HIST_DEPTH, SNAP_MM_HIST_USED, SNAP_MM_HIST_MIN, SNAP_MM_HIST_MAX, SNAP_MM_HIST_ENTROPY,
+  SNAP_IM_BASE, SNAP_FLOATS,
 } from "./protocol.js";
-import {
-  SURROUND_STEREO, SURROUND_SPATIAL, foldAzimuthToPan, displayPanByte, displayAngles,
-} from "../engine/spatial.js";
 import { ANALYSIS_MAX_METERS, makeAnalysisReadout } from "../engine/analysis.js";
 import { makeMasterMeterReadout } from "../engine/loudness.js";
-import { makeImixMeterReadout } from "../engine/imix.js";
 
 /** Reused drain targets — the snapshot path never allocates. */
 const analysisReadout = makeAnalysisReadout();
 const masterMeterReadout = makeMasterMeterReadout();
-const imixMeterReadout = makeImixMeterReadout();
-/** …and the scratch [azimuth, elevation] the position readout writes into. */
-const angleBox = new Float64Array(2);
 
 /**
  * Apply an engine-mutating command to `eng`. Returns true if handled here.
@@ -170,190 +137,29 @@ export function drainInterruptsInto(eng, playhead, f, i32 = null) {
   }
 }
 
-/** Write every snapshot field except the interrupt latch into `f`. */
+/** Write every snapshot field except the interrupt latch into `f`. The
+ *  engine writes the playhead, the voice blocks, the Mixing tab's meter blocks
+ *  and the envelope playheads itself (snapshot.c, imixtap.c — the offsets are
+ *  protocol.js's, through snap_layout.h) into a buffer of its own, and they are
+ *  copied from there; the master strip's and the Mastering view's taps are
+ *  JavaScript (analysis.js, loudness.js) and drain here. */
 export function fillSnapshotInto(eng, playhead, f) {
-  const ph = eng.playheads[playhead];
-  const ts = ph.trackerState;
-  if (typeof eng.snapshotView === "function") {
-    // The WebAssembly engine writes the playhead, the voice blocks, the
-    // Mixing tab's meter blocks and the envelope playheads itself (snapshot.c,
-    // imixtap.c — the same offsets) into a buffer of its own; they are copied
-    // from there. The strip's and the Mastering view's taps are the same
-    // JavaScript objects either way.
-    const v = eng.snapshotView(SNAP_FLOATS);
-    // A caller's buffer may stop short of the later blocks (a test that only
-    // wants the voices): each range is cut to what `f` holds.
-    const put = (from, to) => {
-      const end = Math.min(to, f.length);
-      if (end > from) f.set(v.subarray(from, end), from);
-    };
-    // The playhead's fields sit either side of the interrupt latch's slot,
-    // which is drainInterruptsInto's and must not be written over.
-    put(0, SNAP_INTERRUPT_MASK);
-    put(SNAP_INTERRUPT_MASK + 1, SNAP_AN_METERS);
-    put(SNAP_HEADER_SIZE, SNAP_METER_BASE);
-    put(SNAP_IM_BASE, SNAP_FLOATS); // the Mixing-tab seats, then the envelope playheads
-    fillAnalysisInto(ts, f);
-    fillMasterMeterInto(ts, f);
-    return;
-  }
-  f[SNAP_CUE_POS] = ts.cuePos;
-  f[SNAP_ROW_INDEX] = ts.rowIndex;
-  f[SNAP_TICK_IN_ROW] = ts.tickInRow;
-  f[SNAP_BPM] = ph.bpm;
-  f[SNAP_TICK_RATE] = ph.tickRate;
-  f[SNAP_FLAGS] = (ph.isPlaying ? 1 : 0) | (ph.jamActive ? 2 : 0);
-  f[SNAP_CHANNEL_COUNT] = eng.channelCount();
-  f[SNAP_GLOBAL_VOLUME] = ph.globalVolume;
-  for (let vi = 0; vi < SNAP_MAX_VOICES; vi++) {
-    const v = ts.voices[vi];
-    const o = SNAP_HEADER_SIZE + vi * SNAP_VOICE_STRIDE;
-    const active = v.active;
-    f[o + SNAP_V_ACTIVE] = active ? 1 : 0;
-    if (active) {
-      const effEnvVol = v.volEnvOn ? v.envVolMix : 1.0;
-      const faderGain = (255 - v.fader) / 255.0;
-      let ev = effEnvVol * v.fadeoutMix * v.currentMixVolume * faderGain;
-      f[o + SNAP_V_EFF_VOL] = ev < 0 ? 0 : ev > 1 ? 1 : ev;
-      // Where the lane SOUNDS — the same sum the mixer pans by (pan swing
-      // included, item 155), and for a metainstrument the mix-weighted mean of
-      // its layers rather than layer 0's own position (item 155.1).
-      f[o + SNAP_V_EFF_PAN] = displayPanByte(ts, vi, v);
-      // Spatial position (#998). EFF_PAN above stays the stereo meters' 0..255
-      // value — in a surround song that is where the monitor downmix puts the
-      // voice, which is what those meters are drawing.
-      if (ts.surroundModel !== SURROUND_STEREO) {
-        displayAngles(ts, vi, v, angleBox);
-        f[o + SNAP_V_EFF_PAN] = Math.round(foldAzimuthToPan(angleBox[0]));
-        f[o + SNAP_V_AZIMUTH] = angleBox[0];
-        f[o + SNAP_V_ELEVATION] = angleBox[1];
-      } else {
-        f[o + SNAP_V_AZIMUTH] = f[o + SNAP_V_EFF_PAN];
-        f[o + SNAP_V_ELEVATION] = 0;
-      }
-      f[o + SNAP_V_NOTE] = (v.renderPitch > 0 ? v.renderPitch : v.noteVal) & 0xffff;
-      // Show the pattern-level instrument (a meta's slot), not the resolved
-      // layer child; fall back to instrumentId before the first meta/plain trigger.
-      f[o + SNAP_V_INST] = (v.displayInst || v.instrumentId) & 0x3ff;
-      f[o + SNAP_V_SAMPLE_POS] = v.samplePos;
-      f[o + SNAP_V_SAMPLE_PTR] = v.activeSamplePtr;
-      f[o + SNAP_V_SAMPLE_LEN] = v.activeSampleLength;
-      f[o + SNAP_V_ENV_VOL_IDX] = v.envIndex;
-      f[o + SNAP_V_ENV_VOL_TIME] = v.envTimeSec;
-      f[o + SNAP_V_ENV_PAN_IDX] = v.envPanIndex;
-      f[o + SNAP_V_ENV_PAN_TIME] = v.envPanTimeSec;
-      f[o + SNAP_V_ENV_PITCH_IDX] = v.envPitchIndex;
-      f[o + SNAP_V_ENV_PITCH_TIME] = v.envPitchTimeSec;
-      f[o + SNAP_V_ENV_FILTER_IDX] = v.envFilterIndex;
-      f[o + SNAP_V_ENV_FILTER_TIME] = v.envFilterTimeSec;
-      f[o + SNAP_V_FUNK_WINDOW] = v.funkWindow;
-      f[o + SNAP_V_FUNK_POS] = v.funkPos;
-      f[o + SNAP_V_FUNK_LEN] = v.activeSampleLoopEnd - v.activeSampleLoopStart;
-      f[o + SNAP_V_FUNK_MODE] = v.funkMode;
-      f[o + SNAP_V_MOD_FUNK_WINDOW] = v.modFunkWindow;
-    } else {
-      for (let k = 1; k < SNAP_VOICE_STRIDE; k++) f[o + k] = 0;
-      f[o + SNAP_V_EFF_PAN] = 128;
-      f[o + SNAP_V_AZIMUTH] = 128; // centre/front, matching EFF_PAN's rest value
-      f[o + SNAP_V_SAMPLE_POS] = -1;
-      f[o + SNAP_V_SAMPLE_PTR] = -1;
-      f[o + SNAP_V_ENV_VOL_IDX] = -1;
-      f[o + SNAP_V_ENV_PAN_IDX] = -1;
-      f[o + SNAP_V_ENV_PITCH_IDX] = -1;
-      f[o + SNAP_V_ENV_FILTER_IDX] = -1;
-      f[o + SNAP_V_FUNK_WINDOW] = -1;
-      f[o + SNAP_V_FUNK_POS] = -1;
-      f[o + SNAP_V_MOD_FUNK_WINDOW] = -1;
-    }
-    // The LANE axis (item 198.3) — outside the active/inactive split on
-    // purpose. `M`'s volume and `S $8aaa` / `X $eeaa`'s position belong to the
-    // lane, not to whatever is sounding on it, and they are exactly what the
-    // Timeline's headers are for: state a row set once, twenty rows ago.
-    f[o + SNAP_V_CHAN_VOL] = v.channelVolume;
-    f[o + SNAP_V_CHAN_AZ] = ts.surroundModel === SURROUND_STEREO ? v.channelPan : v.panAzimuth;
-    f[o + SNAP_V_CHAN_EL] = ts.surroundModel === SURROUND_SPATIAL ? v.panElevation : 0;
-    f[o + SNAP_V_CHAN_SET] = (v.channelVolumeSet ? SNAP_V_CHAN_SET_VOL : 0) |
-      (v.channelPanSet ? SNAP_V_CHAN_SET_PAN : 0);
-  }
+  const ts = eng.playheads[playhead].trackerState;
+  const v = eng.snapshotView(SNAP_FLOATS);
+  // A caller's buffer may stop short of the later blocks (a test that only
+  // wants the voices): each range is cut to what `f` holds.
+  const put = (from, to) => {
+    const end = Math.min(to, f.length);
+    if (end > from) f.set(v.subarray(from, end), from);
+  };
+  // The playhead's fields sit either side of the interrupt latch's slot,
+  // which is drainInterruptsInto's and must not be written over.
+  put(0, SNAP_INTERRUPT_MASK);
+  put(SNAP_INTERRUPT_MASK + 1, SNAP_AN_METERS);
+  put(SNAP_HEADER_SIZE, SNAP_METER_BASE);
+  put(SNAP_IM_BASE, SNAP_FLOATS); // the Mixing-tab seats, then the envelope playheads
   fillAnalysisInto(ts, f);
   fillMasterMeterInto(ts, f);
-  fillImixMeterInto(ts, f);
-  fillEnvPlayheadsInto(ts, f);
-}
-
-/**
- * Envelope-playhead block: one entry per active voice, lane voices first,
- * then background voices (FM operators, layers, NNA ghosts), each tagged with
- * the instrument it is actually playing (`instrumentId`, never displayInst).
- */
-function fillEnvPlayheadsInto(ts, f) {
-  let n = 0;
-  for (let vi = 0; vi < SNAP_MAX_VOICES; vi++) n = putEnvPlayhead(f, n, ts.voices[vi]);
-  for (const bg of ts.backgroundVoices) n = putEnvPlayhead(f, n, bg);
-  f[SNAP_EP_COUNT] = n;
-}
-
-/** Write voice `v`'s entry at index `n` if it is sounding; the next index. */
-function putEnvPlayhead(f, n, v) {
-  if (!v.active || n >= SNAP_EP_MAX) return n;
-  const o = SNAP_EP_ENTRIES + n * SNAP_EP_STRIDE;
-  f[o + SNAP_EP_INST] = v.instrumentId & 0x3ff;
-  f[o + SNAP_EP_VOL_IDX] = v.envIndex;
-  f[o + SNAP_EP_VOL_TIME] = v.envTimeSec;
-  f[o + SNAP_EP_PAN_IDX] = v.envPanIndex;
-  f[o + SNAP_EP_PAN_TIME] = v.envPanTimeSec;
-  f[o + SNAP_EP_PITCH_IDX] = v.envPitchIndex;
-  f[o + SNAP_EP_PITCH_TIME] = v.envPitchTimeSec;
-  f[o + SNAP_EP_FILTER_IDX] = v.envFilterIndex;
-  f[o + SNAP_EP_FILTER_TIME] = v.envFilterTimeSec;
-  return n + 1;
-}
-
-/**
- * Mixing-tab blocks (item 217), one per tap seat (split pane): one instrument
- * bus's levels on both sides of its chain, the chain's gain reductions and the
- * two rings. With a seat's tap off only the "no frames" marker is written.
- */
-function fillImixMeterInto(ts, f) {
-  for (let s = 0; s < SNAP_IM_SEATS; s++) fillImixSeatInto(ts.imixMeters[s], f, SNAP_IM_BASE + s * SNAP_IM_STRIDE);
-}
-
-/** One tap seat's block, at `b`. */
-function fillImixSeatInto(tap, f, b) {
-  if (tap === null) {
-    f[b + SNAP_IM_FRAMES] = 0;
-    f[b + SNAP_IM_SLOT] = -1;
-    return;
-  }
-  const r = tap.drain(imixMeterReadout);
-  f[b + SNAP_IM_FRAMES] = r.frames;
-  f[b + SNAP_IM_SLOT] = r.slot;
-  f[b + SNAP_IM_RING_WRITE] = r.write;
-  f[b + SNAP_IM_LIM_GR] = r.lim;
-  f.set(r.comp, b + SNAP_IM_COMP_GR);
-  f.set(r.deq1, b + SNAP_IM_DEQ1);
-  f.set(r.deq2, b + SNAP_IM_DEQ2);
-  for (let i = 0; i < 4; i++) {
-    const o = b + SNAP_IM_LEVELS + i * SNAP_MM_C_STRIDE;
-    f[o + SNAP_MM_C_PEAK] = r.peak[i];
-    f[o + SNAP_MM_C_TRUE_PEAK] = r.truePeak[i];
-    f[o + SNAP_MM_C_MEAN_SQUARE] = r.meanSquare[i];
-    f[o + SNAP_MM_C_CLIP] = r.clip[i];
-  }
-  f.set(r.ring, b + SNAP_IM_RING);
-  f.set(r.ringPre, b + SNAP_IM_RING_PRE);
-  f[b + SNAP_IM_UNIS_CENTS] = r.unisCents;
-  f[b + SNAP_IM_UNIS_WIDTH] = r.unisWidth;
-  f.set(r.compLvl, b + SNAP_IM_COMP_LVL);
-  f.set(r.deq1Lvl, b + SNAP_IM_DEQ1_LVL);
-  f.set(r.deq2Lvl, b + SNAP_IM_DEQ2_LVL);
-  f.set(r.tsh1, b + SNAP_IM_TSH1);
-  f[b + SNAP_IM_EXPD_GR] = r.expd;
-  f[b + SNAP_IM_EXPD_LVL] = r.expdLvl;
-  for (let k = 0; k < r.stageRings.length; k++) {
-    f[b + SNAP_IM_STAGE_WRITE + k] = r.stageWrite[k];
-    f.set(r.stageRings[k], b + SNAP_IM_STAGE_RINGS + k * SNAP_IM_RING_FRAMES);
-  }
 }
 
 /**

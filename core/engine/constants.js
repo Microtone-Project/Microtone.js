@@ -22,7 +22,7 @@
 // per-render parameter.
 export let SAMPLING_RATE = 48000;
 // Batch length of the mixer's per-sample loop. Tick/row timing is per-SAMPLE
-// (mixer.js `samplesIntoTick`), so this is pure batching granularity and does
+// (mixer.c `samplesIntoTick`), so this is pure batching granularity and does
 // NOT affect output — verified bit-exact vs the 512 baseline on the whole
 // deterministic corpus. DELIBERATE web divergence from Kotlin's 512: the
 // AudioWorklet must finish each render inside one ~2.67 ms quantum, and a 512-
@@ -110,7 +110,7 @@ const SF_FILTER_GLIDE_SEC = 64 / 44100;
 // portamento arriving is meant to be at its new pitch NOW, and a tick-long bend
 // across it is heard as a bend. So the glide's budget is (interval × time), not
 // time: a move this wide is given the whole tick, and anything wider gets
-// proportionally less of one (sampler.js pitchGlideSamples), never below the
+// proportionally less of one (sampler.c pitchGlideSamples), never below the
 // attack ramp's ~⅔ ms. The figure is 25 cents — an eighth of a 12-TET semitone,
 // wider than any vibrato or slide moves between ticks, narrower than the
 // smallest interval a listener would call a note change.

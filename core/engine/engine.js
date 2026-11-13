@@ -10,10 +10,9 @@
 // metainstrument table hangs off a pointer, a lane's cell format is a field
 // of the one flattened playhead — the old name is kept by a getter here.
 //
-// The audio thread runs wasm-engine.js alone (core/engine/create.js); this
-// file, and the layouts it loads, are for everything that looks inside. The
-// JavaScript engine this class replaced is engine-js.js, kept while the C
-// engine is still tested against it.
+// The audio thread runs wasm-engine.js alone (core/worklet/taud-processor.js,
+// core/audio/render.worker.js); this file, and the layouts it loads, are for
+// everything that looks inside.
 
 import { WasmTaudEngine, WasmPlayhead, WasmTrackerState } from "./wasm-engine.js";
 import {

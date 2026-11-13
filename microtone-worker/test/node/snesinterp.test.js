@@ -16,7 +16,9 @@ import assert from "node:assert/strict";
 
 import { INTERP_SNES } from "../../core/engine/constants.js";
 import { engineParts } from "../fixtures/engine-parts.js";
-import { SNES_GAUSS } from "../../core/engine/tables.js";
+
+/** The engine's own copy of the S-DSP's Gaussian table (tables.c). */
+const SNES_GAUSS = engineParts().table("SNES_GAUSS");
 
 const LEN = 512;
 

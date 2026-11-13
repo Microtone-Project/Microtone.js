@@ -91,8 +91,8 @@ test("S$Dx note delay fires on a FRESH channel (stale-inst re-bind)", () => {
 // to tick $x" existed). One tick-fire event happens per elapsed samplesPerTick
 // (= SAMPLING_RATE·2.5/bpm = 640 samples here); an event scheduled for tick k of
 // a row lands k·640 samples into it, at the boundary that starts tick k (item
-// 232; it used to land at (k+1)·640, a tick late — see mixer.js
-// generateTrackerAudio and tick.js applyTickEvents).
+// 232; it used to land at (k+1)·640, a tick late — see mixer.c
+// generateTrackerAudio and tick.c applyTickEvents).
 test("S$Dxny schedules the $n action at tick $x+$y (note cut 2 ticks after a delayed trigger)", () => {
   const eng = makeTestEngine();
   const pat = new Uint8Array(512);
@@ -449,7 +449,7 @@ test("S$Dxny: a zero $y schedules no action at all", () => {
 // whatever note is already sounding. TAUD_NOTE_EFFECTS.md's compat note
 // ("Kxx maps to S $D00xx") only works if the $n action can arm on a
 // note-less row; previously scheduleDxnyAction was only ever called from the
-// note-bearing branches (row.js note===0x0000 skipped it entirely).
+// note-bearing branches (row.c note===0x0000 skipped it entirely).
 test("S$Dxny's $n action arms on a note-less row (Kxx-style deferred key-off)", () => {
   const eng = makeTestEngine();
   const pat = new Uint8Array(512);
@@ -1067,7 +1067,7 @@ test("item 72: a buildMetaRecord metainstrument sounds both layers", () => {
   eng.jamNote(0, 0, 0x5000, 3);
   const ts = eng.playheads[0].trackerState;
   // The foreground voice resolves to layer 0's child instrument; layer 1 spawns
-  // a background voice (trigger.js triggerMetaOrNote).
+  // a background voice (trigger.c triggerMetaOrNote).
   assert.equal(ts.voices[0].active, true);
   assert.equal(ts.voices[0].instrumentId, 1);
   assert.equal(ts.voices[0].displayInst, 3, "the header shows the meta's slot");

@@ -190,7 +190,7 @@ export function fxOpChar(effect) {
  * all three, because there the `:` is not an extension at all — it is the
  * interrupt's argument, and the format says the FIRST one wins whichever slot
  * it sits in ([Note Effects](../../assets/TAUD_NOTE_EFFECTS.md), engine side
- * `core/engine/row.js` interruptArgOf). So on such a row the winning `:` is
+ * `core/engine/c/src/row.c` interrupt_arg_of). So on such a row the winning `:` is
  * doing its job and never flags, whatever shares the row with it; only a
  * SECOND `:` behind it does, since that one is read by nobody.
  *

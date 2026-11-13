@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 import * as M from "../../core/engine/imix.js";
+import { engineParts } from "../fixtures/engine-parts.js";
 import { parseImixSection, buildImixBlock, buildImixSection } from "../../core/format/imix-section.js";
 import { TaudEngine } from "../../core/engine/engine.js";
 import { TRACKER_CHUNK } from "../../core/engine/constants.js";
@@ -17,6 +18,10 @@ import { interpret } from "../../src/motif/build.js";
 import { MotifError } from "../../src/motif/lexer.js";
 
 const FS = 48000;
+/** The engine's parts: its instrument chains are what is measured here. */
+const P = engineParts();
+/** The transient shaper's peak window, seconds (engine spec §12.4 `tsh1`). */
+const TSH_WINDOW_SEC = 0.025;
 const DEMO = new URL("../../assets/demo_projects/Huygens_clock.taud", import.meta.url).pathname;
 
 const band = (o = {}) => ({ ...M.defaultTshBand(), ...o });
@@ -27,7 +32,7 @@ const shaper = (bands, crossovers = M.defaultCrossovers(bands.length), dry = 0) 
  *  the two channels. */
 function run(equipment, sig, frames, chunk = 128) {
   const block = { ...M.defaultImixBlock(1), equipment };
-  const ch = new M.InstrumentChain(block, FS, 2, true);
+  const ch = P.imixChain(block, FS, 2, true);
   const L = new Float64Array(frames), R = new Float64Array(frames);
   const buf = new Float64Array(2 * 512);
   for (let s = 0; s < frames; s += chunk) {
@@ -152,8 +157,11 @@ test("adding or taking away a band leaves every other crossover where it was, fo
  * the window's peak by brute force over the last W levels.
  */
 function reference(b, L, R) {
-  const W = Math.max(1, Math.round(M.IMX_TSH_WINDOW_SEC * FS));
-  const onePole = (ms) => 1 - Math.exp(-1 / ((ms / 1000) * FS));
+  // The engine's own pow and exp, so "to the bit" does not hang on the
+  // platform's libm.
+  const W = Math.max(1, Math.round(TSH_WINDOW_SEC * FS));
+  const { pow, exp } = P;
+  const onePole = (ms) => 1 - exp(-1 / ((ms / 1000) * FS));
   const a = onePole(b.attackMs), r = onePole(b.releaseMs), sm = onePole(1);
   const lvl = new Float64Array(L.length);
   const oL = new Float64Array(L.length), oR = new Float64Array(L.length);
@@ -167,7 +175,7 @@ function reference(b, L, R) {
     const transient = P > 0 ? 1 - S / P : 0;
     const sustain = Lv > 0 ? 1 - P / Lv : 0;
     e = e + (b.attackDb * transient + b.sustainDb * sustain - e) * sm;
-    const g = 10 ** ((e + b.outDb) / 20);
+    const g = pow(10, (e + b.outDb) / 20);
     oL[n] = L[n] * g; oR[n] = R[n] * g;
   }
   return { L: oL, R: oR };
@@ -264,7 +272,7 @@ test("a bypassed or all-off shaper is not processed; an inserted one at 0 dB is 
 
 test("the meter reads each band's signed gain, and the display draws the shaper at it", () => {
   const { chain } = run({ tsh1: shaper([band({ attackDb: 12 }), band({ sustainDb: -12 })], [1000]) }, pluck(0.5, 220, 64), 512);
-  const r = chain.readGr(M.makeImixGrReadout());
+  const r = chain.readGr();
   assert.ok(r.tsh1[0] > 6, `band 1 lifts the onset (${r.tsh1[0]})`);
   assert.equal(r.tsh1[2], 0, "a band the shaper does not have reads nothing");
   const e = shaper([band({ outDb: 2 }), band({ outDb: 2 }), band({ outDb: 2 })], M.defaultCrossovers(3));

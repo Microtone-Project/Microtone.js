@@ -44,7 +44,7 @@ static const double OPL_RATE = OPL_RATE_HZ;
 #define OPL_FLAG_NTS 0x20
 #define OPL_FLAG_LOW_FNUM 0x40
 
-static const uint16_t LOG_SIN[256] = {
+const uint16_t OPL_LOG_SIN[256] = {
     2137, 1731, 1543, 1419, 1326, 1252, 1190, 1137, 1091, 1050, 1013, 979, 949, 920, 894, 869,
     846, 825, 804, 785, 767, 749, 732, 717, 701, 687, 672, 659, 646, 633, 621, 609,
     598, 587, 576, 566, 556, 546, 536, 527, 518, 509, 501, 492, 484, 476, 468, 461,
@@ -63,7 +63,7 @@ static const uint16_t LOG_SIN[256] = {
     2, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0,
 };
 
-static const uint16_t EXP_TABLE[256] = {
+const uint16_t OPL_EXP[256] = {
     0, 3, 6, 8, 11, 14, 17, 20, 22, 25, 28, 31, 34, 37, 40, 42,
     45, 48, 51, 54, 57, 60, 63, 66, 69, 72, 75, 78, 81, 84, 87, 90,
     93, 96, 99, 102, 105, 108, 111, 114, 117, 120, 123, 126, 130, 133, 136, 139,
@@ -88,7 +88,7 @@ int te_opl_expand(double att)
     int32_t a;
     if (att >= 0x1800) return 0;
     a = js_toint32(att);
-    return ((EXP_TABLE[255 - (a & 0xff)] + 1024) << 1) >> (a >> 8);
+    return ((OPL_EXP[255 - (a & 0xff)] + 1024) << 1) >> (a >> 8);
 }
 
 #define OPL_RHYTHM_MIX 2
@@ -144,16 +144,16 @@ static int waveform(int shape, int phase, int *sign)
     switch (shape) {
     case 0:
         *sign = negative ? -1 : 1;
-        return LOG_SIN[mirrored];
+        return OPL_LOG_SIN[mirrored];
     case 1:
         *sign = 1;
-        return negative ? SILENCE : LOG_SIN[mirrored];
+        return negative ? SILENCE : OPL_LOG_SIN[mirrored];
     case 2:
         *sign = 1;
-        return LOG_SIN[mirrored];
+        return OPL_LOG_SIN[mirrored];
     case 3:
         *sign = 1;
-        return (phase & 0x100) != 0 ? SILENCE : LOG_SIN[quarter];
+        return (phase & 0x100) != 0 ? SILENCE : OPL_LOG_SIN[quarter];
     case 4: {
         int p, q;
         *sign = 1;
@@ -161,7 +161,7 @@ static int waveform(int shape, int phase, int *sign)
         p = (phase << 1) & 0x3ff;
         q = p & 0xff;
         *sign = (p & 0x200) != 0 ? -1 : 1;
-        return LOG_SIN[(p & 0x100) != 0 ? 255 - q : q];
+        return OPL_LOG_SIN[(p & 0x100) != 0 ? 255 - q : q];
     }
     case 5: {
         int p, q;
@@ -169,7 +169,7 @@ static int waveform(int shape, int phase, int *sign)
         if (negative) return SILENCE;
         p = (phase << 1) & 0x1ff;
         q = p & 0xff;
-        return LOG_SIN[(p & 0x100) != 0 ? 255 - q : q];
+        return OPL_LOG_SIN[(p & 0x100) != 0 ? 255 - q : q];
     }
     case 6:
         *sign = negative ? -1 : 1;
@@ -229,7 +229,7 @@ void te_decode_opl_patch(const uint8_t *bytes, TaudOplPatch *into)
 }
 
 /* The block and F-number a driver would write for `hz`, as block << 10 | fnum. */
-static int opl_block_fnum(double hz, bool lowFnum)
+int te_opl_block_fnum(double hz, bool lowFnum)
 {
     double x = (hz * 1048576) / OPL_RATE;
     int ceiling = lowFnum ? 686 : 1024, b;
@@ -283,7 +283,7 @@ void te_opl_state_init(TaudOplState *st)
  * (oplKeyScaling). */
 void te_opl_key_scaling(double hz, int ksr, int ksl, int32_t out[2])
 {
-    int bf = opl_block_fnum(hz, false);
+    int bf = te_opl_block_fnum(hz, false);
     int block = bf >> 10, fnum = bf & 1023;
     int ksv = (block << 1) | ((fnum >> 9) & 1);
     int kslBase = KSL_ROM[(fnum >> 6) & 15] - 8 * (7 - block);
@@ -335,7 +335,7 @@ static void retune(const TaudEngine *e, TaudOplState *st, double rate)
 {
     const TaudOplPatch *patch = st->patch;
     double hz = rate * e->rate * HZ_PER_SPS;
-    int bf = opl_block_fnum(hz, patch->lowFnum);
+    int bf = te_opl_block_fnum(hz, patch->lowFnum);
     int block = bf >> 10, fnum = bf & 1023;
     int ksv = (block << 1) | ((fnum >> (patch->nts ? 8 : 9)) & 1);
     int kslBase = KSL_ROM[(fnum >> 6) & 15] - 8 * (7 - block);
@@ -350,7 +350,7 @@ static void retune(const TaudEngine *e, TaudOplState *st, double rate)
     }
     kind = patch->kind;
     if (kind == OPL_KIND_SD || kind == OPL_KIND_HH || kind == OPL_KIND_TC) {
-        int pbf = opl_block_fnum(hz * js_pow(2, (patch->partnerDetune + patch->dPartnerDetune) / 4096.0), patch->lowFnum);
+        int pbf = te_opl_block_fnum(hz * js_pow(2, (patch->partnerDetune + patch->dPartnerDetune) / 4096.0), patch->lowFnum);
         int pInc = (((pbf & 1023) * OPL_MULTIPLE_X2[patch->partnerMult]) << (pbf >> 10)) >> 1;
         int own = st->inc[0];
         if (kind == OPL_KIND_SD) {
@@ -457,7 +457,7 @@ static int feedback_of(const TaudOplState *st, int fb)
 /* The chip's next sample for this channel at chip clock k (oplChipStep). The
  * four four-operator connections are the YMF262 data sheet's (catalogue
  * 4MF262A6, p. 13): CNT A 0, CNT B 1 is OP1 -> OP2 plus OP3 -> OP4. */
-static int opl_chip_step(TaudOplState *st, int64_t k)
+int te_opl_chip_step(TaudOplState *st, int64_t k)
 {
     const TaudOplPatch *patch = st->patch;
     const TaudOplOperator *ops = patch->ops;
@@ -596,7 +596,7 @@ double te_opl_render(const TaudEngine *e, TaudOplState *st, int64_t frame, doubl
     while (st->k < k) {
         st->k++;
         st->last = st->cur;
-        st->cur = opl_chip_step(st, st->k);
+        st->cur = te_opl_chip_step(st, st->k);
     }
     return (st->last + (st->cur - st->last) * frac) * OUTPUT_SCALE;
 }

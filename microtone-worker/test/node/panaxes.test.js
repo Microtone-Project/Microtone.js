@@ -15,9 +15,8 @@ import assert from "node:assert/strict";
 
 import { TaudEngine } from "../../core/engine/engine.js";
 import { TRACKER_CHUNK, SAMPLING_RATE, setSamplingRate } from "../../core/engine/constants.js";
-import {
-  EffectOp, lfoSampleWide, advanceLfoPhase, LFO_PHASE_STEPS, MOD_SIN_TABLE,
-} from "../../core/engine/tables.js";
+import { EffectOp } from "../../core/engine/tables.js";
+import { engineParts } from "../fixtures/engine-parts.js";
 import {
   makeInstPatch, writePatchesBlob, buildMetaRecord, makeMetaLayer,
 } from "../../core/engine/inst.js";
@@ -27,6 +26,13 @@ import {
 } from "../../core/worklet/protocol.js";
 import { MAX_VOICES } from "../../core/engine/constants.js";
 import { setRandomSource, makeSeededRandom } from "../../core/engine/rng.js";
+
+// The engine's LFO (core/engine/c/src/tables.c): its phase walk and sine table.
+const PARTS = engineParts();
+const lfoSampleWide = (pos, wave) => PARTS.lfoSampleWide(pos, wave);
+const advanceLfoPhase = (pos, speed) => PARTS.advanceLfoPhase(pos, speed);
+const MOD_SIN_TABLE = PARTS.table("MOD_SIN_TABLE");
+const LFO_PHASE_STEPS = 1088; // 64 entries × 17 steps
 
 setSamplingRate(32000);
 

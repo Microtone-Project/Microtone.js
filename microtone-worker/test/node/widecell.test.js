@@ -933,8 +933,8 @@ test("an effect block pastes into whichever effect column the caret is on", asyn
 // ═══════════════════════════════════════════════════════════════════════════
 // Argument extension (item 162): `:` paired with J / O / 2 / 3, Format 3 only.
 // Pure-function coverage of $f / $xuu / $yk lives in samplemod.test.js; these
-// drive real rows through the tracker so the row-level pairing (row.js) and
-// the sub-tick clock (mixer.js) are the ones actually wired into playback.
+// drive real rows through the tracker so the row-level pairing (row.c) and
+// the sub-tick clock (mixer.c) are the ones actually wired into playback.
 // ═══════════════════════════════════════════════════════════════════════════
 
 test("J extended: two full 4096-TET offsets, order-independent of which slot carries `:`", () => {

@@ -5,8 +5,8 @@
 // along the entire porta region" and never seems to stop).
 //
 // Root cause: triggerMetaOrNote seeds a metainstrument's foreground voice.noteVal
-// from `note + layer0.detune` (trigger.js pitchOf), so the voice's own noteVal
-// lives in a coordinate space shifted by that detune — but row.js's G handler
+// from `note + layer0.detune` (trigger.c pitchOf), so the voice's own noteVal
+// lives in a coordinate space shifted by that detune — but row.c's G handler
 // was writing the pattern's RAW note straight into tonePortaTarget, unshifted.
 // The glide then chased a target a whole detune further away than intended,
 // so it rarely (if ever) finished before the NEXT G row retargeted it — which

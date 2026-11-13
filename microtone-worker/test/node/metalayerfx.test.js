@@ -1,7 +1,7 @@
 // Item 154 — a note effect written against a METAINSTRUMENT must reach every
 // layer of it, not just layer 0. The foreground voice IS layer 0; layers 1..n
 // are background voices tagged isLayerChild, so anything the pattern says about
-// the note as a whole has to be fanned out to them (effects.js
+// the note as a whole has to be fanned out to them (effects.c
 // forEachLayerTarget) or inherited when they are spawned (triggerMetaOrNote).
 
 import { test } from "node:test";
