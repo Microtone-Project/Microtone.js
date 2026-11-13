@@ -26,7 +26,8 @@
 // sounding note hears it at once and one undo takes it back. Drags go through
 // applyQuiet and repaint in place, as the General tab's sliders do.
 
-import { setInstBytesOp, compositeOp, importBankOp, setLyricsOp } from "../../doc/ops.js";
+import { setInstBytesOp, compositeOp, importBankOp, setLyricsOp, withPitchExtOp } from "../../doc/ops.js";
+import { splitNote, baseExtWith } from "../../doc/pitchedit.js";
 import { deriveLyrics } from "../../doc/lyrics.js";
 import { blankLyricEditor } from "../../../core/format/lyric-section.js";
 import { planSetFormantSource } from "../../doc/bankmerge.js";
@@ -388,6 +389,14 @@ export function renderFormantTab(view, inst) {
   const f = formantFields(inst);
   const apply = (pairs, gid = null) => view.store.undo.apply(setInstBytesOp(slot, pairs, gid));
   const applyQuiet = (pairs, gid) => view.applyQuiet(setInstBytesOp(slot, pairs, gid));
+  // The reference word is the kind's own pitch field (file format §9.18): an
+  // edit of it says what becomes of its extension — the nasal bit shares the
+  // word, so even toggling that carries the extension over ({}).
+  const refExt = () => (inst.formant?.dRefNote || 0);
+  const applyRef = (pairs, groups = {}, gid = null) => {
+    const op = withPitchExtOp(setInstBytesOp(slot, pairs, gid), slot, groups, gid);
+    if (gid === null) view.store.undo.apply(op); else view.applyQuiet(op); // a slider's drag stays quiet
+  };
 
   // ── Material ──
   // The RANGE is the user's; the SOURCE is the machine's. Whenever the range
@@ -604,13 +613,16 @@ export function renderFormantTab(view, inst) {
     [[1, t("fmt.nucleusVowel")], [0, t("fmt.nucleusNone")]],
     (v) => {
       if ((v === 1) === f.vowel) return;
-      if (v === 0) { refMemo.set(inst, f.refNote); apply(formantRefBytes(0, f.nasal)); }
-      else apply(formantRefBytes(refMemo.get(inst) ?? FORMANT_DEFAULT_REF, f.nasal));
+      if (v === 0) { refMemo.set(inst, f.refNote + refExt()); applyRef(formantRefBytes(0, f.nasal), { base: baseExtWith(inst, 2, 0) }); }
+      else {
+        const { field, ext } = splitNote(refMemo.get(inst) ?? FORMANT_DEFAULT_REF);
+        applyRef(formantRefBytes(field, f.nasal), { base: baseExtWith(inst, 2, ext) });
+      }
     });
   vowelRow.title = t("fmt.nucleusTitle");
   const nasalRow = view.selectRow(t("fmt.nasal"), f.nasal ? 1 : 0,
     [[0, t("fmt.nasalOff")], [1, t("fmt.nasalOn")]],
-    (v) => { if ((v === 1) !== f.nasal) apply(formantRefBytes(f.refNote, v === 1)); });
+    (v) => { if ((v === 1) !== f.nasal) applyRef(formantRefBytes(f.refNote, v === 1)); });
   nasalRow.title = t("fmt.nasalTitle");
   if (!f.vowel) disableRow(nasalRow);
   if (view._formantLive) view._formantLive.nasalRow = nasalRow;
@@ -726,9 +738,12 @@ export function renderFormantTab(view, inst) {
     view.sliderRow(t("fmt.track"), f.track, 0, 255,
       (v, gid) => applyQuiet(formantFieldBytes("track", v), gid),
       { ann: (v) => t("fmt.trackAnn", { k: (v / 256).toFixed(2) }) }),
-    view.sliderRow(t("fmt.ref"), f.vowel && f.refNote !== 0 ? f.refNote : FORMANT_DEFAULT_REF, 0x2000, 0x7000,
-      (v, gid) => applyQuiet(formantRefBytes(v, f.nasal), gid),
-      { ann: (v) => `${noteToStr(v)} · ${noteHz(v).toFixed(1)} Hz` }),
+    view.sliderRow(t("fmt.ref"), f.vowel && f.refNote !== 0 ? f.refNote + refExt() : FORMANT_DEFAULT_REF, 0x2000, 0x7000,
+      (v, gid) => {
+        const { field, ext } = splitNote(v);
+        applyRef(formantRefBytes(field, f.nasal), { base: baseExtWith(view.store.doc.instruments[slot], 2, ext) }, gid);
+      },
+      { ann: (v) => `${noteToStr(v)} · ${noteHz(v).toFixed(1)} Hz`, fine: true }),
     view.sliderRow(t("fmt.timing"), f.timing, 0, 255,
       (v, gid) => applyQuiet(formantFieldBytes("timing", v), gid),
       { ann: (v) => `×${timingScale(v).toFixed(2)}` }),

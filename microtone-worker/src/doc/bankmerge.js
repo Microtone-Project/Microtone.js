@@ -13,6 +13,8 @@
 //     SNam rebuilds by sample identity (ptr:len) AFTER apply so the name
 //     order always matches the post-merge sampleList() census.
 
+import { pitchTableOf, splitPitchDelta } from "../../core/format/pitch-ext-section.js";
+import { fitOffset } from "./pitchedit.js";
 import { SAMPLEBIN_SIZE, ixmpPatchLen, ixmpChanByteOffset } from "../../core/format/taud-const.js";
 import {
   parsePatchesBlob, TaudInst, buildMetaRecord, makeMetaLayer, META_MAX_LAYERS,
@@ -368,7 +370,11 @@ export function planImport(destDoc, srcDoc, selectedSlots) {
         }
       }
     }
-    insts.push({ srcSlot, destSlot: slotMap.get(srcSlot), topLevel: topLevel.has(srcSlot), record: rec, ixmpBlob, ixmpCount });
+    insts.push({
+      srcSlot, destSlot: slotMap.get(srcSlot), topLevel: topLevel.has(srcSlot), record: rec, ixmpBlob, ixmpCount,
+      // …and its pitch extensions (§9.18): nothing a remap moves is guarded.
+      pitchExt: typeof srcDoc.pitchExtGroupsNow === "function" ? srcDoc.pitchExtGroupsNow(srcSlot) : undefined,
+    });
   }
 
   // ── IMix (item 217): an imported instrument brings its mixing chain. Each
@@ -1146,6 +1152,7 @@ function copyEntry(doc, src, dest, topLevel = false) {
     record: doc.instRecordBytes(src),
     ixmpBlob: blob ? blob.blob : null,
     ixmpCount: blob ? blob.count : 0,
+    pitchExt: doc.pitchExtGroupsNow(src), // a copy is pitched as its original (§9.18)
   };
 }
 
@@ -1507,6 +1514,7 @@ export function planEasyFm(destDoc, metaSlot, model, name = "") {
     }),
     ixmpBlob: null,
     ixmpCount: 0,
+    pitchExt: { table: pitchTableOf(ops) }, // the ratios to the sixteenth (§9.18)
   });
   if (metaSlot === null) names.push([slot, name]);
 
@@ -1620,14 +1628,20 @@ export function planTimbreFm(destDoc, metaSlot, spec) {
     if (c < 0) throw new Error("No free sub-instrument slots left in $100–$3FF.");
     return c;
   };
-  const detuneOf = (ratio) => Math.max(-32768, Math.min(32767, Math.round(4096 * Math.log2(ratio))));
+  // A partial's ratio at 65536-TET (§9.18): on a tuning's steps to within
+  // 0.01 cent, where sixteen bits could only come within 0.15.
+  const ratioFields = (ratio) => {
+    const { field, delta } = splitPitchDelta(fitOffset(4096 * Math.log2(ratio)), { signed: true });
+    return { detune: field, dDetune: delta };
+  };
 
   let model;
   try {
     const sinePtr = place(easySinePcm(EASY_SINE_FRAMES));
     const opEntry = (o, label) => {
       const slot = write(nextSlot(), recordWithVolEnvelope(easyCycleRecord(sinePtr, EASY_SINE_FRAMES), o.env), label);
-      return makeMetaLayer(slot, easyOctetForGain(o.gain), detuneOf(o.ratio), 0x0000, 0xffff, 0, 63);
+      const r = ratioFields(o.ratio);
+      return Object.assign(makeMetaLayer(slot, easyOctetForGain(o.gain), r.detune, 0x0000, 0xffff, 0, 63), { dDetune: r.dDetune });
     };
     const ops = spec.ops.map((o) => opEntry(o, o.name));
     if (spec.bite) ops.push(opEntry(spec.bite, "FM bite"));
@@ -1663,6 +1677,7 @@ export function planTimbreFm(destDoc, metaSlot, spec) {
     srcSlot: -1000, destSlot: metaSlot, topLevel: true,
     record: buildMetaRecord(ops, { type: META_TYPE_FM, program, easy: true, percussion: flags.percussion, imixId: flags.imixId }),
     ixmpBlob: null, ixmpCount: 0,
+    pitchExt: { table: pitchTableOf(ops) },
   });
   return {
     insts,
@@ -1704,7 +1719,7 @@ export function planEasyConvert(destDoc, metaSlot) {
   const shifted = program.map((w) => (w >= 0xff00 ? w : (w & ~0x3ff) | ((w & 0x3ff) + 1)));
   const wrappedProg = [...shifted, FM_WORD_OSC | 0, FmOp.MUL];
   const p0 = ops[0];
-  const wrappedOps = [{ ...p0, mixOctet: OCTET_UNITY, detune: 0 }, ...ops];
+  const wrappedOps = [{ ...p0, mixOctet: OCTET_UNITY, detune: 0, dDetune: 0 }, ...ops];
   const decoded = easyDecode(wrappedOps, wrappedProg);
   if (!decoded.ok) return { error: "This rack can't be shown in Easy Mode.", reason: decoded.reason };
   if (wrappedOps.length > FM_MAX_OPERATORS || !fmValidate(wrappedProg, wrappedOps.length).ok) {
@@ -1768,15 +1783,22 @@ export function planEasyConvert(destDoc, metaSlot) {
   wrappedOps[0] = { ...wrappedOps[0], instIdx: pSlot };
   wrappedOps[1] = { ...wrappedOps[1], instIdx: oSlot };
   const flags = metaFlags(inst);
+  // The pitch extensions (§9.18) go where their fields went: the old
+  // principal's to the operator it becomes, its pitch-pan centre's also to
+  // the new principal (which took the field), the rack's table to the table.
+  const srcExt = destDoc.pitchExtGroupsNow(src);
+  const panExt = srcExt.base ? srcExt.base[1] : 0;
   const insts = [
-    { srcSlot: -1, destSlot: pSlot, topLevel: false, record: principal, ixmpBlob: null, ixmpCount: 0 },
+    { srcSlot: -1, destSlot: pSlot, topLevel: false, record: principal, ixmpBlob: null, ixmpCount: 0,
+      pitchExt: { base: panExt !== 0 ? [0, panExt, 0] : null } },
     { srcSlot: -2, destSlot: oSlot, topLevel: false, record: op,
-      ixmpBlob: blob ? blob.blob : null, ixmpCount: blob ? blob.count : 0 },
+      ixmpBlob: blob ? blob.blob : null, ixmpCount: blob ? blob.count : 0, pitchExt: srcExt },
     { srcSlot: -1000, destSlot: metaSlot, topLevel: true, ixmpBlob: null, ixmpCount: 0,
       record: buildMetaRecord(wrappedOps, {
         type: META_TYPE_FM, program: wrappedProg, easy: true,
         percussion: flags.percussion, imixId: flags.imixId,
-      }) },
+      }),
+      pitchExt: { table: pitchTableOf(wrappedOps) } },
   ];
   const opName = destDoc.instrumentName(src);
   return {
@@ -1872,6 +1894,7 @@ export function planAddMetaLayers(destDoc, metaSlot, picks) {
     record: metaRecordOf(meta, [...existing, ...added]),
     ixmpBlob: null,
     ixmpCount: 0,
+    pitchExt: { table: pitchTableOf([...existing, ...added]) },
   });
 
   const names = insts.filter((it) => it.srcSlot >= 0)
@@ -1916,6 +1939,7 @@ export function planUnlinkMetaLayer(destDoc, metaSlot, layerIdx) {
       record: metaRecordOf(meta, repointLayer(layers, layerIdx, child)),
       ixmpBlob: null,
       ixmpCount: 0,
+      pitchExt: { table: pitchTableOf(layers) },
     },
   ];
 
@@ -2169,6 +2193,17 @@ export function applyPlan(doc, plan) {
   }
   if (plan.insts.some((it) => it.ixmpBlob !== null) || sectionPayload(doc, "Ixmp") !== null) {
     doc.setSection("Ixmp", doc.ixmp.length > 0 ? buildIxmpSection(doc.ixmp) : null);
+  }
+  // Pitch extensions (§9.18): an instrument a plan copies, or a table it
+  // rewrites, brings the groups it carried (`pitchExt`: {base, table,
+  // patches}, a group absent = none). The guard is computed here, against the
+  // record as it landed. A plan entry without the field leaves the slot's
+  // entry to its guard, as any edit does.
+  const pit = plan.insts.filter((it) => it.pitchExt !== undefined);
+  if (pit.length > 0) {
+    const none = { base: null, table: null, patches: null };
+    doc.setPitchExtPayload(doc.pitchExtPayloadWith(pit.map((it) => [it.destSlot,
+      it.pitchExt === null ? null : { ...none, ...it.pitchExt }, none])));
   }
   if (plan.inamPayload !== null) doc.setSection("INam", plan.inamPayload);
   // Mixing chains an import brought (item 217); `undefined` leaves them alone.

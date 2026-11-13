@@ -47,7 +47,7 @@ home. If not, here is the vocabulary this manual uses:
 | **Sample** | Raw 8-bit audio data in the shared sample pool. Several instruments may use the same sample. |
 | **Note word** | A 16-bit pitch value; see the pitch system below. |
 
-### The pitch system: 4096-TET, and 65536-TET in the note column
+### The pitch system: 4096-TET, and 65536-TET in notes and instruments
 
 Pitch is counted on a grid of **4096 steps per octave**: `0x5000` is middle C
 (C4) and each `0x1000` is one octave, and every pitch slide, arpeggio and
@@ -57,6 +57,13 @@ system's degrees sit exactly where its definition puts them rather than on the
 nearest 4096th. Written in hex that pitch reads `0x50000` for C4 — the octave
 digit, then the place within it. Note words `0x0000`–`0x001F` are reserved for
 sentinels (key-off, note cut, fades) and [interrupts](#interrupts).
+
+An instrument's pitches are just as fine: a detune, a zone's or a layer's pitch
+range, a fixed pitch, an FM operator's ratio, the pitch-pan centre. Their boxes
+show the sixteenths of a step after a point (`$5155.5`, or a hundredth of a cent
+in a cents box), and a fixed pitch or an operator's ratio can also go beyond the
+sixteen octaves a note word names — a fixed-frequency operator below C0 reads
+`−$1000`. The song's tuning base note stays on the 4096-step grid.
 
 You almost never type raw note words. Instead each song carries a **pitch
 table** (a notation preset such as 12-TET, 19-TET, 31-TET, Bohlen-Pierce…)
@@ -193,8 +200,8 @@ Every number field and dropdown in the panels is a value between two buttons:
 - **`–` / `+`** step the number, **`◄` / `►`** move through a list; hold either and it repeats, faster the longer you hold. An arrow greys out at the end of its list.
 - **The middle is a real field.** Click it and type, or use **↑ / ↓** on a number; click a dropdown and its full list opens. The value sits centred between the two buttons, and shuffles left only when it is too long for the box — so what gets cut off is the end of it, never the start.
 - **Hex is understood everywhere a number is.** Type `$FF` or `0xFF` into any spinner and it becomes 255 — handy when the annotation beside the field, the effect argument you are matching, or the pattern you are reading it off is written in hex. The box settles on the decimal it landed on, and `–` / `+` step from a hex value just as readily. A sign goes in front of either spelling (`-$10`). Anything that is not a number at all leaves the field as it was rather than quietly becoming zero.
-- **Pitch fields also take cents and ratios.** Wherever a field holds an interval or a detune — an instrument's detune, a layer's or an FM operator's, the chord maker's 4096-TET notes, the notation maker's cents — you can type it the way you think of it: `700c` for 700 cents, `3/2` (or `3:2`) for a just fifth, `-5/4` for a major third down, or `$100` / `0x100` for 4096-TET units in hex. A plain number still means whatever the box shows, units or cents. Cents and ratios land on the nearest of the 4096 steps per octave, so `3/2` becomes 2396 units (701.95 cents).
-- **Some fields read in one unit and step in another**, because the file stores something else. An envelope segment shows **seconds** and steps one storable length at a time; a metainstrument layer's mix shows **decibels** and steps one mix level, with the raw byte beside it; a layer's detune shows **cents** and steps a whole degree of the song's own notation; a layer's or a zone's volume range shows **note volumes** (0–255) but the file keeps it in steps of four, so the low end reads the first volume of its step, the high end the last, and ∓ moves a whole step. A **pitch** — a layer's or a zone's pitch range, the pitch-pan centre — reads as its hex word (`$5000`), takes a note name too (`C-4`), and steps a degree of the song's notation; an instrument's **detune** reads in **cents** and steps the same way; the **sample pointer** reads in hex; and in SoundFont filter mode the **cutoff** reads in **Hz** (and takes `1.2k`) and steps a semitone, while the **resonance** and an Advanced Edit zone's **attenuation** read in **dB**. Typing works in whatever the box shows, and the value settles on the nearest one the file can hold.
+- **Pitch fields also take cents and ratios.** Wherever a field holds an interval or a detune — an instrument's detune, a layer's or an FM operator's, the chord maker's 4096-TET notes, the notation maker's cents — you can type it the way you think of it: `700c` for 700 cents, `3/2` (or `3:2`) for a just fifth, `-5/4` for a major third down, or `$100` / `0x100` for 4096-TET units in hex. A plain number still means whatever the box shows, units or cents. In an instrument's pitch fields, cents and ratios land on the nearest sixteenth of a step (65536 to the octave), so `5/4` becomes 1318 and 10/16 units, 386.32 cents, within 0.002 cent of a just major third.
+- **Some fields read in one unit and step in another**, because the file stores something else. An envelope segment shows **seconds** and steps one storable length at a time; a metainstrument layer's mix shows **decibels** and steps one mix level, with the raw byte beside it; a layer's detune shows **cents** and steps a whole degree of the song's own notation; a layer's or a zone's volume range shows **note volumes** (0–255) but the file keeps it in steps of four, so the low end reads the first volume of its step, the high end the last, and ∓ moves a whole step. A **pitch** — a layer's or a zone's pitch range, the pitch-pan centre — reads as its hex word (`$5000`), with any sixteenths of a step after a point (`$5155.5`), takes a note name too (`C-4`), and steps a degree of the song's notation; the top of a range reads `$4FFF` when it runs through the whole of that step, and `$4FFF.7` when it stops part of the way; an instrument's **detune** reads in **cents** and steps the same way; the **sample pointer** reads in hex; and in SoundFont filter mode the **cutoff** reads in **Hz** (and takes `1.2k`) and steps a semitone, while the **resonance** and an Advanced Edit zone's **attenuation** read in **dB**. Typing works in whatever the box shows, and the value settles on the nearest one the file can hold.
 
 ### Two views at once
 
@@ -1820,17 +1827,19 @@ you change on one is there on the other.
 
 - **Preset** rewires the rack to one of the forty: two of two operators, six of four, and the thirty-two six-operator algorithms. It can be changed at any time; the operators keep their levels, frequencies and envelopes, extra ones are dropped and missing ones are added.
 - **Routing** draws the wiring and lets you change it by hand. Drag an operator onto another to make it modulate that one, onto itself for feedback, or onto **OUT** to hear it; drag the same way again to undo it. A connection that would close a loop becomes a feedback loop. The grid under the picture says the same thing — a row per operator, a column per place its output can go — and pressing a cell connects or disconnects it.
-- Each **operator** has a **level**, a **multiplier**, a **detune** and a **phase**. The multiplier is the operator's frequency as a multiple of the key's: ×2 is an octave up, ×3 an octave and a fifth, ×1/2 an octave down. Every whole number from ×1 to ×31 is there, as on the DX7, and octaves reach from ×1/256 to ×256. They are exact: ×3 is three times the key's frequency to the last digit, so a ×3 modulator never drifts against its carrier, which a ratio written in cents cannot quite do. The detune is a finer shift on top of it, up to half an octave either way. **Fixed**, in front of the multiplier, is the DX7's fixed-frequency mode: the operator plays one note whatever the key, typed in place of the multiplier, and the FM tab's **Fixed** is the same switch. **Envelope** shows the operator's own volume envelope below the table, in the same editor as an instrument's.
+- Each **operator** has a **level**, a **multiplier**, a **detune** and a **phase**. The multiplier is the operator's frequency as a multiple of the key's: ×2 is an octave up, ×3 an octave and a fifth, ×1/2 an octave down. Every whole number from ×1 to ×31 is there, as on the DX7, and octaves reach from ×1/256 to ×256. Each one is within 0.002 cent of exact, so a ×3 modulator does not audibly drift against its carrier, and every kind of operator takes every multiplier, an OPL or PSG one included. The detune is a finer shift on top of it, up to halfway to the next multiplier either way. **Fixed**, in front of the multiplier, is the DX7's fixed-frequency mode: the operator plays one note whatever the key, typed in place of the multiplier, and the FM tab's **Fixed** is the same switch. **Envelope** shows the operator's own volume envelope below the table, in the same editor as an instrument's.
 - **Phase** is where in its cycle the operator starts every note, from 0 to just under 100 %. It is heard where operators meet: a modulator that starts at the top of its wave bends the attack differently from one that starts at zero, and two carriers at the same pitch add up at 0 % and cancel at 50 %. The FM tab has the same slider for every operator that is a looped single cycle.
 - **Feedback** is counted as on those synths: 0 is none, then 1…7 doubles each step from π/16 up to 4π.
 - **Output** is the whole instrument's level, and **Shared DSP…** opens the *principal* — the one part of the rack that is not an oscillator. Its volume and pan envelopes, filter, fadeout and New Note Action are the instrument's own, applied to the finished sound of all the operators together.
 
 On the FM tab the Easy rack is an ordinary one: the principal is operator 0,
 multiplying everything else (`… × 0` in the formula), the operators follow it, and
-each feedback depth is one more operator, a constant. A multiplier with an odd
-factor in it, such as ×3 or ×6, is kept partly in the operator's own waveform:
-the waveform is tuned three times as high, and the FM tab marks the operator
-**×3** beside its ratio, which shows only the octaves. Phase is likewise the
+each feedback depth is one more operator, a constant. The multiplier and the
+detune together are the operator's ratio there: ×3 is 1901.95 cents. A rack made by
+an earlier version kept an odd factor such as ×3 in the operator's own waveform,
+tuned three times as high; the FM tab marks such an operator **×3** beside its
+ratio, and the next multiplier or detune you choose on the Easy tab moves the
+factor into the ratio and puts the waveform back. Phase is the
 waveform's own play start, so it is there on the waveform's instrument too. An edit there that the Easy
 tab could not show — a ring modulation, say — is held with a note above it, until
 you either undo it or choose **Apply and leave Easy Mode**. Turning Easy Mode off
@@ -2694,7 +2703,7 @@ panning column reads.
 What the extra room buys you:
 
 - **An 8-bit volume column.** Volumes run 00–FF instead of 00–3F, so the column has four times the resolution — and its own slides can move by a single unit per tick. Effect-column volume slides (`D`, `K`, `L`, `N`) keep their old arguments and their old speed.
-- **A finer note.** Four more bits of pitch: 65536 steps per octave (see [The pitch system](#the-pitch-system-4096-tet-and-65536-tet-in-the-note-column)).
+- **A finer note.** Four more bits of pitch: 65536 steps per octave (see [The pitch system](#the-pitch-system-4096-tet-and-65536-tet-in-notes-and-instruments)).
 - **A panning column as wide as the song needs.** In a stereo song it is two digits, `00` left to `FF` right. In a planar song it is the **angle**, three digits: `000` left, `080` front, `100` right, `180` behind. In a spatial song it carries the **height** (two digits, signed: `00` ear level, `40` = +45°, `C0` = −45°) followed by the **angle** (three digits: `000` left, `080` front, `100` right, `180` behind). The height is drawn in its own colour so the two numbers never read as one, and in a **spatial** song a placed source states its height even when it is `00` — on the sphere, ear level is a position you chose, not an absent value (a planar song has no height to state, and a slide leaves the field unused, so both show dots there). A `Z` slide on the same row turns the column into that slide's *target*, so the source travels there instead of jumping.
 - **A second effect column.** Every cell carries two effect slots instead of one, and the second runs straight after the first on every row and every tick — so two commands that used to fight over one column can both be written. Converters use it so nothing from a source file has to be discarded; you can write it yourself the same way you write the first one.
 

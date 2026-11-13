@@ -488,7 +488,9 @@ function sampledSource(inst, slot, patch, index) {
     ptr: p ? p.samplePtr : inst.samplePtr, len,
     chan2: p && patchIsStereo(p) ? p.chanPtrs[0] : -1,
     rate: p ? p.samplingRate : inst.samplingRate,
-    detune: p ? p.sampleDetune : inst.sampleDetuneSigned,
+    // The detune to the sixteenth of a unit its `IPit` extension holds (§9.18):
+    // the C-5 speed is continuous, so the fraction is kept, not dropped.
+    detune: p ? p.sampleDetune + (p.dDetune || 0) : inst.sampleDetuneSigned + (inst.dSampleDetune || 0),
     playStart: p ? p.playStart : inst.samplePlayStart,
     loopStart: p ? p.loopStart : inst.sampleLoopStart,
     loopEnd: p ? p.loopEnd : inst.sampleLoopEnd,

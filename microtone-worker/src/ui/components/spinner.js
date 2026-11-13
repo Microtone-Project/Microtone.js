@@ -189,13 +189,14 @@ const DECIMAL_TEXT = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
  * A typed pitch as a number in the field's own unit — 4096-TET units when
  * `bare` is "units", cents when it is "cents" — or NaN if it is not one. A
  * plain number is taken as it stands; every other spelling lands on a whole
- * 4096-TET unit first.
+ * 4096-TET unit first — or, `fine`, on a sixteenth of one: a pitch field a
+ * format-3 project extends (file format §9.18) holds 65536-TET.
  */
-export function parsePitchText(text, bare = "units") {
+export function parsePitchText(text, bare = "units", fine = false) {
   const t = String(text ?? "").trim().replace(/−/g, "-");
   if (t === "") return NaN;
   const toField = (units) => {
-    const u = Math.round(units) + 0; // + 0 folds −0 into 0
+    const u = (fine ? Math.round(units * 16) / 16 : Math.round(units)) + 0; // + 0 folds −0 into 0
     return bare === "cents" ? (u * 1200) / PITCH_UNITS_PER_OCTAVE : u;
   };
   if (DECIMAL_TEXT.test(t)) return Number(t);

@@ -22,6 +22,19 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 - An operator's own filter keeps the cutoff you set; an OPL or a PSG instrument used as an operator still runs on its chip's own clock.
 - An FM instrument costs about four times the processor per operator that it did, so a song made mostly of FM instruments is heavier than before; songs without them are not affected.
 
+**An instrument's pitches are as fine as its notes now: 65536 steps to the octave.** A detune, a keyboard zone's or a layer's pitch range, a fixed pitch, the pitch-pan centre and an FM operator's ratio all keep sixteenths of a 4096-TET step, so they can sit exactly on a degree of the song's tuning system instead of up to 0.15 cent beside it.
+
+- The pitch boxes show the sixteenths after a point (`$5155.5`), and the cents boxes to a hundredth of a cent; typing `5/4` lands within 0.002 cent of a just major third.
+- A fixed-pitch layer or a fixed-frequency operator can sit below C0 (`−$1000`), and an operator's ratio can reach past eight octaves.
+- The top of a pitch range reads `$4FFF` when it runs through the whole of that step, as before, and `$4FFF.7` when it stops part of the way.
+- Reordering, duplicating or removing layers, operators and zones, copying or importing an instrument, renumbering it, and undo all keep each pitch's fine part with it.
+- The song's tuning base note stays on the 4096-step grid.
+
+**FM Easy Mode writes the whole multiplier into the operator's ratio.** ×3, ×5 and every other whole number to ×31 is within 0.002 cent of exact, on every kind of operator: an OPL or PSG instrument used as an operator takes ×3 as readily as a sine, which it could not before.
+
+- An operator's waveform is no longer retuned to carry an odd multiplier. A rack made by an earlier version still plays as it did, and the next multiplier or detune you choose on its Easy tab moves the multiplier into the ratio.
+- The detune beside a multiplier now reaches halfway to the next multiplier either way, so it never changes which multiplier the row shows.
+
 ## Version 4.10.0 (2026-11-11)
 
 **Every project is now in format 3, and every note can be tuned to a 65536th of an octave.** Format 3's wider pattern cell used to be for surround songs only; now it is the format every project is written in, stereo ones included, and its note column carries four more bits of pitch: sixteen times finer than before.

@@ -205,14 +205,17 @@ test("fixedPitchFields carries the pitch the row was showing across the switch",
   assert.equal(off.detune, 341, "and it comes back");
 });
 
-test("clampLayerPitch fits the field to whichever thing it is", () => {
+test("clampLayerPitch fits the value to whichever thing it is, as far as the extension reaches", () => {
   const fixed = makeMetaLayer(1, 159, 0x6000, 0, 0xffff, 0, 63, true);
   const plain = makeMetaLayer(1, 159, 0, 0, 0xffff, 0, 63);
   assert.equal(clampLayerPitch(fixed, 0xa000), 0xa000, "a note word above $7FFF is legal");
-  assert.equal(clampLayerPitch(fixed, 0x10), 0x20, "…but not one in the sentinel space");
-  assert.equal(clampLayerPitch(fixed, 0x1ffff), 0xffff);
-  assert.equal(clampLayerPitch(plain, 0xa000), 0x7fff, "an offset is still signed 16-bit");
-  assert.equal(clampLayerPitch(plain, -0x9000), -0x8000);
+  assert.equal(clampLayerPitch(fixed, 0x10), 0x20, "…but not one in the sentinel space a bare word cannot sound");
+  assert.equal(clampLayerPitch(fixed, -0x1000), -0x1000, "below C0 the octave nibble takes over (§9.18)");
+  assert.equal(clampLayerPitch(fixed, 0x1ffff), 0x1ffff, "and above C15");
+  assert.equal(clampLayerPitch(fixed, 0x5000 + 1 / 3), 0x5000 + 5 / 16, "to the sixteenth of a unit");
+  assert.equal(clampLayerPitch(plain, 0xa000), 0xa000, "an offset past ±8 octaves is an extended one");
+  assert.equal(clampLayerPitch(plain, -0x9000), -0x9000);
+  assert.equal(clampLayerPitch(plain, 1e9), 7 * 65536 + 32767 + 15 / 16, "…as far as the byte reaches");
 });
 
 test("duplicate and chord-stack copies keep the flag", () => {

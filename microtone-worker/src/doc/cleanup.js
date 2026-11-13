@@ -17,6 +17,7 @@ import { EffectOp } from "../../core/engine/tables.js";
 import { rowVolumeFromDefault, narrowVolAxis } from "../../core/engine/trigger.js";
 import { INST_GOBACK, INST_SKIP, INST_JUMP } from "../../core/engine/state.js";
 import { sampleSpans, BANK_SECTIONS, cueInfo } from "./document.js";
+import { buildPitchExtSection } from "../../core/format/pitch-ext-section.js";
 import { buildIxmpSection } from "./bankmerge.js";
 import { regionSpans } from "./sampleregions.js";
 import { formantRecordSpans, remapFormantSource } from "./formantedit.js";
@@ -557,6 +558,7 @@ export function planBankCleanup(doc) {
     ixmp: prune.ixmp, report: prune.report,
     // A removed instrument's lyrics go with it (item 280).
     ilyr: lyricsWithSlots(doc, (s) => (used.has(s) ? s : null)),
+    ipit: doc.pitchExtWithSlots((s) => (used.has(s) ? s : null)), // …and its pitch extensions (§9.18)
     removedInstruments: unused.length, freedSampleBytes,
     removedPatches: prune.removedPatches, removedBlobs: prune.removedBlobs,
   };
@@ -650,6 +652,9 @@ export function planBankExport(doc, slots, { regions = true } = {}) {
     SNam: encodeNameTable(snamArr),
     Ixmp: ixmp.length > 0 ? buildIxmpSection(ixmp) : null,
     SRgn: keptRegions.length > 0 ? undefined : null, // undefined = verbatim
+    // The pitch extensions of the instruments it keeps (§9.18).
+    IPit: buildPitchExtSection([...doc.pitchExtMap().entries()]
+      .filter(([id]) => keep.has(id)).map(([id, e]) => ({ ...e, instId: id }))),
   };
   const projSections = [];
   for (const s of doc.projSections) {
@@ -811,7 +816,9 @@ export function planRenumberInstruments(doc, moves, { remapPatterns = false } = 
 
   // Their lyrics follow them (item 280).
   const ilyr = lyricsWithSlots(doc, newSlot);
-  return { image, inam: encodeNameTable(inamArr), ixmp, cells, moves: [...map], ilyr };
+  // …and so do their pitch extensions (§9.18).
+  const ipit = doc.pitchExtWithSlots(newSlot);
+  return { image, inam: encodeNameTable(inamArr), ixmp, cells, moves: [...map], ilyr, ipit };
 }
 
 // ── Ixmp patch cleanup (item 74) ──
@@ -1580,6 +1587,7 @@ export function planDeleteInstruments(doc, slots, { freeSamples = false, reassig
   return {
     image, inam: encodeNameTable(inamArr), snam: encodeNameTable(snamArr), ixmp, cells, slots: primary,
     ilyr: lyricsWithSlots(doc, (k) => (deleteSet.has(k) ? null : k)), // its lyrics go with it (item 280)
+    ipit: doc.pitchExtWithSlots((k) => (removedSet.has(k) ? null : k)), // …and its pitch extensions (§9.18)
     freedSamples, freedSampleBytes, rewiredMetas, emptiedMetas,
     autoChildren, deletedLowChildren: deleteLowChildren ? lowChildren.map((c) => c.slot) : [],
     danglingRefs: doReassign ? 0 : refs.length,

@@ -89,20 +89,37 @@ export function sfResoDbMap({ flat = true } = {}) {
 export const centsOfUnits = (units) => (units * 1200) / UNITS_PER_OCTAVE;
 export const unitsOfCents = (cents) => (cents * UNITS_PER_OCTAVE) / 1200;
 
+/** A detune in 4096-TET units as cents: to a tenth on a whole unit, to a
+ *  hundredth when it carries sixteenths (a sixteenth is 0.018 cent). */
+export function centsText(units) {
+  const c = centsOfUnits(units);
+  return `${c.toFixed(Number.isInteger(units) ? 1 : 2)} ¢`;
+}
+
+/** 4096-TET units with their sixteenths, as a number someone can quote:
+ *  `1365`, `1365.5` (= 1365 and 8/16). */
+export const unitsText = (units) => String(Math.round(units * 16) / 16);
+
 /**
  * A detune in cents over signed 4096-TET units, kept within [min, max], each
  * press a degree of the song's own pitch table (measured from middle C, as the
  * layer table's detune is). Typing takes cents, `700c`, `3/2` and `$100`.
+ *
+ * `fine`: the field takes sixteenths of a unit (65536-TET, file format
+ * §9.18) — a typed value or a degree of a format-3 song's table is kept to
+ * the sixteenth instead of rounded to the unit.
  */
-export function centsMap(preset, min = -0x8000, max = 0x7fff) {
-  const clampU = (u) => clampN(Math.round(u), min, max);
+export function centsMap(preset, min = -0x8000, max = 0x7fff, fine = false) {
+  const q = (u) => (fine ? Math.round(u * 16) / 16 : Math.round(u));
+  const clampU = (u) => clampN(q(u), min, max);
   return {
-    toDisplay: (u) => `${centsOfUnits(u).toFixed(1)} ¢`,
+    toDisplay: (u) => centsText(u),
     fromDisplay: (text) => {
-      const c = parsePitchText(text, "cents");
+      const c = parsePitchText(text, "cents", fine);
       return clampU(Number.isFinite(c) ? unitsOfCents(c) : 0);
     },
-    step: (u, dir) => clampU(stepNoteInTable(clampN(ANCHOR_NOTE + u, 0x20, 0xffff), preset, dir) - ANCHOR_NOTE),
+    step: (u, dir) => clampU(stepNoteInTable(clampN(ANCHOR_NOTE + u, 0x20, 0xffff + 15 / 16), preset, dir) - ANCHOR_NOTE),
+    fine,
   };
 }
 
@@ -126,6 +143,54 @@ export function pitchHexMap(preset, min = 0, max = 0xffff) {
     },
     step: (w, dir) => clampW(stepNoteInTable(clampN(w, 0x20, 0xffff), preset, dir)),
     inputMode: "text",
+  };
+}
+
+/**
+ * A pitch as `$xxxx` in 65536-TET (file format §9.18): a note word with the
+ * sixteenths of a unit after a point (`$5155.5`) and, past the sixteen octaves
+ * a word names, the octaves the extension adds (`$12000`, `−$1000`). Typed the
+ * same ways, or as a note name; stepped by degrees of the song's own table.
+ *
+ *   high  a range's HIGH bound, whose value is the last pitch inside it: the
+ *         unextended form covers the whole of its unit, `$4FFF` + 15/16, and
+ *         is shown — and typed — as plain `$4FFF`; a bound that stops inside
+ *         its unit shows where (`$4FFF.7`).
+ *   min, max  the reach, in units (default: what a field and its byte hold).
+ */
+export function widePitchMap(preset, { high = false, min = -8 * 65536, max = 8 * 65536 - 1 / 16 } = {}) {
+  const clampW = (w) => clampN(Math.round(w * 16) / 16, min, max);
+  const whole = (w) => Math.floor(w);
+  const frac16 = (w) => Math.round((w - Math.floor(w)) * 16);
+  return {
+    toDisplay: (w) => {
+      const f = frac16(w);
+      const point = (high ? f === 15 : f === 0) ? "" : "." + f.toString(16).toUpperCase();
+      const n = whole(w);
+      const mag = Math.abs(n).toString(16).toUpperCase().padStart(4, "0");
+      return (n < 0 ? "−$" : "$") + mag + point;
+    },
+    fromDisplay: (text) => {
+      const s = minus(text);
+      // A note name, or a word of up to four digits, reads as a cell's note
+      // does (`Ab4` is a name before it is hex); a sign or a fifth digit is
+      // the extension's reach.
+      const ext = /^[+-]|^(\$|0x)?[0-9a-fA-F]{5}/.test(s);
+      const v = ext ? null : parseFieldValue("note", s);
+      if (v !== null) return clampW(high && Number.isInteger(v) ? v + 15 / 16 : v);
+      const m = /^([+-]?)(?:\$|0x)?([0-9a-fA-F]{1,6})(?:\.([0-9a-fA-F]))?$/.exec(s);
+      if (!m) return clampW(ANCHOR_NOTE + (high ? 15 / 16 : 0));
+      const w = parseInt(m[2], 16) * (m[1] === "-" ? -1 : 1);
+      const f = m[3] === undefined ? (high ? 15 : 0) : parseInt(m[3], 16);
+      return clampW(w + f / 16);
+    },
+    step: (w, dir) => {
+      const from = high && frac16(w) === 15 ? whole(w) : w;
+      const d = stepNoteInTable(clampN(from, 0x20, 0xffff + 15 / 16), preset, dir);
+      return clampW(high && Number.isInteger(d) ? d + 15 / 16 : d);
+    },
+    inputMode: "text",
+    fine: true,
   };
 }
 

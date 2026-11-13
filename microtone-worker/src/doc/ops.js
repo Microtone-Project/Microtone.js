@@ -7,12 +7,15 @@
 //           | {kind:"scalar", song, key} | {kind:"inst", slot} | {kind:"bank"}
 //           | {kind:"ixmp", slot} | {kind:"section", fourcc} | {kind:"resync", song}
 //           | {kind:"mastering", song} | {kind:"imix"} | {kind:"lyrics"}
+//           | {kind:"pitchExt"}
 
 import { applyPlan, captureBankState, restoreBankState, buildIxmpSection } from "./bankmerge.js";
 import {
   parsePatchesBlob, writePatchesBlob, makeInstPatch, baseStereoPatchIndex, BASE_TO_PATCH_FIELD,
+  applyPitchExt,
 } from "../../core/engine/inst.js";
 import { TaudPlayData } from "../../core/engine/state.js";
+import { pitchTableOf } from "../../core/format/pitch-ext-section.js";
 import { imixCarryFolds } from "../../core/format/imix-section.js";
 import { swapLyricsSection } from "./lyricedit.js";
 import { CUE_EMPTY, MAX_VOICES, NUM_VOICES, NUM_CUES, NUM_CUES_64 } from "../../core/format/taud-const.js";
@@ -363,6 +366,72 @@ export function removeChannelOp(song, at, restoreLast = null, mutes = null, gest
   };
 }
 
+/**
+ * Run `inner` (any instrument op, or null for none), then give instrument
+ * `slot` the pitch-extension groups `groups` (Document.pitchExtPayloadWith:
+ * {base, table, patches}; a group left undefined keeps what the instrument
+ * carried BEFORE `inner`, null clears it; `{}` carries the whole entry
+ * through an edit that rewrites a guarded field without moving its pitch) —
+ * as ONE step, whose inverse undoes `inner` and
+ * puts the `IPit` payload back exactly as it was (file format §9.18).
+ *
+ * This is how an edit says what became of a field's extension. The guard of
+ * the new entry is computed after `inner` has run, against the record as it
+ * then stands, so the pair cannot disagree. An op that changes a pitch field
+ * WITHOUT this switches the instrument's entry off (Document.markInstUsed),
+ * which is safe but forgets the fine part.
+ */
+export function withPitchExtOp(inner, slot, groups, gestureId = inner?.gestureId ?? null) {
+  return {
+    type: "withPitchExt",
+    inner, slot, groups, gestureId,
+    coalesceKey: inner ? (inner.coalesceKey == null ? null : `${inner.coalesceKey}+pit`) : `pit:${slot & 0x3ff}`,
+    apply(doc) {
+      const prev = doc.pitchExt();
+      // What the instrument carries BEFORE the edit is what a group left
+      // undefined keeps: the edit itself may switch the entry off.
+      const before = doc.pitchExtGroupsNow(slot);
+      const inv = inner ? inner.apply(doc) : null;
+      this._innerDirty = inner ? inner.dirty(doc) : [];
+      doc.setPitchExtGroups(slot, groups, before);
+      doc.dirty = true;
+      return restorePitchExtOp(inv, prev, this._innerDirty, gestureId);
+    },
+    dirty() { return [...(this._innerDirty ?? []), { kind: "inst", slot: slot & 0x3ff }, { kind: "pitchExt" }]; },
+  };
+}
+
+/** withPitchExtOp's inverse: undo `inner` (an inverse op, or null), then put
+ *  the `IPit` payload back — in that order, so the instruments take their
+ *  entries against the records they were written for. Its own inverse is the
+ *  same shape. */
+function restorePitchExtOp(inner, payload, innerDirty, gestureId) {
+  return {
+    type: "restorePitchExt",
+    inner, payload, gestureId,
+    coalesceKey: null,
+    apply(doc) {
+      const cur = doc.pitchExt();
+      const inv = inner ? inner.apply(doc) : null;
+      doc.setPitchExtPayload(payload);
+      doc.instruments; // re-attach the entries now
+      doc.dirty = true;
+      return restorePitchExtOp(inv, cur, innerDirty, gestureId);
+    },
+    dirty: () => [...innerDirty, { kind: "pitchExt" }],
+  };
+}
+
+/** Apply a plan's `ipit` field (the whole `IPit` payload after the plan's
+ *  slot moves) inside a swap-style op — renumber, delete, cleanup — recording
+ *  the previous payload in `old` so the inverse restores it. A plan without
+ *  the field leaves the section alone. */
+function swapPitchExtSection(doc, plan, old) {
+  if (!("ipit" in plan) || plan.ipit === undefined) return;
+  old.ipit = doc.pitchExt();
+  doc.setPitchExtPayload(plan.ipit);
+}
+
 /** Instrument-scope field (TaudInst property, e.g. instGlobalVolume, defaultPan,
  *  instrumentFlag, volumeFadeoutLow…). Dirty {kind:"inst", slot} → uploadInstrument. */
 export function setInstFieldOp(slot, key, value, gestureId = null) {
@@ -453,6 +522,17 @@ export function setMetaRecordOp(slot, record, gestureId = null) {
     },
     dirty: () => [{ kind: "inst", slot }],
   };
+}
+
+/**
+ * Replace a table metainstrument's record with `record`, built from the
+ * editable `layers` (metaedit.js metaLayers / metaRecordOf, fmedit, fmeasy),
+ * AND give it the table group those layers carry (§9.18): what every add,
+ * remove, reorder or pitch edit of a layer or an operator goes through, so the
+ * extensions move with their entries. One undo step.
+ */
+export function setMetaLayersOp(slot, record, layers, gestureId = null) {
+  return withPitchExtOp(setMetaRecordOp(slot, record, gestureId), slot, { table: pitchTableOf(layers) }, gestureId);
 }
 
 /** One envelope node on an instrument envelope array (volEnvelopes /
@@ -1024,6 +1104,9 @@ function refreshLivePatches(doc, slot) {
   const patches = entry ? parsePatchesBlob(entry.blob) : [];
   doc.instruments[s].extraPatches = patches.length > 0 ? patches : null;
   if (patches.length > 0) doc._usedSlots.add(s);
+  // The patches came fresh from their bytes: their extensions are the entry's
+  // to give again — or not, when the list no longer fits it (§9.18).
+  applyPitchExt(doc.instruments[s]);
 }
 
 /**
@@ -1261,6 +1344,7 @@ export function renumberInstrumentOp(plan, gestureId = null) {
         ? plan.ixmpSection
         : (plan.ixmp.length > 0 ? buildIxmpSection(plan.ixmp) : null));
       swapLyricsSection(doc, plan, old); // the lyrics follow (item 280)
+      swapPitchExtSection(doc, plan, old); // …and the pitch extensions (§9.18)
       doc._resetInstrumentCache();
       for (const w of plan.cells) {
         const cell = doc.songs[w.song].patterns[w.pat]?.[w.row];
@@ -1328,6 +1412,7 @@ export function deleteInstrumentOp(plan, gestureId = null) {
         ? plan.ixmpSection
         : (plan.ixmp.length > 0 ? buildIxmpSection(plan.ixmp) : null));
       swapLyricsSection(doc, plan, old); // the lyrics follow (item 280)
+      swapPitchExtSection(doc, plan, old); // …and the pitch extensions (§9.18)
       doc._resetInstrumentCache();
       for (const w of plan.cells) {
         const cell = doc.songs[w.song].patterns[w.pat]?.[w.row];
@@ -1463,6 +1548,7 @@ export function cleanupBankOp(plan, gestureId = null) {
         ? plan.ixmpSection
         : (plan.ixmp.length > 0 ? buildIxmpSection(plan.ixmp) : null));
       swapLyricsSection(doc, plan, old); // the lyrics follow (item 280)
+      swapPitchExtSection(doc, plan, old); // …and the pitch extensions (§9.18)
       doc._resetInstrumentCache();
       doc.dirty = true;
       return cleanupBankOp(old, gestureId);

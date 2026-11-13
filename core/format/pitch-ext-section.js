@@ -95,3 +95,103 @@ export function buildPitchExtSection(entries) {
   }
   return Uint8Array.from(out);
 }
+
+// ── Deltas: the extension as the instrument model holds it ──────────────────
+// A decoded instrument keeps each field's sixteen bits where the record has
+// them and the extension beside them as a DELTA in 4096-TET units (dDetune,
+// dLo, dHi, dSampleDetune…: inst.js applyPitchExt). These are the way back.
+
+/** The extension byte whose delta (pitchExtDelta; for a range's high bound,
+ *  pitchExtDeltaHigh) is `delta`. Throws on a delta no byte holds. */
+export function extOfDelta(delta, high = false) {
+  const v = Math.round((delta || 0) * 16); // sixteenths of a unit
+  const o = high ? Math.ceil(v / 0x100000) : Math.floor(v / 0x100000);
+  const f = high ? o * 0x100000 - v : v - o * 0x100000;
+  if (o < -8 || o > 7 || f < 0 || f > 15) throw new RangeError(`no extension byte holds a delta of ${delta}`);
+  return ((o & 15) << 4) | f;
+}
+
+/**
+ * A pitch as the sixteen-bit field and the delta beside it (splitPitch, with
+ * the byte turned into what the reader makes of it). A signed field comes back
+ * signed (−32768 … 32767), a note word unsigned.
+ */
+export function splitPitchDelta(value, { signed = false, high = false } = {}) {
+  const { field, ext } = splitPitch(value, { signed, high });
+  return {
+    field: signed && field >= 0x8000 ? field - 0x10000 : field,
+    delta: high ? pitchExtDeltaHigh(ext) : pitchExtDelta(ext),
+  };
+}
+
+/** Does `entry` (a parsed section's, or pitchExtEntry's) apply to `inst` as it
+ *  stands — its groups the kind's, its counts the instrument's, its guard
+ *  matching? The reader's own test (applyPitchExt). */
+export function pitchExtApplies(inst, entry) {
+  if (!entry) return false;
+  const has = {
+    base: (entry.flags & IPIT_BASE) !== 0,
+    table: (entry.flags & IPIT_TABLE) !== 0,
+    patches: (entry.flags & IPIT_PATCHES) !== 0,
+  };
+  const guard = pitchExtGuard(inst, has);
+  if (guard === null || guard !== entry.guard) return false;
+  if (has.table && entry.table.length !== inst.metaEntryCount * 3) return false;
+  if (has.patches && entry.patches.length !== (inst.extraPatches?.length ?? 0) * 3) return false;
+  return true;
+}
+
+/** Is `inst` a record with a table (a Layered record or an FM rack) — the
+ *  kinds that take a table group and no base group? */
+export function hasPitchTable(inst) {
+  return inst.metaLayers !== null && (inst.metaType === 0 || inst.metaType === 4);
+}
+
+/**
+ * The extension bytes `inst` carries now, read back from its deltas, as the
+ * groups pitchExtEntry takes: {base, table, patches}, each a byte array or
+ * null (null for a group the kind cannot have, or one that is all zeroes).
+ * A table entry the record holds but the decode dropped (an unusable layer)
+ * keeps zero bytes.
+ */
+export function pitchExtGroupsOf(inst) {
+  const nz = (a) => (a.some((b) => b !== 0) ? Uint8Array.from(a) : null);
+  let base = null, table = null, patches = null;
+  if (hasPitchTable(inst)) {
+    const t = new Array(inst.metaEntryCount * 3).fill(0);
+    for (const l of inst.metaLayers) {
+      const b = (l.srcIndex ?? 0) * 3;
+      if (b + 2 >= t.length) continue;
+      t[b] = extOfDelta(l.dDetune);
+      t[b + 1] = extOfDelta(l.dLo);
+      t[b + 2] = extOfDelta(l.dHi, true);
+    }
+    table = nz(t);
+  } else if (inst.metaLayers === null) {
+    base = nz([
+      extOfDelta(inst.dSampleDetune),
+      extOfDelta(inst.dPitchPanCentre),
+      extOfDelta(inst.opl !== null ? inst.opl.dPartnerDetune : inst.formant !== null ? inst.formant.dRefNote : 0),
+    ]);
+  }
+  const ps = inst.extraPatches ?? [];
+  if (ps.length > 0) {
+    patches = nz(ps.flatMap((p) => [extOfDelta(p.dLo), extOfDelta(p.dHi, true), extOfDelta(p.dDetune)]));
+  }
+  return { base, table, patches };
+}
+
+/** The table group for `layers` (editable layer objects carrying dDetune /
+ *  dLo / dHi) laid out as buildMetaRecord lays out their entries: one entry
+ *  per layer, in order — or null when every byte is zero. */
+export function pitchTableOf(layers) {
+  const t = layers.flatMap((l) => [extOfDelta(l.dDetune), extOfDelta(l.dLo), extOfDelta(l.dHi, true)]);
+  return t.some((b) => b !== 0) ? Uint8Array.from(t) : null;
+}
+
+/** The patch group for `patches` (objects carrying dLo / dHi / dDetune), in
+ *  list order — or null when every byte is zero. */
+export function pitchPatchesOf(patches) {
+  const t = patches.flatMap((p) => [extOfDelta(p.dLo), extOfDelta(p.dHi, true), extOfDelta(p.dDetune)]);
+  return t.some((b) => b !== 0) ? Uint8Array.from(t) : null;
+}
