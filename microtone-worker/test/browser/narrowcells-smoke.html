@@ -82,6 +82,11 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
       `sub ${store.cursor.sub}`);
     const hit = tl.hitTest(tl.chanLayout()[0].x + 2 + 0.5 * 7.9, tl.headerH() + (1 - Math.floor(tl.scrollRow)) * 16 + 8);
     check(hit && hit.row === 1 && hit.sub === E.SUB_FX_OP, "a click on slot A of the effect row hits the effect");
+    // Slot A is the full cell's note group: the effect takes the note's five
+    // places and the instrument stays beside it on every row (item 330).
+    const hitInst = tl.hitTest(tl.chanLayout()[0].x + 2 + 6.2 * 7.9, tl.headerH() + (1 - Math.floor(tl.scrollRow)) * 16 + 8);
+    check(hitInst && hitInst.row === 1 && hitInst.sub === E.SUB_INST,
+      "…and a click past its five places, the instrument beside it", `sub ${hitInst?.sub}`);
     tl.draw(-1);
 
     btn.click(); await frames(win, 2);

@@ -12,7 +12,7 @@ import { paintNoteCell, paintVolPanCell, paintFxCell, monoPalette } from "../cel
 import {
   interpretEditKey, capKey, rawNoteView, SUB_NOTE, SUB_INST, SUB_VOL, SUB_PAN, SUB_FX_OP, SUB_FX_ARG,
   SUB_FX2_OP, SUB_FX2_ARG, COL_FX, COL_FX2, lastSub,
-  subPositions, subCharPos, charToSub, cellChars, cellGeom, PAN_CHARS_WIDE,
+  subPositions, subCharPos, charToSub, cellChars, cellGeom, PAN_CHARS_WIDE, NOTE_PREFIX_CHARS,
   lookahead, wheelStep, stepNoteCell,
   colsForSubs, subToCol, ALL_COLS, colCharRange, subIsEmpty,
   volPanStep, volPanState, elevationStep, nudgeColumns, nudgeCursor, gridStepRow,
@@ -42,12 +42,12 @@ import { blockToolItems, runBlockTool, isBlockTool } from "../blocktools.js";
 import { rowBandItems, cueItems, beatItems, runRowTool, isRowTool, canSplitAt } from "../rowtools.js";
 import { laneVolumeCell, lanePanCell } from "../lanestate.js";
 import {
-  plotSeries, plotGeometry, paintPitchPlot, paintPitchTab, arpOffsets, plotNote, PLOT_CHARS,
+  plotSeries, plotGeometry, paintPitchPlot, paintPitchTab, arpOffsets, plotNote,
 } from "../pitchplot.js";
 import {
-  CELLS_FULL, CELLS_ONE, EL_NOTE, EL_FX, EL_FX2, EL_VOL, EL_PAN,
+  CELLS_FULL, CELLS_ONE, EL_NOTE, EL_FX, EL_FX2, EL_VOL, EL_PAN, EL_INST, SLOT_A_CHARS,
   narrowCellChars, cellPresence, narrowShown, narrowOrigins, narrowWalk, narrowResolve,
-  narrowCharPos, narrowCharToSub,
+  narrowCaret, narrowCharToSub,
 } from "../narrowcell.js";
 import { t } from "../i18n.js";
 import { lyricContinues } from "../../doc/lyrics.js";
@@ -676,7 +676,8 @@ export class TimelineView {
     let mid;
     if (this.narrow()) {
       this.seatCursor();
-      mid = narrowCharPos(this.shownAt(c.row, c.ch), this.panW(), c.sub ?? 0, c.nib ?? 0) + 0.5;
+      const [cs, cw] = narrowCaret(this.shownAt(c.row, c.ch), this.panW(), c.sub ?? 0, c.nib ?? 0);
+      mid = cs + cw / 2;
     } else {
       const [cs, ce] = colCharRange(this.wide(), this.fx2On(c.ch), this.surround())[subToCol(c.sub ?? 0)];
       mid = (cs + ce) / 2;
@@ -1970,8 +1971,7 @@ export class TimelineView {
         if (onCursor) {
           // sub-column caret: amber in record mode, blue otherwise
           const [cpos, cw] = narrow
-            ? [narrowCharPos(this.shownAt(absRow, ch), this.panW(), cursor.sub ?? 0, cursor.nib ?? 0),
-              (cursor.sub ?? 0) === SUB_NOTE ? 4 : 1]
+            ? narrowCaret(this.shownAt(absRow, ch), this.panW(), cursor.sub ?? 0, cursor.nib ?? 0)
             : subCharPos(cursor.sub ?? 0, cursor.nib ?? 0, this.wide(), this.surround());
           ctx.fillStyle = store.record ? C.caret : C.caretNav;
           ctx.fillRect(x + 2 + cpos * CHAR_W - 1, y, cw * CHAR_W + 2, ROW_H);
@@ -1982,7 +1982,7 @@ export class TimelineView {
         if (pitchPlot) {
           const geo = this.plotFor(ch);
           paintPitchPlot(ctx, geo[absRow], geo[absRow + 1] ?? null,
-            { x: x + 2, y, w: (cellMode === CELLS_FULL ? this.geom(ch).inst + 2 : PLOT_CHARS) * CHAR_W, rowH: ROW_H }, C);
+            { x: x + 2, y, w: (cellMode === CELLS_FULL ? this.geom(ch).inst + 2 : SLOT_A_CHARS) * CHAR_W, rowH: ROW_H }, C);
         }
         const patNum = entry.info ? (this.store.song.cues[entry.cue][ch] & 0x7fff) : PATTERN_EMPTY;
         if (patNum === PATTERN_EMPTY) {
@@ -2008,26 +2008,29 @@ export class TimelineView {
         // A ditto ghost repeats a row that IS written down, so it speaks
         // first; a bend ghost reports a value nothing wrote at all.
         if (at.note !== null) {
-          const nx = x + 2 + at.note * CHAR_W;
+          // A narrow slot's field always opens with the pitch prefix
+          // (narrowcell.js); an 8-byte cell's note has no octave digit to put
+          // there, so its four cells start after it.
+          const nx = x + 2 + (at.note + (narrow && !g.wide ? NOTE_PREFIX_CHARS : 0)) * CHAR_W;
           const ghostNote = ghost?.note ?? bend?.note ?? null;
-          // The pitch prefix is the full cell's; a narrow slot shows the four
-          // note cells alone (narrowcell.js).
-          const prefixed = cellMode === CELLS_FULL && g.wide;
           if (ghostNote !== null) {
             paintNoteCell(ctx, ghostNote, store.pitchPreset, nx, y, CHAR_W, ROW_H,
-              dittoPal, store.rawNoteView, prefixed);
+              dittoPal, store.rawNoteView, g.wide);
           } else {
             paintNoteCell(ctx, cell.note, store.pitchPreset, nx, y, CHAR_W, ROW_H,
               { note: C.fg, sentinel: C.fg2, dim: C.dim, offGrid: C.accent },
-              store.rawNoteView, prefixed);
+              store.rawNoteView, g.wide);
           }
+        }
+        // The instrument: in its group in the full cell, and on every row of a
+        // narrow one, beside whatever the field shows.
+        if (at.inst !== null) {
           const instS = ghost?.inst != null ? hex2(ghost.inst)
             : cell.instrment !== 0 ? hex2(cell.instrment) : "··";
-
           ctx.fillStyle = ghost?.inst != null ? C.ditto
             : cell.instrment !== 0 ? C.accent2 : C.dim;
           if (cell.instrment === 0 && !(ghost?.inst != null)) ctx.globalAlpha = 0.4;
-          ctx.fillText(instS, nx + (prefixed ? g.inst : 5) * CHAR_W, y + ROW_H / 2);
+          ctx.fillText(instS, x + 2 + at.inst * CHAR_W, y + ROW_H / 2);
           ctx.globalAlpha = 1;
         }
         // vol/pan: symbol cell (vector ticks) + argument digits — item 87
@@ -2061,14 +2064,14 @@ export class TimelineView {
         if (at.fx !== null) {
           const fx = ghost?.fx ?? [cell.effect, cell.effectArg];
           paintFxCell(ctx, fx[0], fx[1], x + 2 + at.fx * CHAR_W, y, CHAR_W, ROW_H,
-            ghost?.fx ? dittoPal : fxPal, (warn & 1) !== 0, cell.effect2);
+            ghost?.fx ? dittoPal : fxPal, (warn & 1) !== 0, cell.effect2, narrow);
         }
         // …and the second effect in the same inks, since it is the same column
         // twice (§5.5). Ditto never reaches it: effect 7 repeats the SOURCE
         // row's first effect, and the ghost map has no second slot to fill.
         if (fx2 && at.fx2 !== null) {
           paintFxCell(ctx, cell.effect2, cell.effectArg2,
-            x + 2 + at.fx2 * CHAR_W, y, CHAR_W, ROW_H, fxPal, (warn & 2) !== 0, cell.effect);
+            x + 2 + at.fx2 * CHAR_W, y, CHAR_W, ROW_H, fxPal, (warn & 2) !== 0, cell.effect, narrow);
         }
       }
     }
@@ -2133,15 +2136,15 @@ function clampInt(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
 
 /** The full cell's column origins, in characters (edit.js cellGeom). */
 function fullOrigins(g) {
-  return { note: 0, vol: g.vol, pan: g.pan, fx: g.fx, fx2: g.fx2At };
+  return { note: 0, inst: g.inst, vol: g.vol, pan: g.pan, fx: g.fx, fx2: g.fx2At };
 }
 
 /** A narrow cell's: only the columns its slots show, the rest null. */
 function slotOrigins(shown) {
   const o = narrowOrigins(shown);
   return {
-    note: o[EL_NOTE] ?? null, vol: o[EL_VOL] ?? null, pan: o[EL_PAN] ?? null,
-    fx: o[EL_FX] ?? null, fx2: o[EL_FX2] ?? null,
+    note: o[EL_NOTE] ?? null, inst: o[EL_INST] ?? null, vol: o[EL_VOL] ?? null,
+    pan: o[EL_PAN] ?? null, fx: o[EL_FX] ?? null, fx2: o[EL_FX2] ?? null,
   };
 }
 
@@ -2153,7 +2156,6 @@ function ghostShows(ghost, bend) {
   if (!ghost && !bend) return null;
   return {
     note: ghost?.note != null || bend?.note != null,
-    inst: ghost?.inst != null,
     fx: !!ghost?.fx,
     vol: ghost?.vol != null || bend?.vol != null,
     pan: ghost?.pan != null || bend?.pan != null,

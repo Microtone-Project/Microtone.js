@@ -71,7 +71,7 @@ export default {
   "toolbox.cellsFull": "Cells: full",
   "toolbox.cellsTwo": "Cells: 2 slots",
   "toolbox.cellsOne": "Cells: 1 slot",
-  "toolbox.cellsTitle": "Narrow the Timeline\u2019s cells to watch more lanes at once: two slots (the note, else the effect \u00b7 the volume, else the panning) or one (the note, else the effect). Typing goes to whatever a slot is showing; an empty slot takes a note or a volume",
+  "toolbox.cellsTitle": "Narrow the Timeline\u2019s cells to watch more lanes at once: two slots (the note, else the effect, with the instrument \u00b7 the volume, else the panning) or one (the note, else the effect, with the instrument). Typing goes to whatever a slot is showing; an empty slot takes a note or a volume",
   "toolbox.radarOn": "Radar: on",
   "toolbox.radarOff": "Radar: off",
   "toolbox.radarTitle": "Expand the lane headers into surround radars",

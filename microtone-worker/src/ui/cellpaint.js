@@ -127,13 +127,7 @@ export function paintNoteCell(ctx, note, preset, x, y, charW, rowH, palette, raw
   if (wide) {
     // The prefix: the octave digit of a raw pitch, else nothing at all — not
     // even the empty cell's dots, which belong to the four cells after it.
-    if (octave !== undefined) {
-      const font = ctx.font;
-      ctx.font = canvasTransportFont(parseFloat(font) || 13);
-      const w = ctx.measureText(octave).width;
-      ctx.fillText(octave, x + (NOTE_PREFIX_CHARS * charW - w) / 2, midY);
-      ctx.font = font;
-    }
+    if (octave !== undefined) paintPrefix(ctx, octave, x, midY, charW);
     x += NOTE_PREFIX_CHARS * charW;
   }
   if (faint) ctx.globalAlpha = 0.4;
@@ -150,6 +144,17 @@ export function paintNoteCell(ctx, note, preset, x, y, charW, rowH, palette, raw
     ctx.fillText(text, x, midY);
   }
   if (faint) ctx.globalAlpha = 1;
+}
+
+/** One character in Motif Transport, centred in the ¾-cell pitch prefix at x:
+ *  a raw pitch's octave digit, or an effect's command letter in the narrow
+ *  Timeline cell (item 330). */
+function paintPrefix(ctx, s, x, midY, charW) {
+  const font = ctx.font;
+  ctx.font = canvasTransportFont(parseFloat(font) || 13);
+  const w = ctx.measureText(s).width;
+  ctx.fillText(s, x + (NOTE_PREFIX_CHARS * charW - w) / 2, midY);
+  ctx.font = font;
 }
 
 /**
@@ -241,23 +246,39 @@ export function paintVolPanCell(ctx, value, sel, isPan, x, y, charW, rowH, palet
  * which pairings this changes). Ignored when `paired` is true, and harmless
  * to pass for an ordinary unpaired row — fxLayout only branches on it for
  * the specific opcode combinations that define one.
+ *
+ * `inPrefix` (item 330): the cell is a NOTE field instead — 4¾ characters,
+ * the command letter in the ¾-cell pitch prefix in Motif Transport, as a raw
+ * pitch's octave digit is, and the four digits in the note's four cells. The
+ * narrow Timeline cell shows a note or an effect in one place, so an effect
+ * and a raw pitch read as one column of five. Empty, the prefix stays blank,
+ * as an empty note's does.
  */
-export function paintFxCell(ctx, effect, arg, x, y, charW, rowH, palette, paired = false, pairedOp = 0) {
+export function paintFxCell(ctx, effect, arg, x, y, charW, rowH, palette, paired = false, pairedOp = 0,
+  inPrefix = false) {
   const midY = y + rowH / 2;
+  const argX = x + (inPrefix ? NOTE_PREFIX_CHARS : 1) * charW;
+  const op = (s) => { if (inPrefix) paintPrefix(ctx, s, x, midY, charW); else ctx.fillText(s, x, midY); };
   if (effect === 0 && arg === 0) {
     ctx.fillStyle = palette.dim;
     ctx.globalAlpha = 0.4;
-    ctx.fillText("·····", x, midY);
+    if (inPrefix) ctx.fillText("····", argX, midY);
+    else ctx.fillText("·····", x, midY);
     ctx.globalAlpha = 1;
     return;
   }
   if (paired) {
     ctx.fillStyle = palette.ext;
-    ctx.fillText(fxOpChar(effect) + hex4(arg), x, midY);
+    if (inPrefix) {
+      op(fxOpChar(effect));
+      ctx.fillText(hex4(arg), argX, midY);
+    } else {
+      ctx.fillText(fxOpChar(effect) + hex4(arg), x, midY);
+    }
     return;
   }
   ctx.fillStyle = palette.op;
-  ctx.fillText(fxOpChar(effect), x, midY);
+  op(fxOpChar(effect));
   const fields = fxArgFields(effect, arg, pairedOp);
   const inks = [palette.a1, palette.a2, palette.a3];
   const digits = hex4(arg);
@@ -265,7 +286,7 @@ export function paintFxCell(ctx, effect, arg, x, y, charW, rowH, palette, paired
     const f = fields[i];
     ctx.fillStyle = f === 0 ? palette.op : f < 0 ? palette.dim : inks[f - 1];
     if (f < 0) ctx.globalAlpha = 0.55; // reserved: present, but not a value
-    ctx.fillText(digits[i], x + (i + 1) * charW, midY);
+    ctx.fillText(digits[i], argX + i * charW, midY);
     ctx.globalAlpha = 1;
   }
 }

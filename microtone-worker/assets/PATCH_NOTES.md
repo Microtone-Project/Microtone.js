@@ -45,6 +45,12 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 - An operator's waveform is no longer retuned to carry an odd multiplier. A rack made by an earlier version still plays as it did, and the next multiplier or detune you choose on its Easy tab moves the multiplier into the ratio.
 - Fixed: the detune beside a multiplier would not go past 600 cents, as it was held to half an octave. It now takes any amount; one past halfway to the next multiplier is shown from that one, at the same pitch.
 
+**The Timeline's narrow cells show a note as the full cell does, and the instrument on every row.** The two-slot and one-slot cells now open with the full cell's own note and instrument, so nothing in them reads differently from the cell they stand in for.
+
+- Fixed: with raw notes on, a narrow cell dropped a pitch's first digit (`6AAB` for `56AAB`); it now shows all five.
+- A row without a note shows its effect in the same five places, its letter narrowed to sit where a raw pitch's first digit does, so effects and raw pitches line up down the lane.
+- The instrument is shown beside the note or the effect on every row. A row with an instrument and an effect but no note now shows the effect, where it used to show an empty note.
+
 ## Version 4.10.0 (2026-11-11)
 
 **Every project is now in format 3, and every note can be tuned to a 65536th of an octave.** Format 3's wider pattern cell used to be for surround songs only; now it is the format every project is written in, stereo ones included, and its note column carries four more bits of pitch: sixteen times finer than before.
