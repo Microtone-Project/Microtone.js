@@ -12,8 +12,7 @@ import assert from "node:assert/strict";
 
 import { TaudEngine } from "../../core/engine/engine.js";
 import { TRACKER_CHUNK } from "../../core/engine/constants.js";
-import { Voice } from "../../core/engine/voice.js";
-import { ghostVoice } from "../../core/engine/trigger.js";
+import { engineParts } from "../fixtures/engine-parts.js";
 import {
   makeInstPatch, writePatchesBlob, parsePatchesBlob, envPoint,
   patchIsStereo, patchChannelPtrs, CHAN_MODE_DISCRETE, CHAN_MODE_MATRIX,
@@ -210,7 +209,8 @@ test("matrix mode decodes M/S: S = −M cancels one side and doubles the other",
 });
 
 test("ghostVoice carries the stereo view and channel-2 DSP state", () => {
-  const src = new Voice();
+  const P = engineParts();
+  const src = P.voice();
   src.active = true;
   src.activeChanCount = 2;
   src.activeChanMode = CHAN_MODE_MATRIX;
@@ -220,7 +220,7 @@ test("ghostVoice carries the stereo view and channel-2 DSP state", () => {
   src.right.bitcrusherHeld = 0.75;
   src.right.bitcrusherCounter = 3;
   src.right.nesDpcmCounter = 71;
-  const g = ghostVoice(src, 4);
+  const g = P.ghostVoice(src, 4);
   assert.equal(g.activeChanCount, 2);
   assert.equal(g.activeChanMode, CHAN_MODE_MATRIX);
   assert.equal(g.activeChanPtr2, PTR_R);

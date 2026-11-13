@@ -14,25 +14,23 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { fetchTrackerSample } from "../../core/engine/sampler.js";
-import { Voice } from "../../core/engine/voice.js";
-import { TaudInst } from "../../core/engine/inst.js";
-import { SAMPLE_BIN_TOTAL, INTERP_SNES } from "../../core/engine/constants.js";
+import { INTERP_SNES } from "../../core/engine/constants.js";
+import { engineParts } from "../fixtures/engine-parts.js";
 import { SNES_GAUSS } from "../../core/engine/tables.js";
 
 const LEN = 512;
 
-/** Engine stub carrying just the pool: the interpolator reads nothing else. */
+/** An engine carrying just the pool and a blank instrument: the interpolator
+ *  reads nothing else. */
 function makeFixture(fill) {
-  const eng = { sampleBin: new Uint8Array(SAMPLE_BIN_TOTAL) };
-  for (let i = 0; i < LEN; i++) eng.sampleBin[i] = fill(i);
-  const inst = new TaudInst(1);
-  inst.invertMask = null;
-  return { eng, inst };
+  const P = engineParts();
+  const bin = P.eng.sampleBin;
+  for (let i = 0; i < LEN; i++) bin[i] = fill(i);
+  return { P, inst: P.eng.instruments[1] };
 }
 
-function makeVoice(rate, pos = 0) {
-  const v = new Voice();
+function makeVoice(P, rate, pos = 0) {
+  const v = P.voice();
   v.activeSamplePtr = 0;
   v.activeSampleLength = LEN;
   v.activeSampleLoopStart = 0;
@@ -50,10 +48,10 @@ function makeVoice(rate, pos = 0) {
   return v;
 }
 
-function render({ eng, inst }, rate, n, pos = 0) {
-  const v = makeVoice(rate, pos);
+function render({ P, inst }, rate, n, pos = 0) {
+  const v = makeVoice(P, rate, pos);
   const out = new Float64Array(n);
-  for (let i = 0; i < n; i++) out[i] = fetchTrackerSample(eng, v, inst, INTERP_SNES);
+  for (let i = 0; i < n; i++) out[i] = P.fetchTrackerSample(v, inst, INTERP_SNES);
   return out;
 }
 

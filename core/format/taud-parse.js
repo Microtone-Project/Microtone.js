@@ -141,6 +141,7 @@ export function parseSMetSection(payload) {
  *   meta: { projectName, songMeta: {idx: {...}},  // decoded views of PNam / sMet
  *           mastering: {idx: {...}} },            // …and of sMst (§9.12)
  *   imix: [block], imixProblems: [{kind, id, detail}],  // …and of IMix (§9.15)
+ *   pitchExt: Uint8Array | null,                         // the IPit payload (§9.18), verbatim
  *   lyrics: [entry],                             // …and of ILyr (§9.17, lyric-section.js)
  * }
  */
@@ -286,8 +287,12 @@ export function parseTaud(file) {
   const ilyrSec = findSec(ILYR_FOURCC);
   const lyrics = ilyrSec ? [...parseLyricSection(ilyrSec.payload).entries.values()] : [];
 
+  // …and the instruments' pitch extensions (§9.18): the payload as it is —
+  // an engine reads it against the records it has, guard and all.
+  const pitchExt = findSec("IPit")?.payload ?? null;
+
   return {
     kind, fmtVer, is64Channel, signature, sampleInstImage, songs, projSections, ixmp, meta,
-    imix, imixProblems: imixParsed.problems, lyrics,
+    imix, imixProblems: imixParsed.problems, lyrics, pitchExt,
   };
 }

@@ -17,6 +17,9 @@
 import {
   buildMetaRecord, makeMetaLayer, META_MAX_LAYERS, META_TYPE_LAYERED, META_TYPE_FM,
 } from "../../core/engine/inst.js";
+import {
+  copyLayerPitch, layerDetune, layerDetuneFields, fitNote, fitOffset,
+} from "./pitchedit.js";
 
 export { META_MAX_LAYERS, META_TYPE_LAYERED, META_TYPE_FM };
 
@@ -41,12 +44,15 @@ export function metaFlags(inst) {
 /**
  * Editable copies of a meta's layers. `rawOffset` is dropped on purpose: it is
  * a byte position re-derived by loadRecord and would be stale the moment the
- * array is reordered — everything here addresses layers by ARRAY INDEX.
+ * array is reordered — everything here addresses layers by ARRAY INDEX. Each
+ * keeps its pitch extension (dDetune / dLo / dHi, §9.18), which a repack hands
+ * on as the table group (ops.js setMetaLayersOp), so a reorder or a removal
+ * takes every layer's fine pitch with it.
  */
 export function metaLayers(inst) {
-  return (inst?.metaLayers ?? []).map((l) => makeMetaLayer(
+  return (inst?.metaLayers ?? []).map((l) => copyLayerPitch(makeMetaLayer(
     l.instIdx, l.mixOctet, l.detune, l.pitchStart, l.pitchEnd, l.volStart, l.volEnd,
-    l.fixedPitch === true));
+    l.fixedPitch === true), l));
 }
 
 /** Repack `layers` into a 256-byte record, keeping `inst`'s flag byte — and,
@@ -97,8 +103,9 @@ export function linkCount(layers, i) {
 export function duplicateLayer(layers, i, detune = null) {
   if (i < 0 || i >= layers.length || layers.length >= META_MAX_LAYERS) return layers;
   const src = layers[i];
-  const copy = makeMetaLayer(src.instIdx, src.mixOctet, detune === null ? src.detune : detune,
-    src.pitchStart, src.pitchEnd, src.volStart, src.volEnd, src.fixedPitch === true);
+  const copy = copyLayerPitch(makeMetaLayer(src.instIdx, src.mixOctet, src.detune,
+    src.pitchStart, src.pitchEnd, src.volStart, src.volEnd, src.fixedPitch === true), src);
+  if (detune !== null) Object.assign(copy, layerDetuneFields(copy, detune));
   return [...layers.slice(0, i + 1), copy, ...layers.slice(i + 1)];
 }
 
@@ -149,15 +156,19 @@ export const FIXED_PITCH_MAX = 0xffff;
 export const FIXED_PITCH_ANCHOR = 0x5000;
 
 /**
- * Fit a value to whichever thing layer `l`'s detune field IS: a signed offset
- * on an ordinary layer, an unsigned note word on a fixed-pitch one (item 179).
- * Every edit that writes the field goes through this, so "up a fifth" means the
- * same gesture on both kinds and neither can be clamped by the other's range.
+ * Fit a value to whichever thing layer `l`'s detune IS: a signed offset on an
+ * ordinary layer, a note on a fixed-pitch one (item 179) — in sixteenths of a
+ * unit, within what the field and its extension byte hold (§9.18). Every edit
+ * that writes the detune goes through this, so "up a fifth" means the same
+ * gesture on both kinds. Write the result with layerDetuneFields.
  */
 export function clampLayerPitch(l, v) {
-  return l?.fixedPitch
-    ? Math.min(Math.max(Math.round(v) || 0, FIXED_PITCH_MIN), FIXED_PITCH_MAX)
-    : clampDetune(v);
+  if (!l?.fixedPitch) return fitOffset(v);
+  // Below $0020 lies the cell's sentinel space, which an UNEXTENDED field
+  // cannot sound (a player clamps it to $0020); below C0 itself the octave
+  // nibble takes over and the pitch is what it says.
+  const n = fitNote(v);
+  return n >= 0 && n < FIXED_PITCH_MIN ? FIXED_PITCH_MIN : n;
 }
 
 /**
@@ -168,15 +179,15 @@ export function clampLayerPitch(l, v) {
  * Feed it to patchLayer, like every other cell edit in the table.
  */
 export function fixedPitchFields(l, fixed) {
-  const detune = fixed
-    ? Math.min(Math.max(FIXED_PITCH_ANCHOR + l.detune, FIXED_PITCH_MIN), FIXED_PITCH_MAX)
-    : clampDetune((l.detune & 0xffff) - FIXED_PITCH_ANCHOR);
-  return { fixedPitch: fixed, detune };
+  if ((l.fixedPitch === true) === fixed) return { fixedPitch: fixed };
+  const v = layerDetune(l);
+  const next = { ...l, fixedPitch: fixed };
+  return { fixedPitch: fixed, ...layerDetuneFields(next, fixed ? FIXED_PITCH_ANCHOR + v : v - FIXED_PITCH_ANCHOR) };
 }
 
 /**
  * Insert one copy of layer `i` after it per entry of `detunes` (absolute layer
- * detune values) — a chord or unison stack off a single layer. Copies are
+ * detune VALUES, sixteenths and all) — a chord or unison stack off a single layer. Copies are
  * LINKED like every other duplicate; only the detune differs, so the stack
  * stays one editable instrument played at several pitches.
  */
@@ -184,9 +195,11 @@ export function stackLayer(layers, i, detunes) {
   if (i < 0 || i >= layers.length) return layers;
   const src = layers[i];
   const room = Math.max(0, META_MAX_LAYERS - layers.length);
-  const copies = detunes.slice(0, room).map((d) => makeMetaLayer(
-    src.instIdx, src.mixOctet, clampLayerPitch(src, d),
-    src.pitchStart, src.pitchEnd, src.volStart, src.volEnd, src.fixedPitch === true));
+  const copies = detunes.slice(0, room).map((d) => {
+    const c = copyLayerPitch(makeMetaLayer(src.instIdx, src.mixOctet, src.detune,
+      src.pitchStart, src.pitchEnd, src.volStart, src.volEnd, src.fixedPitch === true), src);
+    return Object.assign(c, layerDetuneFields(c, d));
+  });
   return [...layers.slice(0, i + 1), ...copies, ...layers.slice(i + 1)];
 }
 

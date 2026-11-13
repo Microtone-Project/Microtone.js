@@ -8,12 +8,12 @@
 import { MAX_BG_VOICES, ATTACK_RAMP_SAMPLES } from "./constants.js";
 import { Voice, isSoundingChild } from "./voice.js";
 import {
-  patchIsStereo, patchVibratoInherits, layerNote, DCT_LANE, META_TYPE_LAYERED,
+  patchIsStereo, patchVibratoInherits, layerNote, pitchInRange, DCT_LANE, META_TYPE_LAYERED,
 } from "./inst.js";
 import {
   FmRig, cloneFmRig, fmReferencedOperators, fmSeedGains, dropFmOperators,
 } from "./fm.js";
-import { META_MIX_GAIN, attenGainOf, EffectOp, clamp } from "./tables.js";
+import { META_MIX_GAIN, attenGainOf, EffectOp, clamp, FM_OVERSAMPLE } from "./tables.js";
 import { envPresent, envCarry, applyKeyLift, seedPfRole, pfIdxBox, pfTimeBox } from "./envelope.js";
 import { computePlaybackRate, startCutRamp } from "./sampler.js";
 import { OplState, oplKeyOn, cloneOplState, OPL_C4_RATE } from "./opl.js";
@@ -60,7 +60,7 @@ export function applyActiveSample(voice, inst, patch) {
     // from somewhere.
     voice.activeSamplingRate = inst.chipPatch !== null && inst.samplingRate === 0
       ? OPL_C4_RATE : inst.samplingRate;
-    voice.activeSampleDetune = inst.sampleDetuneSigned;
+    voice.activeSampleDetune = inst.sampleDetuneSigned + inst.dSampleDetune;
     voice.activeLoopMode = inst.loopMode;
     voice.activeVibratoSpeed = inst.vibratoSpeed;
     voice.activeVibratoSweep = inst.vibratoSweep;
@@ -78,7 +78,7 @@ export function applyActiveSample(voice, inst, patch) {
     voice.activeSampleLoopStart = patch.loopStart;
     voice.activeSampleLoopEnd = patch.loopEnd;
     voice.activeSamplingRate = patch.samplingRate;
-    voice.activeSampleDetune = patch.sampleDetune;
+    voice.activeSampleDetune = patch.sampleDetune + patch.dDetune;
     voice.activeLoopMode = patch.loopMode;
     // Auto-vibrato: the $FF waveform sentinel defers the WHOLE block when the
     // patch brings no numbers of its own (item 170, patchVibratoInherits).
@@ -403,6 +403,9 @@ export function triggerMetaOrNote(eng, ts, voice, vi, noteVal, instId, rowVolOve
   // the rectangle says which keys reach the layer, the flag says what it plays
   // when one does.
   const pitchOf = (l) => clamp(layerNote(l, noteVal), 0x20, 0xffff);
+  // …and what pitchOf had to leave out: the part of a layer's pitch that lies
+  // outside a note value's sixteen octaves (voice.pitchExcess).
+  const excessOf = (l) => { const full = layerNote(l, noteVal); return full - clamp(full, 0x20, 0xffff); };
   // STRICT layering: drop layers whose patches don't cover the note (the gating
   // bbox is loose; strict converters emit each layer's canonical into its patches).
   if (inst.metaStrict) {
@@ -442,6 +445,7 @@ export function triggerMetaOrNote(eng, ts, voice, vi, noteVal, instId, rowVolOve
   // recorded the same way a fixed-pitch CHILD is, so a later portamento row
   // (row.js) knows this voice's note does not track the pattern at all.
   voice.layerFixedNote = l0.fixedPitch ? pitchOf(l0) : -1;
+  voice.pitchExcess = excessOf(l0);
   voice.layerRelPan = 0;
   voice.layerRelElevation = 0;
   voice.isLayerChild = false;
@@ -449,7 +453,7 @@ export function triggerMetaOrNote(eng, ts, voice, vi, noteVal, instId, rowVolOve
   // How far this voice's own noteVal sits from the raw trigger note — layer
   // 0's detune, exactly as layerRelDetune measures it for a child (item 176:
   // a subsequent G row's target has to cross into this same coordinate).
-  voice.metaForegroundDetune = l0.detune;
+  voice.metaForegroundDetune = l0.detune + l0.dDetune;
   for (let k = 1; k < layers.length; k++) {
     const lk = layers[k];
     const child = new Voice();
@@ -483,6 +487,7 @@ export function triggerMetaOrNote(eng, ts, voice, vi, noteVal, instId, rowVolOve
     // …and a fixed-pitch child tracks no parent at all: the per-tick sync holds
     // it at this note instead of re-deriving one (tick.js).
     child.layerFixedNote = lk.fixedPitch ? pitchOf(lk) : -1;
+    child.pitchExcess = excessOf(lk);
     // The pan twin of layerRelDetune (item 118): how far this layer sits from
     // the meta's centre, held across the whole note by the per-tick sync so a
     // note-pan SET ROTATES the arrangement instead of collapsing it onto one
@@ -527,7 +532,7 @@ function triggerFmRack(eng, ts, voice, vi, noteVal, inst, rowVolOverride, seedVo
   const sounds = (o) =>
     o.instIdx >= 1 && o.instIdx <= 1023 &&
     !eng.instruments[o.instIdx].isMeta && !eng.instruments[o.instIdx].isHighMeta &&
-    noteVal >= o.pitchStart && noteVal <= o.pitchEnd &&
+    pitchInRange(noteVal, o.pitchStart, o.dLo, o.pitchEnd, o.dHi) &&
     seedVol >= o.volStart && seedVol <= o.volEnd;
   // No algorithm, or no principal operator, is silence — the same answer the
   // layered path gives when no layer covers the note, and for the same reason:
@@ -546,6 +551,7 @@ function triggerFmRack(eng, ts, voice, vi, noteVal, inst, rowVolOverride, seedVo
   // whatever the key. The rectangle above still gated on the trigger; this is
   // the layered path's pitchOf, for the same reasons.
   const pitchOf = (o) => clamp(layerNote(o, noteVal), 0x20, 0xffff);
+  const excessOf = (o) => { const full = layerNote(o, noteVal); return full - clamp(full, 0x20, 0xffff); };
   const rig = new FmRig(ops.length);
   rig.program = program;
   fmSeedGains(rig, ops);
@@ -566,13 +572,14 @@ function triggerFmRack(eng, ts, voice, vi, noteVal, inst, rowVolOverride, seedVo
   // consequence): recorded the same way, so a later portamento row (row.js)
   // knows the principal's note does not track the pattern at all.
   voice.layerFixedNote = ops[0].fixedPitch ? pitchOf(ops[0]) : -1;
+  voice.pitchExcess = excessOf(ops[0]);
   voice.layerRelPan = 0;
   voice.layerRelElevation = 0;
   voice.isLayerChild = false;
   voice.metaForeground = true;
   // Same coordinate-shift bookkeeping as the layered path, for operator 0's
   // own detune (item 176).
-  voice.metaForegroundDetune = ops[0].detune;
+  voice.metaForegroundDetune = ops[0].detune + ops[0].dDetune;
   voice.fmRig = rig;
   rig.voices[0] = voice;
 
@@ -591,6 +598,9 @@ function triggerFmRack(eng, ts, voice, vi, noteVal, inst, rowVolOverride, seedVo
     op.bitcrusherDepth = voice.bitcrusherDepth;
     op.bitcrusherSkip = voice.bitcrusherSkip;
     op.overdriveAmp = voice.overdriveAmp;
+    // Its filter runs at the rack's rate (fm.js): said before the trigger
+    // makes the first coefficients.
+    op.filterOversample = FM_OVERSAMPLE;
     triggerNote(eng, ts, op, pitchOf(ops[k]), ops[k].instIdx, rowVolOverride);
     op.isLayerChild = true;
     op.fmOperator = true;
@@ -603,6 +613,7 @@ function triggerFmRack(eng, ts, voice, vi, noteVal, inst, rowVolOverride, seedVo
     // the per-tick sync holds it at its own note (tick.js).
     op.layerRelDetune = layerNote(ops[k], noteVal) - layerNote(ops[0], noteVal);
     op.layerFixedNote = ops[k].fixedPitch ? pitchOf(ops[k]) : -1;
+    op.pitchExcess = excessOf(ops[k]);
     op.layerMixGain = 1.0;
     // An operand has no place of its own: the rack is one signal at the
     // lane's position, so an operator never pulls it sideways.
@@ -644,6 +655,7 @@ export function triggerNote(eng, ts, voice, noteVal, instId, volOverride, lyricP
   // anything below marks the voice active.
   const oplCarry = voice.oplCarry && voice.active && voice.opl !== null;
   voice.oplCarry = false;
+  voice.pitchExcess = 0; // a layer's or an operator's is set by its trigger, after this
   // …and a PSG pair handed over the same way keeps its envelopes too.
   const psgCarry = voice.psgCarry && voice.active && voice.psg !== null;
   voice.psgCarry = false;
@@ -795,7 +807,7 @@ export function triggerNote(eng, ts, voice, noteVal, instId, volOverride, lyricP
     // and only the default pan re-seeds that); it accumulates in note-axis
     // units now instead of lane-axis ones.
     if (inst.pitchPanSeparation !== 0) {
-      const noteDelta = (noteVal - inst.pitchPanCentre) / 4096.0;
+      const noteDelta = (noteVal - (inst.pitchPanCentre + inst.dPitchPanCentre)) / 4096.0;
       const panShift = Math.trunc(noteDelta * inst.pitchPanSeparation * 4.0);
       applyNotePanSlide(ts, voice, panShift);
       notePanSeedBox[2] = 1;
@@ -1228,6 +1240,7 @@ export function ghostVoice(src, channel) {
   v.filterX1 = src.filterX1;
   v.filterX2 = src.filterX2;
   v.filterCutoffCached = src.filterCutoffCached;
+  v.filterOversample = src.filterOversample;
   v.filterResonanceCached = src.filterResonanceCached;
   v.sfCents = src.sfCents; v.sfCentsIncr = src.sfCentsIncr; v.sfCentsLeft = src.sfCentsLeft;
   v.sfCentsAim = src.sfCentsAim; v.sfHzAim = src.sfHzAim; v.sfQ = src.sfQ; v.sfQIncr = src.sfQIncr; v.sfQLeft = src.sfQLeft;
@@ -1266,6 +1279,7 @@ export function ghostVoice(src, channel) {
   v.activeSampleLoopEnd = src.activeSampleLoopEnd;
   v.activeSamplingRate = src.activeSamplingRate;
   v.activeSampleDetune = src.activeSampleDetune;
+  v.pitchExcess = src.pitchExcess;
   v.activeLoopMode = src.activeLoopMode;
   // The window funk repeat had walked to travels with the ghost — its sample
   // position is INSIDE that window — but the walk itself does not: the pointer

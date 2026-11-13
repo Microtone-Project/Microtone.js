@@ -14,8 +14,6 @@ import { readFile, access } from "node:fs/promises";
 import { TaudEngine } from "../../core/engine/engine.js";
 import { TRACKER_CHUNK, setSamplingRate } from "../../core/engine/constants.js";
 import { EffectOp } from "../../core/engine/tables.js";
-import { Voice } from "../../core/engine/voice.js";
-import { applyTrackerRow } from "../../core/engine/row.js";
 import { setRandomSource, makeSeededRandom } from "../../core/engine/rng.js";
 import { parseTaud } from "../../core/format/taud-parse.js";
 import { loadIntoEngine } from "../../core/audio/offline-render.js";
@@ -87,7 +85,7 @@ function chaseTo(eng, start, cue, row) {
 function chasedState(eng, start, cue, row) {
   const { reached } = chaseTo(eng, start, cue, row);
   const ph = eng.playheads[0];
-  applyTrackerRow(eng, ph.trackerState, ph);
+  eng.applyTrackerRow(0);
   return { reached, state: laneState(eng) };
 }
 
@@ -156,19 +154,25 @@ const BUSY = {
 
 setSamplingRate(48000);
 
-test("Voice.resetToPowerOn leaves a voice as the constructor makes one, fader aside", () => {
-  const eng = songEngine(BUSY, [{ lanes: [0, 1, 2] }]);
+test("a chase to the song's start leaves every lane as an engine that never played has it, fader aside", () => {
+  // The chase begins by putting every lane voice back to power-on; chased to
+  // the very first row, that is all it does. Held against a second engine
+  // given the same song and never played, lane by lane.
+  const cues = [{ lanes: [0, 1, 2] }];
+  const eng = songEngine(BUSY, cues);
   arrivals(eng, 4);
   const v = eng.playheads[0].trackerState.voices[0];
   assert.notEqual(v.mem.d, 0, "premise: the play wrote the effect memory");
-  v.fader = 77;
-  v.resetToPowerOn(63);
-  const fresh = new Voice();
-  for (const k of Object.keys(fresh)) {
-    if (k === "fader" || k === "scopeBuffer") continue;
-    assert.deepEqual(v[k], fresh[k], `field ${k}`);
+  eng.setVoiceFader(0, 0, 77);
+  chaseTo(eng, DEFAULT_START, 0, 0);
+  const fresh = songEngine(BUSY, cues);
+  const got = laneState(eng), want = laneState(fresh);
+  for (const k of Object.keys(want)) {
+    if (!/^\d+\./.test(k)) continue; // the lanes; the tempo is the host's to give
+    assert.deepEqual(got[k], want[k], `lane field ${k}`);
   }
-  assert.equal(v.fader, 77, "the desk's fader is not the song's to reset");
+  assert.equal(eng.getVoiceFader(0, 0), 77, "the desk's fader is not the song's to reset");
+  assert.equal(fresh.getVoiceFader(0, 0), 0);
 });
 
 test("a chase arrives on every row with the state a play from the start has there", () => {

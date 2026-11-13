@@ -12,7 +12,10 @@
 // can change the sample census (bind/ptr/len, add/delete/duplicate) fold an
 // SNam realignment payload into the same op, so pool-order names survive.
 
-import { setInstPatchesOp } from "../../doc/ops.js";
+import { setInstPatchesOp, withPitchExtOp } from "../../doc/ops.js";
+import {
+  patchLow, patchHigh, patchDetune, patchLowFields, patchHighFields, patchDetuneFields, pitchPatchesOf,
+} from "../../doc/pitchedit.js";
 import {
   writePatchesBlob, makeInstPatch, patchVibratoInherits, baseStereoPatchIndex,
 } from "../../../core/engine/inst.js";
@@ -26,7 +29,7 @@ import {
 import { noteToStr, rangeToStr, hex4 } from "../notenames.js";
 import { velRangeText } from "../../doc/velaxis.js";
 import { hzSpinnerMap } from "../components/hzspinner.js";
-import { ATTEN_DB_MAP, centsMap, pitchHexMap, sfResoDbMap } from "../spinmaps.js";
+import { ATTEN_DB_MAP, centsMap, sfResoDbMap, widePitchMap } from "../spinmaps.js";
 import { volEnvMaxOf } from "../../doc/volenv.js";
 import { themeColors } from "../theme.js";
 import { canvasMonoFont } from "../fonts.js";
@@ -128,7 +131,11 @@ export class AdvancedZoneEditor {
         snam = encodeNameTable(after.map((e) => byKey.get(keyOf(e)) ?? ""));
       }
     }
-    this.iv.applyQuiet(setInstPatchesOp(this.slot, blob, snam, gestureId));
+    // The patches carry their pitch extensions (dLo / dHi / dDetune, file
+    // format §9.18) through the clone, so the patch group goes with the list
+    // in the same step — a reorder or a removal takes each zone's with it.
+    this.iv.applyQuiet(withPitchExtOp(setInstPatchesOp(this.slot, blob, snam, gestureId), this.slot,
+      { patches: pitchPatchesOf(patches) }, gestureId));
     this.iv.refreshListBadge(this.slot);
   }
 
@@ -142,6 +149,13 @@ export class AdvancedZoneEditor {
   _field(name, value, opts = {}) {
     const i = this.selIdx;
     this._edit((ps) => { if (ps[i]) ps[i][name] = value; }, opts);
+  }
+
+  /** Mutate several fields of the selected patch at once — a pitch and the
+   *  delta beside it (pitchedit.js patchLowFields…). */
+  _fields(fields, opts = {}) {
+    const i = this.selIdx;
+    this._edit((ps) => { if (ps[i]) Object.assign(ps[i], fields); }, opts);
   }
 
   // ── panel construction ─────────────────────────────────────────────────────
@@ -456,7 +470,11 @@ export class AdvancedZoneEditor {
     // A mapped field (spinmaps.js, components/hzspinner.js) shows its own units
     // — $hex, cents, dB, Hz — and steps the stored ones.
     if (map) mapSpinner(inp, map, value);
-    const read = () => clampN(Math.round(map ? inp.rawValue : (Number(inp.value) || 0)), min, max);
+    // A `fine` map (a pitch at 65536-TET, §9.18) keeps sixteenths of a unit.
+    const read = () => {
+      const v = map ? inp.rawValue : (Number(inp.value) || 0);
+      return clampN(map?.fine ? Math.round(v * 16) / 16 : Math.round(v), min, max);
+    };
     const annEl = document.createElement("span");
     annEl.className = "sl-ann";
     if (ann) annEl.textContent = ann(value);
@@ -515,10 +533,11 @@ export class AdvancedZoneEditor {
     // Zone rectangle
     const zone = this.group(host, t("adv.zoneGroup"));
     this.row(zone,
-      this.num(t("adv.pitchLo"), p.pitchStart, 0, 0xffff, (v) => this._field("pitchStart", v), noteName,
-        "", "", pitchHexMap(this.store.pitchPreset)),
-      this.num(t("adv.pitchHi"), p.pitchEnd, 0, 0xffff, (v) => this._field("pitchEnd", v), noteName,
-        "", "", pitchHexMap(this.store.pitchPreset)));
+      // Values at 65536-TET (§9.18): the high end is the last pitch inside.
+      this.num(t("adv.pitchLo"), patchLow(p), 0, 0xffff + 15 / 16, (v) => this._fields(patchLowFields(v)), noteName,
+        "", "", widePitchMap(this.store.pitchPreset, { min: 0, max: 0xffff + 15 / 16 })),
+      this.num(t("adv.pitchHi"), patchHigh(p), 0, 0xffff + 15 / 16, (v) => this._fields(patchHighFields(v)),
+        (v) => noteName(Math.floor(v)), "", "", widePitchMap(this.store.pitchPreset, { high: true, min: 0, max: 0xffff + 15 / 16 })));
     this.row(zone,
       this.velNum(t("adv.volLo"), p.volumeStart, false, (v) => this._field("volumeStart", v)),
       this.velNum(t("adv.volHi"), p.volumeEnd, true, (v) => this._field("volumeEnd", v)));
@@ -556,9 +575,9 @@ export class AdvancedZoneEditor {
     this.row(smp,
       this.num(t("adv.playStart"), p.playStart, 0, 0xffff, (v) => this._field("playStart", v)),
       this.num(t("adv.rate"), p.samplingRate, 0, 0xffff, (v) => this._field("samplingRate", v)),
-      this.num(t("adv.detune"), p.sampleDetune, -0x8000, 0x7fff,
-        (v) => this._field("sampleDetune", v), null,
-        "", "", centsMap(this.store.pitchPreset)));
+      this.num(t("adv.detune"), patchDetune(p), -0x8000, 0x7fff + 15 / 16,
+        (v) => this._fields(patchDetuneFields(v)), null,
+        "", "", centsMap(this.store.pitchPreset, -0x8000, 0x7fff + 15 / 16, true)));
     this.row(smp,
       this.sel(t("smp.loop"), p.loopMode & 0x03, [
         ["0", t("smp.loopOff")], ["1", t("smp.loopForward")],
@@ -1105,6 +1124,7 @@ export class AdvancedZoneEditor {
       playStart: inst.samplePlayStart, loopStart: inst.sampleLoopStart,
       loopEnd: inst.sampleLoopEnd, samplingRate: inst.samplingRate,
       sampleDetune: inst.sampleDetuneSigned, loopMode: inst.loopMode & 0x07,
+      dDetune: inst.dSampleDetune || 0, // the instrument's detune to the sixteenth (§9.18)
     });
   }
 

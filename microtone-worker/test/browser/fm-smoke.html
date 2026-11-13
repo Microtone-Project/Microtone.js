@@ -209,7 +209,7 @@
         fixedBtn(1).click();
         await waitFor(() => doc.instruments[slot].metaLayers[1].fixedPitch === true);
         iv.renderPanel();
-        await waitFor(() => /^\$[0-9A-F]{4}$/.test(detIn(1)?.value ?? ""));
+        await waitFor(() => /^−?\$[0-9A-F]{5,6}$/.test(detIn(1)?.value ?? "")); // 65536-TET steps
         log(`Fixed sets the flag on operator 1 alone, keeping the note it showed: ` +
           ok(doc.instruments[slot].metaLayers[1].detune === 0x5000 + ratioBefore &&
              !doc.instruments[slot].metaLayers.some((o, k) => k !== 1 && o.fixedPitch)));

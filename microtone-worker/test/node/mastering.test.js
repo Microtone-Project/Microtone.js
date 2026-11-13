@@ -45,7 +45,6 @@ import {
   SNAP_MM_AP_SUM_SQ, SNAP_MM_CH, SNAP_MM_C_STRIDE, SNAP_MM_C_PEAK,
 } from "../../core/worklet/protocol.js";
 import { SAMPLING_RATE, TRACKER_CHUNK } from "../../core/engine/constants.js";
-import { TrackerState } from "../../core/engine/state.js";
 import { TaudEngine } from "../../core/engine/engine.js";
 import { parseTaud } from "../../core/format/taud-parse.js";
 import { Document } from "../../src/doc/document.js";
@@ -532,27 +531,28 @@ test("…and neither depends on how the blocks are cut up", () => {
 });
 
 test("the span is a REPORTING choice: asking for it keeps the take's census", () => {
-  const ts = new TrackerState();
-  ts.setMasterMeter(true, false, 8, HIST_SPAN_ALL);
+  const eng = new TaudEngine();
+  const ts = eng.playheads[0].trackerState;
+  eng.setMasterMeter(0, true, false, 8, HIST_SPAN_ALL);
   const tap = ts.masterMeter;
   tap.binOutput(new Uint8Array(64).fill(7), null, null, 32);
   assert.equal(tap.hist[7], 64);
   // Switching to a window must not build a new tap — that would throw away both
   // the take's census and the window it is being asked for.
-  ts.setMasterMeter(true, false, 8, HIST_SPAN_SHORT);
+  eng.setMasterMeter(0, true, false, 8, HIST_SPAN_SHORT);
   assert.equal(ts.masterMeter, tap, "same tap");
   assert.equal(tap.histSpan, HIST_SPAN_SHORT);
   assert.equal(tap.hist[7], 64, "the take's census survived");
   assert.equal(tap.histWin[HIST_SPAN_SHORT][7], 64, "…and so did the window's");
-  ts.setMasterMeter(true, false, 8, HIST_SPAN_LONG);
+  eng.setMasterMeter(0, true, false, 8, HIST_SPAN_LONG);
   assert.equal(ts.masterMeter, tap);
   assert.equal(tap.histSpan, HIST_SPAN_LONG);
   // Anything that is not a span at all falls back to the whole take rather than
   // indexing a hole in `histWin`.
-  ts.setMasterMeter(true, false, 8, 99);
+  eng.setMasterMeter(0, true, false, 8, 99);
   assert.equal(tap.histSpan, HIST_SPAN_ALL);
   // A DEPTH change is a different measurement and does rebuild it.
-  ts.setMasterMeter(true, false, 16, HIST_SPAN_LONG);
+  eng.setMasterMeter(0, true, false, 16, HIST_SPAN_LONG);
   assert.notEqual(ts.masterMeter, tap);
   assert.equal(ts.masterMeter.histSpan, HIST_SPAN_LONG, "the choice carries over");
 });

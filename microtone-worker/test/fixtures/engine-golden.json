@@ -6,8 +6,8 @@
     "4THSYM": {
       "file": "test/corpus/4THSYM.taud",
       "frames": 960000,
-      "u8": "ef77fd7793a2b4129ce1ac36e828a4d39ac34f79787bb6736b8c28780f6a6f6a",
-      "f32": "afdda8948d2e5a5380c9edb1b781add3cba62fc57879d681538ede3bbcdef3e4"
+      "u8": "c32db27d28312f36e24691c4747514910648aa532432b06d2c72d4410709ab32",
+      "f32": "3cf4d98a8d4cda6ecc3a942bf55883a2927aeaa2e05ef9c438f2df251bf8c51c"
     },
     "changing_waves": {
       "file": "test/corpus/changing_waves.taud",
@@ -18,122 +18,122 @@
     "Circus galop": {
       "file": "test/corpus/Circus galop.taud",
       "frames": 960000,
-      "u8": "5de3fade76f9d751f4620d93d735b30b07033557398e3d5b629ecc957be56a11",
-      "f32": "3dc5cf353d1fb3ae340c7efa8e909ac473c187d50765336e38b140977590261c"
+      "u8": "95c2fcae10c999a397adead221afa3582d7423d8069f6d7713dbb8db92a3019f",
+      "f32": "75dc866f05114df55b0904aca9abf02fcd90020682d590d12e597e4e5f383090"
     },
     "flourish": {
       "file": "test/corpus/flourish.taud",
       "frames": 960000,
-      "u8": "27b11d8c6bc5faf359d8079cfb5ec72b7412dc33675dcfe196632ae4788a485e",
-      "f32": "958b4d92121f0865ac67f426ef337b1d4fa1d388ecd9e3c6d47b5b96c029f3f2"
+      "u8": "c8d181045dd78eacc7c09aea8bb7e8c6f8a73c9d5194700f9f0fc361c2fe9690",
+      "f32": "44e9438326288777b42531488e30314fdf154f33f2721afeef3819eec6e386cc"
     },
     "Insaniq2": {
       "file": "test/corpus/Insaniq2.taud",
       "frames": 960000,
-      "u8": "d08a7fb9a184f7ff93d6db95a2142701be01f4501c5652604912c305f47c1157",
-      "f32": "a32ac2cd9e5279db81d74b8f0f8eb0296775ccbe73d434845bc0372457ddfd35"
+      "u8": "eff68bab652c71075de97ea097be48958cf68bbbc6bed58d6b8fedc663a51592",
+      "f32": "90886712277bb39815a5c28a2c251a35c764214ea742549c093cb5c3a3803754"
     },
     "M_E1M1": {
       "file": "test/corpus/M_E1M1.taud",
       "frames": 960000,
-      "u8": "bffb0335b5d8064d8e70b04ef03be3e3c83db837b030767c9560c4f2a6ccd5eb",
-      "f32": "5bcaa2a637f5c8191e2a374e2e4445f945c0055fe357e1169056d882f353cf25"
+      "u8": "250a3337dba88bec4cf344caa15cd14815706905f7b91f228fda45b2894db3b9",
+      "f32": "8683bc78359624f3f63d75eb372146439986589f9892c73cb5ba570a98c5217f"
     },
     "Onestop": {
       "file": "test/corpus/Onestop.taud",
       "frames": 960000,
-      "u8": "1bc3472f2c8d8919453fd070687f8a1641230b768dc8b9875ce40c7f0343f718",
-      "f32": "f956439e412c97457ce0ace108bdd7ec32ddbd84c38bac0bac43ec43dcedcd17"
+      "u8": "a49f4bc90581c199289b25db5a1fae4d6314b262d940b677690fdb17a8903a9a",
+      "f32": "f6256770b084ef99965ad0123ea0b1aa6a1151244f301872b533ea9b61ae5eff"
     },
     "slumberjack": {
       "file": "test/corpus/slumberjack.taud",
       "frames": 960000,
-      "u8": "af33c80dc87ad764408e05a20afaf9b7b6fc2f947e4219475ce068d9ac967cf6",
-      "f32": "59811d4c38109988b0b1e3721146a4a420d8eca8af5f0d571799f404f3a98480"
+      "u8": "b1ef9d5be211401b061329ad4060b262f8fe0929c997b59b82b9ca5900364245",
+      "f32": "40a79d03ba444dfc52d236ac8920904329114f4205b6cbf00e063deacf1c77ec"
     },
     "town": {
       "file": "test/corpus/town.taud",
       "frames": 960000,
-      "u8": "b4d2542954c3c839bf0ae8c890e4969bdfe825a3a2743582e6fb14cd75ecf04f",
-      "f32": "ad4485105e8a5cfadb25ec8c9e4469b1b0225ecdde36d05b7404e30e77a84fe3"
+      "u8": "9171424ee03b6a665bf57b7e82f83dbecebdd220c138699ab8a518375a58a2fe",
+      "f32": "927396592068cc692e9a3822ff524c3f4a466f83d8c516e4b518b05821772cd3"
     },
     "WHEN": {
       "file": "test/corpus/WHEN.taud",
       "frames": 960000,
-      "u8": "601ad235b8709791be9cad1a9da69f41757d249617c972aef2fcdf883a8a0311",
-      "f32": "49a48dc2351b1e77975b4159af5ab830f84b1ba26fe7c279efe2883499ac2554"
+      "u8": "3e97166195bf8a87901e802487623827e71100cdbe234805594ac1551022c860",
+      "f32": "a0493b2faab073863267d59e3a98a52b8f48fe70ae5fb90da22f345756b09983"
     },
     "16uba_baion": {
       "file": "assets/demo_projects/16uba_baion.taud",
       "frames": 960000,
-      "u8": "f92401a2147ac3ad0cbde136d71c99d522f6f080a0844abeae0238823bc12d69",
-      "f32": "de9db0d624b28b8d2fbdfe370c91e0d95bc81691e108f5e7c0e425dc82e12086"
+      "u8": "a1488bdbea412118e83d5ca20d81f85e82563ac58c4ae743bacc81a12b555aeb",
+      "f32": "e2df1fc8298d1cf5c4e2fca4acdf03e0bfc3bb7f4e4a708c2b7ae66895591f79"
     },
     "Temjin_speaki": {
       "file": "assets/demo_projects/Temjin_speaki.taud",
       "frames": 960000,
-      "u8": "f98c6b68496915a8605a7ce5db99875335ddb27cb8d97017546e2d13bf09804d",
-      "f32": "20b85116556fe46a4ad0af20087583715796ba0ead83227efdd5e65e421eab0d"
+      "u8": "08d86d169378c0196635ef061b4058044615882e5c1a3406a4da38d0c63bc56b",
+      "f32": "1a4d4bd560be81f3819b6880313cdfaaff4ae83cb5702da4ec50e3443c1457be"
     },
     "WHEN_AMBI": {
       "file": "assets/demo_projects/WHEN_AMBI.taud",
       "frames": 960000,
-      "u8": "86a127cec1ad6300de2fc6a3326149c36595549ab5e2ce7ee97c734997c9a545",
-      "f32": "58e63897d257e90feaef7105e230397582eee0dfc18ff59ea903f05cfcd7bc29"
+      "u8": "a70cabdfb46a03226e6fb3c3adaa9df2dfb770e12317eaa84aa149b840f4f926",
+      "f32": "448ac20c7cf8f75143766bdc8f8ff469010f04553aeff55b222f7e6163c5b42e"
     },
     "WHEN_AMBI@binaural": {
       "file": "assets/demo_projects/WHEN_AMBI.taud",
       "monitor": 1,
       "frames": 960000,
-      "u8": "7acc26639722bd6dbd9a7df7e39eceb166b7d0370d521a1f9549e0feda213452",
-      "f32": "8523ef892ecb5bb7ce9ee5d06d72403fde9af9a84992bc06ed95d0806579a1b7"
+      "u8": "2a3212db99e19d4b1d953a08a36d0a87c0e00d2229e01173249d3e85bc6519fe",
+      "f32": "91136d5bae81139aec776b97c6242d4ca0ad185b2778117780cf9ca29b910dc4"
     },
     "Huygens_clock": {
       "file": "assets/demo_projects/Huygens_clock.taud",
       "frames": 960000,
-      "u8": "3df057bb056d16ee08c607d57bab67dff6e38fa6dd70a150c490c322997ce5ab",
-      "f32": "da991c52883d0e86d89acfb61b4634f69f551eea5b406bf2e0e656c55b5307f8"
+      "u8": "9c1fcc43cec2a81b4aff0d915c5029a07da36db49b3e011e4b3c486ed3365635",
+      "f32": "2e3a654e59769537c4fa0d4e1506f13aae3d3ca713fd90b906aa83330624f5b6"
     },
     "Huygens_clock@imix": {
       "file": "assets/demo_projects/Huygens_clock.taud",
       "imix": true,
       "frames": 960000,
-      "u8": "1167cadc677abcb6ffe5cb6f86f8a0b7cf5a1f06011f72bdc37510178430a437",
-      "f32": "68f07544b20aa8aef24f1034fed594f89cd524c227ae0db01c7f07f0bbaf4e21"
+      "u8": "190b47cef765c04302792fe6ddb43e6f008254e6cf63af8709dbf9911b2a008c",
+      "f32": "a812b56cf4095fdc7c6453866eef42cafedd9d5d748cc4457b42ff476ee65a95"
     },
     "WHEN_AMBI@imix": {
       "file": "assets/demo_projects/WHEN_AMBI.taud",
       "imix": true,
       "frames": 960000,
-      "u8": "e7e9e0aa9245a6d691979cc319ed6e9eb300850ee39904b7644a7b25e5f5a987",
-      "f32": "0f8b518f3efce82fab3d1bfa32db50333657a4da32be851ddd128ed0498a7fc0"
+      "u8": "3d8ae846cb4fd9581fd77c2dbfd40bd5959686ecdaa79bd7cd65ab5f8ba96ac7",
+      "f32": "356274a5876029180beab3af95f755c94c22a1479fe7bd94a59b2683f3945170"
     },
     "Huygens_clock@imixbus": {
       "file": "assets/demo_projects/Huygens_clock.taud",
       "imix": "bus",
       "frames": 960000,
-      "u8": "db77d38bd56983402dee6583ff1503fb8022bfae74c65d6d9e8f29a353c84a45",
-      "f32": "d1c8318d7994ef4f74f424e46c9d9ed04bc8c042cd491da4ab82014eeb6b1043"
+      "u8": "dbc24d2edb870f169f604726ee17683c4bee738d3b77c15f5e867e0755f3a821",
+      "f32": "4114e2b843b6c727adcd81179665990ff56e1f6b61d85d81eb694384eb6a60b1"
     },
     "Huygens_clock@imixtsh": {
       "file": "assets/demo_projects/Huygens_clock.taud",
       "imix": "tsh",
       "frames": 960000,
-      "u8": "46efadd5afab6e119a84076f08445540c0c2533b0ce14fd00c7b44957f21f01c",
-      "f32": "5e8c02f8d2f6551371355e7368993acc9857afc02394d0b4a6a9d8d38c547b45"
+      "u8": "e87065f63191c83cc2be7b7bcda0c365eb0f43e6ca8e41ab93f6037b204a2ffb",
+      "f32": "7752ff2687e6ff354ebe6f2f6eea1c4c0e243237fb4a9ac576e9bf29f3bead57"
     },
     "Huygens_clock@imixexpd": {
       "file": "assets/demo_projects/Huygens_clock.taud",
       "imix": "expd",
       "frames": 960000,
-      "u8": "cbe1e9732a08881f2d027f9c497755bc6632eb55c4d450486eb13370f5e96342",
-      "f32": "8f623b205caebc1cc73fe5bd7634c2cdfa79cf9d8ae720749d23842ad944fb3f"
+      "u8": "ee548a3d347b24ad4272dc660a5e762c352a6f1b507387b0697393239edb50f0",
+      "f32": "a481eeef89dbfc94e9f8116cb535621c6442aa231af4201bcbf0ed3489b199c0"
     },
     "Zeta_valley": {
       "file": "assets/demo_projects/Zeta_valley.taud",
       "frames": 960000,
-      "u8": "ff567f5472aff1f70b90cbd099e5b402244e744387c10330602a736b3bd10d0a",
-      "f32": "282924586f181b107bd5cb6d4589b65e1274ec5992ee5828d989c26e5f5a507b"
+      "u8": "5d815ff0b9ee513c55cf286624a20ab897179fd02c5c7c5067c3e518438f9fd1",
+      "f32": "38af11acb7732c64ff780779d299953ce3ead41d19677d531c8892c7a256b648"
     }
   }
 }

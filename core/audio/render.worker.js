@@ -23,7 +23,7 @@
 // The main thread bumps the doorbell after each postMessage (AudioSystem), the
 // wait wakes, and the handler for that message re-enters the clock.
 
-import { TaudEngine } from "../engine/engine.js";
+import { createEngine } from "../engine/create.js";
 import { TRACKER_CHUNK } from "../engine/constants.js";
 import { CMD, MSG, SNAP_FLOATS, SNAP_SAB_I32_CELLS } from "../worklet/protocol.js";
 import {
@@ -38,7 +38,7 @@ import {
 const PLAYHEAD = 0;
 const PRODUCE_INTERVAL_MS = 5;
 
-const engine = new TaudEngine();
+let engine = null;          // built at INIT, which says which engine to run
 const chunk = new Uint8Array(TRACKER_CHUNK * 2);
 
 let ring = null;            // {ctrl, L, R}
@@ -69,7 +69,7 @@ function flushRing() {
 }
 
 function produceAudio() {
-  if (!ring) return;
+  if (!ring || engine === null) return;
   const ph = engine.playheads[PLAYHEAD];
   const active = ph.isPlaying || ph.jamActive;
   Atomics.store(ring.ctrl, AR_STATE, active ? 1 : 0);
@@ -92,7 +92,7 @@ function produceAudio() {
 }
 
 function maybeSnapshot(force) {
-  if (!snapF32) return;
+  if (!snapF32 || engine === null) return;
   const t = now();
   if (!force && t - lastSnapshotMs < snapshotIntervalMs) return;
   lastSnapshotMs = t;
@@ -136,7 +136,8 @@ self.onmessage = (e) => {
 };
 
 function handleMessage(m) {
-  if (applyAudioCommand(engine, m)) {
+  if (m.t === CMD.INIT && engine === null) engine = createEngine(m.engine);
+  if (engine !== null && applyAudioCommand(engine, m)) {
     if (isTransportReset(m.t)) flushRing();
     produceAudio();      // start filling immediately (low play/seek latency)
     maybeSnapshot(true); // reflect the new state (isPlaying, position) at once

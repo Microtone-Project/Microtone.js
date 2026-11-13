@@ -82,9 +82,10 @@ const setLamp = (b, on) => { if (lampOn(b) !== !!on) b.click(); };
   const before = doc.instruments[slot].extraPatches[0].pitchEnd;
   let check0 = false;
   const inp = numInput("Pitch hi");
-  // The field reads a note word in hex (typed as $1234 or as a note name).
-  check0 = /^\$[0-9A-F]{4}$/.test(inp.value);
-  inp.value = "$1234"; fire(inp, "change");
+  // The field reads the pitch in 65536-TET steps, in hex (typed as $1234F or
+  // as a note name); as a range's top, $1234F is the whole of unit $1234.
+  check0 = /^−?\$[0-9A-F]{5,6}$/.test(inp.value);
+  inp.value = "$1234F"; fire(inp, "change");
   const t4 = doc.instruments[slot].extraPatches[0].pitchEnd === 0x1234;
   log(`Pitch hi reads $hex (${check0 ? "yes" : "no"}): ${check0 ? "ok" : "FAIL"}`);
   log(`Pitch hi edit hits the patch blob (${before}→${doc.instruments[slot].extraPatches[0].pitchEnd}): ${t4 ? "ok" : "FAIL"}`);

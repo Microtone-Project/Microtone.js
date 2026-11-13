@@ -324,6 +324,7 @@ export class OplPatch {
     this.cntB = 0;
     this.partnerMult = 0;
     this.partnerDetune = 0;
+    this.dPartnerDetune = 0; // the pitch extension of partnerDetune (file format §9.18)
     this.ops = [new OplOperator(), new OplOperator(), new OplOperator(), new OplOperator()];
     /** Bit n set = operator n reaches the output (and takes the note volume). */
     this.outputs = 0;
@@ -618,7 +619,7 @@ function retune(st, rate) {
     // note is its own channel's pitch — channel 7 for the snare and hi-hat,
     // channel 8 for the cymbal — and the partner's channel sits at the
     // record's detune from it.
-    const pbf = oplBlockFnum(hz * 2 ** (patch.partnerDetune / 4096), patch.lowFnum);
+    const pbf = oplBlockFnum(hz * 2 ** ((patch.partnerDetune + (patch.dPartnerDetune || 0)) / 4096), patch.lowFnum);
     const pInc = (((pbf & 1023) * OPL_MULTIPLE_X2[patch.partnerMult]) << (pbf >> 10)) >> 1;
     const own = st.inc[0];
     if (kind === OPL_KIND_SD) {

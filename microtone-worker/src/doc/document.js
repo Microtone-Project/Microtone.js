@@ -5,7 +5,10 @@
 
 import { TaudPlayData } from "../../core/engine/state.js";
 import { decodeInstWord, INST_PATLEN, INST_HALTAT, INST_HALT, INST_GOBACK, INST_SKIP, INST_JUMP } from "../../core/engine/state.js";
-import { TaudInst, parsePatchesBlob } from "../../core/engine/inst.js";
+import { TaudInst, parsePatchesBlob, parsePitchExtSection, applyPitchExt } from "../../core/engine/inst.js";
+import {
+  IPIT_FOURCC, pitchExtEntry, buildPitchExtSection, pitchExtApplies, pitchExtGroupsOf,
+} from "../../core/format/pitch-ext-section.js";
 import {
   CUE_EMPTY, KEYMAP_FOURCC, MAX_VOICES, NUM_VOICES, PATTERN_SIZE, PATTERN_SIZE_WIDE,
   SAMPLEBIN_SIZE, TAUD_VERSION_WIDE,
@@ -221,9 +224,10 @@ export function combineTpif(bank, tpif) {
  * The Project-Data sections that belong to the instrument BANK rather than to
  * the songs: a .tpif loaded over a bank takes these from the bank, and a bank
  * taken out of a project takes these with it. `IMix` is one (item 217): an
- * instrument's byte 255 means nothing without the block it names.
+ * instrument's byte 255 means nothing without the block it names; `IPit` is
+ * another (§9.18): the extensions are the instruments' pitches.
  */
-export const BANK_SECTIONS = Object.freeze(["INam", "SNam", "Ixmp", "SRgn", IMIX_FOURCC, IMCN_FOURCC, ILYR_FOURCC]);
+export const BANK_SECTIONS = Object.freeze(["INam", "SNam", "Ixmp", "SRgn", IMIX_FOURCC, IMCN_FOURCC, ILYR_FOURCC, "IPit"]);
 
 export class Document {
   /** Build from the structure parseTaud returns. */
@@ -299,6 +303,7 @@ export class Document {
       this._instruments = insts;
       this._usedSlots = usedSlots;
       this._lyricsAttached = undefined;
+      this._pitchAttached = undefined;
     }
     // The lyric instruments' entries ride on the decoded instruments (item
     // 280), as the Ixmp patches do, so that everything that walks an
@@ -312,6 +317,22 @@ export class Document {
       for (const inst of this._instruments) {
         const e = entries.get(inst.index) ?? null;
         if (e !== inst.lyricEntry) inst.setLyric(e);
+      }
+    }
+    // …and so do the pitch extensions (§9.18): each instrument holds its
+    // `IPit` entry and the deltas it gives (applyPitchExt), which is what the
+    // editor reads a field's 65536-TET value from. Same identity rule.
+    const pit = this.projSections.find((x) => x.fourcc === IPIT_FOURCC);
+    const pitPayload = pit ? pit.payload : null;
+    if (this._pitchAttached !== pitPayload) {
+      this._pitchAttached = pitPayload;
+      const entries = this.pitchExtMap();
+      for (const inst of this._instruments) {
+        const e = entries.get(inst.index) ?? null;
+        if (e !== inst.pitchExtEntry || e !== null) {
+          inst.pitchExtEntry = e;
+          applyPitchExt(inst);
+        }
       }
     }
     return this._instruments;
@@ -346,10 +367,123 @@ export class Document {
   }
 
   markInstUsed(slot) {
-    this.instruments;
+    const inst = this.instruments[slot & 0x3ff];
     this._usedSlots.add(slot & 0x3ff);
     this._editedSlots.add(slot & 0x3ff);
     this._instrumentsEdited = true;
+    // An edit may have moved a field the instrument's `IPit` entry guards: the
+    // entry is checked again, as a player checks it, so an edit that did not
+    // say what became of the extension switches it off rather than leaving it
+    // on a field it was not written for.
+    applyPitchExt(inst);
+  }
+
+  /** The instruments' pitch extensions: the `IPit` payload (file format
+   *  §9.18), or null. An engine checks each entry against the instrument it
+   *  names (its guard), so an entry an edit has outdated is simply not
+   *  applied — and a save retires it (_pitchExtForSave). */
+  pitchExt() {
+    return this.projSections.find((s) => s.fourcc === IPIT_FOURCC)?.payload ?? null;
+  }
+
+  /** The `IPit` section decoded: Map(slot → entry), cached by payload identity. */
+  pitchExtMap() {
+    const payload = this.pitchExt();
+    if (!this._pitchCache || this._pitchCache.payload !== payload) {
+      this._pitchCache = { payload, entries: parsePitchExtSection(payload) };
+    }
+    return this._pitchCache.entries;
+  }
+
+  /** Replace the whole `IPit` payload (null = no section); the instruments
+   *  take their entries from it on their next read. */
+  setPitchExtPayload(payload) {
+    this.setSection(IPIT_FOURCC, payload);
+  }
+
+  /**
+   * The `IPit` payload with some slots' entries replaced: `edits` is
+   * [[slot, groups | null, before?], …], `groups` = {base, table, patches}
+   * byte arrays as pitchExtEntry takes them (a group left undefined keeps
+   * `before`'s, by default what the instrument carries now; null clears it),
+   * computed against the instruments
+   * AS THEY STAND — so call this after the records are what they will be.
+   * Every other entry is kept as it is. null when no entry is left.
+   */
+  pitchExtPayloadWith(edits) {
+    const insts = this.instruments;
+    const map = new Map(this.pitchExtMap());
+    for (const [slot, groups, before = null] of edits) {
+      const s = slot & 0x3ff;
+      const inst = insts[s];
+      const now = before ?? this.pitchExtGroupsNow(s);
+      const g = groups === null ? { base: null, table: null, patches: null } : {
+        base: groups.base === undefined ? now.base : groups.base,
+        table: groups.table === undefined ? now.table : groups.table,
+        patches: groups.patches === undefined ? now.patches : groups.patches,
+      };
+      const entry = pitchExtEntry(inst, g);
+      if (entry === null) map.delete(s);
+      else map.set(s, entry);
+    }
+    return buildPitchExtSection([...map.entries()].sort((a, b) => a[0] - b[0])
+      .map(([id, e]) => ({ ...e, instId: id })));
+  }
+
+  /** The extension groups slot `slot` carries now ({base, table, patches},
+   *  pitch-ext-section.js pitchExtGroupsOf) — all null when its entry does
+   *  not apply. Taken BEFORE an edit, it is what the edit carries over. */
+  pitchExtGroupsNow(slot) {
+    const inst = this.instruments[slot & 0x3ff];
+    return pitchExtApplies(inst, inst.pitchExtEntry) ? pitchExtGroupsOf(inst)
+      : { base: null, table: null, patches: null };
+  }
+
+  /**
+   * The `IPit` payload with its entries moved to other slots, as a renumber,
+   * a delete or a cleanup moves the instruments: `fn(slot)` answers the new
+   * slot, the same one, or null to drop the entry. undefined when nothing
+   * changes (the plan then leaves the section alone), null when nothing is
+   * left. An entry keeps its guard: it moves with its record, unchanged.
+   */
+  pitchExtWithSlots(fn) {
+    const out = [];
+    let changed = false;
+    for (const [id, e] of this.pitchExtMap()) {
+      const to = fn(id);
+      if (to === null || to === undefined) { changed = true; continue; }
+      if (to !== id) changed = true;
+      out.push({ ...e, instId: to & 0x3ff });
+    }
+    if (!changed) return undefined;
+    return buildPitchExtSection(out.sort((a, b) => a.instId - b.instId));
+  }
+
+  /** Give slot `slot` the extension groups `groups` (pitchExtPayloadWith;
+   *  `before` = the groups an undefined one keeps, default the slot's now):
+   *  the section is rebuilt and the instrument takes its entry at once. */
+  setPitchExtGroups(slot, groups, before = null) {
+    this.setPitchExtPayload(this.pitchExtPayloadWith([[slot, groups, before]]));
+    this.instruments; // attach now, so the deltas are there for the caller
+  }
+
+  /**
+   * The `IPit` section as a save writes it: an entry that no longer applies —
+   * its instrument edited under it, emptied, or made another kind — is
+   * RETIRED, as an IMix block no instrument names is. A section with nothing
+   * to drop is written back byte for byte. undefined = as it is; null = drop.
+   */
+  _pitchExtForSave() {
+    const payload = this.pitchExt();
+    if (payload === null) return undefined;
+    const insts = this.instruments;
+    const map = this.pitchExtMap();
+    const keep = [...map.entries()].filter(([id, e]) => this._usedSlots.has(id) && pitchExtApplies(insts[id], e));
+    // The reader stops at an entry it cannot finish; a payload that parses to
+    // what it holds and drops nothing is the one to keep.
+    if (keep.length === map.size && buildPitchExtSection([...map.entries()]
+      .map(([id, e]) => ({ ...e, instId: id })))?.length === payload.length) return undefined;
+    return buildPitchExtSection(keep.sort((a, b) => a[0] - b[0]).map(([id, e]) => ({ ...e, instId: id })));
   }
 
   /** Set/replace a Project-Data section payload; null removes the section. */
@@ -932,11 +1066,13 @@ export class Document {
     const imix = this._imixForSave();
     const imcn = this._imixNamesForSave();
     const ilyr = this._lyricsForSave();
+    const ipit = this._pitchExtForSave();
     const swap = (s, fourcc, payload) => (payload === undefined || s.fourcc !== fourcc ? null
       : payload === null ? [] : [{ fourcc, payload }]);
-    const projSections = imix === undefined && imcn === undefined && ilyr === undefined ? this.projSections
+    const projSections = imix === undefined && imcn === undefined && ilyr === undefined && ipit === undefined
+      ? this.projSections
       : this.projSections.flatMap((s) => swap(s, IMIX_FOURCC, imix) ?? swap(s, IMCN_FOURCC, imcn)
-        ?? swap(s, ILYR_FOURCC, ilyr) ?? [s]);
+        ?? swap(s, ILYR_FOURCC, ilyr) ?? swap(s, IPIT_FOURCC, ipit) ?? [s]);
     return {
       kind: this.kind,
       // The cell layout the patterns below are encoded in — without it the
@@ -1022,6 +1158,8 @@ export class Document {
       imix: this.imixBlocks(),
       // …and so are the lyric instruments' lyrics (item 280).
       lyrics: this.lyricEntries(),
+      // …and the instruments' pitch extensions (§9.18).
+      pitchExt: this.pitchExt(),
       songs: this.songs.map((song, i) => i === songIndex ? {
         bpm: s.bpm, tickRate: s.tickRate, globalFlags: s.globalFlags,
         globalVolume: s.globalVolume, mixingVolume: s.mixingVolume,

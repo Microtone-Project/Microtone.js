@@ -5,8 +5,7 @@
 import { TaudEngine } from "../engine/engine.js";
 import { TRACKER_CHUNK, SAMPLING_RATE, MAX_VOICES, NUM_VOICES } from "../engine/constants.js";
 import { MONITOR_BINAURAL } from "../engine/binaural.js";
-import { pcm32fToPcm8 } from "../engine/mixer.js";
-import { makeDither16, ditherS16 } from "../engine/dither.js";
+import { pcm32fToPcm8, makeDither16, ditherS16 } from "../engine/dither.js";
 import { makeXorshift32 } from "../engine/rng.js";
 import { resampleInterleaved } from "./resampler.js";
 
@@ -60,6 +59,9 @@ export function loadIntoEngine(eng, doc, songIndex = 0) {
   eng.setLyrics(doc.lyrics ?? []);
 
   for (const entry of doc.ixmp) eng.uploadInstrumentPatches(entry.instId, entry.blob);
+  // …and the instruments' pitch extensions (§9.18): what the records and the
+  // patches above could not hold of their pitches.
+  eng.setPitchExt(doc.pitchExt ?? null);
 }
 
 /** Render up to `seconds`; returns U8 device output + f32 mix-bus tap. */
@@ -216,8 +218,8 @@ function applyMonitor(eng, monitor) {
  *  (default 48 kHz), taken from the pre-dither float mix bus and quantised as
  *  `quality` says (encodeWav). Returns {bytes, seconds, halted}. */
 export function renderToWav(docLike, songIndex, maxSeconds, outRate = 48000, monitor = "fold",
-                            quality = WAV_CLEAN) {
-  const eng = new TaudEngine();
+                            quality = WAV_CLEAN, makeEngine = null) {
+  const eng = makeEngine !== null ? makeEngine() : new TaudEngine();
   loadIntoEngine(eng, docLike, songIndex);
   applyMonitor(eng, monitor);
   const r = renderSong(eng, maxSeconds);
@@ -229,8 +231,11 @@ export function renderToWav(docLike, songIndex, maxSeconds, outRate = 48000, mon
  *  plus `aborted`; `bytes` is null when aborted. */
 export async function renderToWavAsync(docLike, songIndex, maxSeconds,
                                        { outRate = 48000, onProgress = null, signal = null,
-                                         monitor = "fold", quality = WAV_CLEAN } = {}) {
-  const eng = new TaudEngine();
+                                         monitor = "fold", quality = WAV_CLEAN, makeEngine = null } = {}) {
+  // `makeEngine` lets a host render with the engine of its choice — the
+  // tracker passes the WebAssembly one (core/engine/create.js); with none
+  // given this module needs nothing beyond the JavaScript engine it imports.
+  const eng = makeEngine !== null ? makeEngine() : new TaudEngine();
   loadIntoEngine(eng, docLike, songIndex);
   applyMonitor(eng, monitor);
   const r = await renderSongAsync(eng, maxSeconds, { onProgress, signal });

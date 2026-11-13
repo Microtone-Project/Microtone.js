@@ -41,6 +41,7 @@ import {
   SNAP_EP_COUNT, SNAP_EP_ENTRIES, SNAP_EP_STRIDE, SNAP_EP_MAX, SNAP_EP_INST,
   SNAP_EP_VOL_IDX, SNAP_EP_VOL_TIME, SNAP_EP_PAN_IDX, SNAP_EP_PAN_TIME,
   SNAP_EP_PITCH_IDX, SNAP_EP_PITCH_TIME, SNAP_EP_FILTER_IDX, SNAP_EP_FILTER_TIME,
+  SNAP_FLOATS,
 } from "./protocol.js";
 import {
   SURROUND_STEREO, SURROUND_SPATIAL, foldAzimuthToPan, displayPanByte, displayAngles,
@@ -98,6 +99,7 @@ export function applyAudioCommand(eng, m) {
       eng.setMasterMeter(m.ph, m.on, m.scramble, m.bitDepth, m.histSpan); return true;
     case CMD.SET_IMIX: eng.setImix(m.blocks); return true;
     case CMD.SET_LYRICS: eng.setLyrics(m.entries); return true;
+    case CMD.SET_PITCH_EXT: eng.setPitchExt(m.bytes ? new Uint8Array(m.bytes) : null); return true;
     case CMD.SET_IMIX_METER: eng.setImixMeter(m.ph, m.slot, m.seat ?? 0); return true;
     case CMD.PLAY: eng.play(m.ph); return true;
     case CMD.STOP: eng.stop(m.ph); return true;
@@ -172,6 +174,29 @@ export function drainInterruptsInto(eng, playhead, f, i32 = null) {
 export function fillSnapshotInto(eng, playhead, f) {
   const ph = eng.playheads[playhead];
   const ts = ph.trackerState;
+  if (typeof eng.snapshotView === "function") {
+    // The WebAssembly engine writes the playhead, the voice blocks, the
+    // Mixing tab's meter blocks and the envelope playheads itself (snapshot.c,
+    // imixtap.c — the same offsets) into a buffer of its own; they are copied
+    // from there. The strip's and the Mastering view's taps are the same
+    // JavaScript objects either way.
+    const v = eng.snapshotView(SNAP_FLOATS);
+    // A caller's buffer may stop short of the later blocks (a test that only
+    // wants the voices): each range is cut to what `f` holds.
+    const put = (from, to) => {
+      const end = Math.min(to, f.length);
+      if (end > from) f.set(v.subarray(from, end), from);
+    };
+    // The playhead's fields sit either side of the interrupt latch's slot,
+    // which is drainInterruptsInto's and must not be written over.
+    put(0, SNAP_INTERRUPT_MASK);
+    put(SNAP_INTERRUPT_MASK + 1, SNAP_AN_METERS);
+    put(SNAP_HEADER_SIZE, SNAP_METER_BASE);
+    put(SNAP_IM_BASE, SNAP_FLOATS); // the Mixing-tab seats, then the envelope playheads
+    fillAnalysisInto(ts, f);
+    fillMasterMeterInto(ts, f);
+    return;
+  }
   f[SNAP_CUE_POS] = ts.cuePos;
   f[SNAP_ROW_INDEX] = ts.rowIndex;
   f[SNAP_TICK_IN_ROW] = ts.tickInRow;

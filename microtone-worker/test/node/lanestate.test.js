@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 
 import { laneVolumeCell, lanePanCell } from "../../src/ui/lanestate.js";
 import { TaudEngine } from "../../core/engine/engine.js";
-import { applyEffectRow } from "../../core/engine/effects.js";
+import { engineParts } from "../fixtures/engine-parts.js";
 import { EffectOp } from "../../core/engine/tables.js";
 import {
   SURROUND_STEREO, SURROUND_PLANAR, SURROUND_SPATIAL,
@@ -70,7 +70,7 @@ function engineWithRow(cell, { wide = false, surroundModel = 0 } = {}) {
   eng.setSurroundModel(0, surroundModel);
   const ts = eng.playheads[0].trackerState;
   const voice = ts.voices[0];
-  applyEffectRow(eng, ts, 0, voice, 0, cell.effect, cell.effectArg, cell.ext ?? null);
+  engineParts(eng).applyEffectRow(voice, 0, cell.effect, cell.effectArg, cell.ext ?? null);
   return voice;
 }
 
@@ -124,8 +124,9 @@ test("effect 4 aims a slide without placing the lane, so it states nothing", () 
 test("a reset puts both axes back to unstated", () => {
   const eng = new TaudEngine();
   const ts = eng.playheads[0].trackerState;
-  applyEffectRow(eng, ts, 0, ts.voices[0], 0, EffectOp.OP_M, 0x2000, null);
-  applyEffectRow(eng, ts, 0, ts.voices[0], 0, EffectOp.OP_S, 0x8040, null);
+  const P = engineParts(eng);
+  P.applyEffectRow(ts.voices[0], 0, EffectOp.OP_M, 0x2000, null);
+  P.applyEffectRow(ts.voices[0], 0, EffectOp.OP_S, 0x8040, null);
   assert.equal(eng.getVoiceChannelVolumeSet(0, 0), true);
   assert.equal(eng.getVoiceChannelPanSet(0, 0), true);
   eng.resetParams(0);

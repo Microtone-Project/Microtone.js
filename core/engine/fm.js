@@ -24,8 +24,10 @@ import {
   FM_WORD_OSC, FM_WORD_MOD, FM_WORD_FB, FM_WORD_OP, FM_INDEX_MASK,
   FmOp, FM_STACK_MAX,
 } from "./inst.js";
-import { META_MIX_GAIN } from "./tables.js";
-import { fetchTrackerSample, advanceVolumeRamp, advancePitchRamp, advanceFadeout } from "./sampler.js";
+import { META_MIX_GAIN, FM_OVERSAMPLE, FM_DEC_SECTIONS, fmDecimate } from "./tables.js";
+import {
+  fetchTrackerSample, fetchTrackerSampleSub, advanceVolumeRamp, advancePitchRamp, advanceFadeout,
+} from "./sampler.js";
 import { applyVoiceFilter, advanceFilterGlide } from "./filter.js";
 import { oplRender, oplChannelAlive } from "./opl.js";
 import { psgRender, psgChannelAlive } from "./psg.js";
@@ -55,6 +57,13 @@ export class FmRig {
     this.done = new Uint8Array(count);     // evaluated yet, this sample?
     this.program = null;                   // Uint16Array, END already stripped
     this.stack = new Float64Array(FM_STACK_MAX + 2);
+    // Oversampling (§5.5.1 "The rack's own rate"): what an operator's
+    // per-frame chain made of its gain, and a chip operator's value, both held
+    // over the frame's sub-steps; and the state of the low-pass the rack comes
+    // down through, two numbers a section.
+    this.opGain = new Float64Array(count);
+    this.held = new Float64Array(count);
+    this.dec = new Float64Array(FM_DEC_SECTIONS * 2);
   }
 }
 
@@ -74,6 +83,9 @@ export function cloneFmRig(src) {
   rig.program = src.program;
   rig.gain.set(src.gain);
   rig.last.set(src.last);
+  rig.opGain.set(src.opGain);
+  rig.held.set(src.held);
+  rig.dec.set(src.dec); // …and where the low-pass stands, so the copy carries on mid-wave
   return rig;
 }
 
@@ -168,33 +180,41 @@ function fmPsgOperator(v, frame, offset) {
  * a free-running read. `frame` is the playhead's chip clock at this sample,
  * which an OPL operator runs on.
  */
-function fmEvalOperator(eng, ts, rig, k, interpMode, spt, offset, frame) {
+function fmEvalOperator(eng, ts, rig, k, interpMode, spt, offset, frame, sub, n) {
   if (rig.done[k] !== 0) return rig.cur[k];
   rig.done[k] = 1;
   const v = rig.voices[k];
   if (v === null || !v.active) { rig.cur[k] = 0.0; return 0.0; }
   const inst = eng.instruments[v.instrumentId];
   let s;
-  if (v.opl !== null) {
-    s = fmChipOperator(v, frame, offset);
-  } else if (v.psg !== null) {
-    s = fmPsgOperator(v, frame, offset);
+  if (v.opl !== null || v.psg !== null) {
+    // A chip runs on its own clock, a sample of it an output frame: read on
+    // the frame's first sub-step, with the modulation that sub-step brings,
+    // and held for the rest.
+    if (sub === 0) rig.held[k] = v.opl !== null ? fmChipOperator(v, frame, offset) : fmPsgOperator(v, frame, offset);
+    s = rig.held[k];
   } else {
     const frames = offset === 0 ? 0 : offset * fmCycleFrames(v);
-    s = fetchTrackerSample(eng, v, inst, interpMode, frames);
+    s = n === 1 ? fetchTrackerSample(eng, v, inst, interpMode, frames)
+      : fetchTrackerSampleSub(eng, v, inst, interpMode, frames, n, sub === n - 1);
   }
   let g = rig.gain[k];
   if (k !== 0) {
     // Operator 0 is the lane's own voice: the mixer runs its filter, its
     // envelope and its ramps over the FINISHED signal (§5.5.1), so doing any of
     // that here would apply them twice. Every other operator is invisible to the
-    // mixer and gets the same per-sample maintenance here, in the same order.
+    // mixer and gets the same maintenance here, in the same order. Its filter
+    // runs at the rack's rate (its coefficients are made for it:
+    // voice.filterOversample); everything that shapes its LEVEL moves once an
+    // output frame, on the first sub-step, and holds.
     s = applyVoiceFilter(v, s);
+    if (sub !== 0) {
+      g = rig.opGain[k];
+    } else {
     advanceFilterGlide(v);
     v.envVolMix += v.envVolStep;
     const effEnvVol = v.hasVolEnv && v.volEnvOn ? v.envVolMix : 1.0;
     advanceVolumeRamp(v, ts.volDiv);
-    advancePitchRamp(v, spt);
     // NOT the note/lane volume, which §5.5.1's list of what an operator's
     // value is multiplied by deliberately omits. A rack is ONE voice: the
     // mixer applies that volume to the finished patch through operator 0, and
@@ -215,6 +235,12 @@ function fmEvalOperator(eng, ts, rig, k, interpMode, spt, offset, frame) {
       g *= 0.5 - 0.5 * Math.cos((Math.PI * elapsed) / ATTACK_RAMP_SAMPLES);
       v.attackRampSamples--;
     }
+    rig.opGain[k] = g;
+    }
+    // The rate it reads at moves once a frame too, and AFTER the frame's last
+    // sub-step: every sub-step of a frame steps by the same rate, as operator
+    // 0's do (the mixer moves that one, after the rack has run).
+    if (sub === n - 1) advancePitchRamp(v, spt);
   }
   const out = s * g;
   rig.cur[k] = out;
@@ -236,8 +262,21 @@ function fmEvalOperator(eng, ts, rig, k, interpMode, spt, offset, frame) {
  */
 export function renderFmVoice(eng, ts, voice, interpMode, spt, frame) {
   const rig = voice.fmRig;
+  if (rig.program === null) return 0.0;
+  // The algorithm runs at the rack's own rate — FM_OVERSAMPLE times the
+  // engine's — through the low-pass that brings it down, read on the frame's
+  // last sub-step (§5.5.1, "The rack's own rate"). At a factor of 1 the
+  // algorithm's value IS the sample.
+  const n = FM_OVERSAMPLE;
+  if (n <= 1) return fmRunProgram(eng, ts, rig, interpMode, spt, frame, 0, 1);
+  let y = 0.0;
+  for (let s = 0; s < n; s++) y = fmDecimate(rig.dec, fmRunProgram(eng, ts, rig, interpMode, spt, frame, s, n));
+  return y;
+}
+
+/** Run the rack's algorithm once: one sub-step. */
+function fmRunProgram(eng, ts, rig, interpMode, spt, frame, sub, n) {
   const prog = rig.program;
-  if (prog === null) return 0.0;
   const stack = rig.stack;
   const done = rig.done;
   done.fill(0);
@@ -275,7 +314,7 @@ export function renderFmVoice(eng, ts, voice, interpMode, spt, frame) {
       continue;
     }
     const offset = cls === FM_WORD_MOD && sp > 0 ? stack[--sp] : 0.0;
-    if (sp < FM_STACK_MAX) stack[sp++] = fmEvalOperator(eng, ts, rig, k, interpMode, spt, offset, frame);
+    if (sp < FM_STACK_MAX) stack[sp++] = fmEvalOperator(eng, ts, rig, k, interpMode, spt, offset, frame, sub, n);
   }
 
   // The z⁻¹ taps move on together, AFTER the whole program: a feedback word

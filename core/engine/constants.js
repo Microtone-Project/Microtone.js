@@ -77,6 +77,10 @@ const RAMP_OUT_SEC = 0.008;
 // GEN_VOLENVRELEASE = -2000 timecents.
 export const FAST_FADE_SEC = 0.3;
 
+/** The longest crossfade over a funk-repeat seam (S $Fx, the walking loop),
+ *  in output samples; a grain shorter than this is its own cap. */
+export const FUNK_XFADE_SAMPLES = 64;
+
 // Volume-change anti-click ramp: 2 ms (64 samples at Kotlin's 32 kHz).
 // Bypassed on fresh note triggers.
 export let VOL_RAMP_SAMPLES = 96;

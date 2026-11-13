@@ -34,6 +34,7 @@ export class DocSync {
         ixmp: this.doc.ixmp,
         imix: this.doc.imixBlocks(),
         lyrics: this.doc.lyricEntries(),
+        pitchExt: this.doc.pitchExt(),
       },
       this.songIndex,
     );
@@ -86,6 +87,11 @@ export class DocSync {
           // being a formant one drops out of it.
           this.audio.setLyrics(this.doc.lyricEntries());
           break;
+        case "pitchExt":
+          // Eager, like the instruments it extends (§9.18): the whole section
+          // goes, and the engine checks every entry against its instrument.
+          this.audio.setPitchExt(this.doc.pitchExt());
+          break;
         case "ixmp": {
           // Ixmp patch edit (Advanced Edit): eagerly re-upload the slot's
           // patch blob — an empty blob clears the engine's patch state.
@@ -109,6 +115,8 @@ export class DocSync {
           // A bank import can bring chains with it (item 217), and lyrics (item 280).
           this.audio.setImix(this.doc.imixBlocks());
           this.audio.setLyrics(this.doc.lyricEntries());
+          // …and pitch extensions (§9.18), which a renumber moves.
+          this.audio.setPitchExt(this.doc.pitchExt());
           break;
       }
     }

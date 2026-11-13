@@ -9,10 +9,13 @@ import {
 } from "./constants.js";
 import { random } from "./rng.js";
 
-// ── Fast Sinc: 6-tap windowed sinc, 1024 sub-sample positions (251-273) ──
+// ── The sinc kernel (engine spec §8.3) ──
+// SINC_TABLE[i] is the Hann-windowed sinc at i ÷ SINC_PRECISION samples from
+// the centre, and 0 at the last entry, where the window ends.
+export const SINC_TABLE_SIZE = SINC_PRECISION * SINC_WIDTH;
 export const SINC_TABLE = (() => {
-  const n = SINC_PRECISION * SINC_WIDTH;
-  const out = new Float64Array(n);
+  const n = SINC_TABLE_SIZE;
+  const out = new Float64Array(n + 1);
   const winFreq = Math.PI / SINC_WIDTH / SINC_PRECISION;
   out[0] = 1.0;
   for (let i = 1; i < n; i++) {
@@ -23,15 +26,19 @@ export const SINC_TABLE = (() => {
   return out;
 })();
 
-/** Windowed-sinc kernel value for fractional offset frac ∈ [0,1) and signed tap. */
-export function sincTap(frac, tap) {
-  const x = (tap - frac) * SINC_PRECISION;
-  const ax = Math.abs(x);
-  const idx = Math.trunc(ax);
-  if (idx >= SINC_PRECISION * SINC_WIDTH - 1) return 0.0;
-  const f = ax - idx;
-  return SINC_TABLE[idx] * (1.0 - f) + SINC_TABLE[idx + 1] * f;
-}
+// The same numbers laid out for the sampler: row p holds the six coefficients
+// of sub-sample phase p, for the taps −2…+3 (tap j of phase p sits
+// |j·SINC_PRECISION − p| table steps from the centre).
+export const SINC_TAPS = SINC_WIDTH * 2;
+export const SINC_PHASE = (() => {
+  const out = new Float64Array(SINC_PRECISION * SINC_TAPS);
+  for (let p = 0; p < SINC_PRECISION; p++) {
+    for (let j = 1 - SINC_WIDTH; j <= SINC_WIDTH; j++) {
+      out[p * SINC_TAPS + (j + SINC_WIDTH - 1)] = SINC_TABLE[Math.abs(j * SINC_PRECISION - p)];
+    }
+  }
+  return out;
+})();
 
 // ── SNES BRR 4-tap gaussian table (512 entries; AudioAdapter.kt:283-316) ──
 // The quad {gauss[i], gauss[0xff-i], gauss[0x100+i], gauss[0x1ff-i]} is meant to
@@ -99,6 +106,54 @@ function rebuildAmigaCoeffs(rate) {
 }
 rebuildAmigaCoeffs(SAMPLING_RATE);
 onSamplingRateChange(rebuildAmigaCoeffs);
+
+// ── The FM racks' own rate (engine spec §5.5.1) ──
+// A rack runs at the smallest whole multiple of the engine's rate that reaches
+// FM_OVERSAMPLE_RATE (at most FM_OVERSAMPLE_MAX times it) and comes down
+// through an eighth-order Butterworth low-pass at FM_DEC_CUTOFF of the
+// ENGINE's rate, designed at the rack's — so its place in the oversampled
+// spectrum is 2π × FM_DEC_CUTOFF ÷ factor, whatever the rate. Four RBJ
+// low-pass sections on the Butterworth pole angles, lowest Q first; FM_DEC
+// holds b0, b1, b2, a1, a2 of each (a0 = 1), in the order they run.
+export const FM_OVERSAMPLE_RATE = 192000;
+export const FM_OVERSAMPLE_MAX = 8;
+export const FM_DEC_SECTIONS = 4;
+export const FM_DEC_CUTOFF = 0.45;
+export let FM_OVERSAMPLE = 1;
+export const FM_DEC = new Float64Array(FM_DEC_SECTIONS * 5);
+
+function rebuildFmDecimator(rate) {
+  const n = Math.min(Math.max(Math.trunc((FM_OVERSAMPLE_RATE + rate - 1) / rate), 1), FM_OVERSAMPLE_MAX);
+  FM_OVERSAMPLE = n;
+  const w0 = (2.0 * Math.PI * FM_DEC_CUTOFF) / n;
+  const cosw = Math.cos(w0);
+  const sinw = Math.sin(w0);
+  for (let k = 0; k < FM_DEC_SECTIONS; k++) {
+    const q = 1.0 / (2.0 * Math.cos(((2 * k + 1) * Math.PI) / (4.0 * FM_DEC_SECTIONS)));
+    const alpha = sinw / (2.0 * q);
+    const a0 = 1.0 + alpha;
+    FM_DEC[k * 5] = ((1.0 - cosw) * 0.5) / a0;
+    FM_DEC[k * 5 + 1] = (1.0 - cosw) / a0;
+    FM_DEC[k * 5 + 2] = ((1.0 - cosw) * 0.5) / a0;
+    FM_DEC[k * 5 + 3] = (-2.0 * cosw) / a0;
+    FM_DEC[k * 5 + 4] = (1.0 - alpha) / a0;
+  }
+}
+rebuildFmDecimator(SAMPLING_RATE);
+onSamplingRateChange(rebuildFmDecimator);
+
+/** One sample through the racks' low-pass: each section in transposed direct
+ *  form II, `state` its two numbers a section. */
+export function fmDecimate(state, x) {
+  for (let k = 0; k < FM_DEC_SECTIONS; k++) {
+    const c = k * 5;
+    const y = FM_DEC[c] * x + state[2 * k];
+    state[2 * k] = FM_DEC[c + 1] * x - FM_DEC[c + 3] * y + state[2 * k + 1];
+    state[2 * k + 1] = FM_DEC[c + 2] * x - FM_DEC[c + 4] * y;
+    x = y;
+  }
+  return x;
+}
 
 // ── 64-entry signed sine table (OpenMPT-style; 1407) ──
 export const MOD_SIN_TABLE = Int32Array.from([

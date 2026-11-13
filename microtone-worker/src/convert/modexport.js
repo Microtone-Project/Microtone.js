@@ -426,7 +426,9 @@ export function median(values) {
 function sampledSource(doc, inst, notes, warn) {
   let src = {
     ptr: inst.samplePtr, len: inst.sampleLength, rate: inst.samplingRate,
-    detune: inst.sampleDetuneSigned, playStart: inst.samplePlayStart,
+    // …to the sixteenth of a unit its `IPit` extension holds (§9.18): the
+    // pitch plan is continuous, so the fraction is kept, not dropped.
+    detune: inst.sampleDetuneSigned + (inst.dSampleDetune || 0), playStart: inst.samplePlayStart,
     loopStart: inst.sampleLoopStart, loopEnd: inst.sampleLoopEnd, loopMode: inst.loopMode,
     chanPtrs: [],
   };
@@ -437,7 +439,7 @@ function sampledSource(doc, inst, notes, warn) {
     if (patch !== null) {
       src = {
         ptr: patch.samplePtr, len: patch.sampleLength, rate: patch.samplingRate,
-        detune: signed16(patch.sampleDetune & 0xffff), playStart: patch.playStart,
+        detune: signed16(patch.sampleDetune & 0xffff) + (patch.dDetune || 0), playStart: patch.playStart,
         loopStart: patch.loopStart, loopEnd: patch.loopEnd, loopMode: patch.loopMode,
         chanPtrs: patch.hasChanBlock ? patch.chanPtrs.slice(0, patch.chanCount - 1) : [],
       };

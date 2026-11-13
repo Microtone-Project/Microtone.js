@@ -46,6 +46,7 @@ import {
 } from "./fmedit.js";
 import { buildMetaRecord, META_TYPE_FM } from "../../core/engine/inst.js";
 import { metaFlags } from "./metaedit.js";
+import { copyLayerPitch } from "./pitchedit.js";
 
 /** Unity on the decibel octet table (§7.10). */
 export const OCTET_UNITY = 159;
@@ -145,10 +146,12 @@ export function easyBlankEntry(mixOctet = OCTET_UNITY, detune = 0) {
   return makeMetaLayer(0, mixOctet, detune, 0x0000, 0xffff, 0, 63);
 }
 
-/** Copy an entry, dropping everything that is not the §7.4 layout's. */
+/** Copy an entry, dropping everything that is not the §7.4 layout's — or its
+ *  pitch extension's (§9.18), which is the operator's ratio to the sixteenth
+ *  of a unit and past ±8 octaves. */
 function entryOf(e) {
-  return makeMetaLayer(e.instIdx, e.mixOctet, e.detune, e.pitchStart, e.pitchEnd, e.volStart, e.volEnd,
-    e.fixedPitch === true);
+  return copyLayerPitch(makeMetaLayer(e.instIdx, e.mixOctet, e.detune, e.pitchStart, e.pitchEnd, e.volStart, e.volEnd,
+    e.fixedPitch === true), e);
 }
 
 /** A loop's constant as the model keeps it: its instrument and rectangle.
@@ -717,11 +720,18 @@ export function easyTree(model) {
  * (easyNeeds); planEasyFm is the path that makes them.
  */
 export function easyRecordOf(inst, model) {
+  return easyRackOf(inst, model)?.record ?? null;
+}
+
+/** easyRecordOf's record with the table it was packed from — whose
+ *  extensions (§9.18) are the table group the record needs beside it
+ *  (ops.js setMetaLayersOp) — or null. */
+export function easyRackOf(inst, model) {
   let compiled;
   try { compiled = easyCompile(model); } catch { return null; }
   const { ops, program } = compiled;
   if (ops.length > FM_MAX_OPERATORS || !fmValidate(program, ops.length).ok) return null;
-  return buildMetaRecord(ops, { ...metaFlags(inst), type: META_TYPE_FM, program, easy: true });
+  return { record: buildMetaRecord(ops, { ...metaFlags(inst), type: META_TYPE_FM, program, easy: true }), ops };
 }
 
 // ── the instruments Easy Mode makes ─────────────────────────────────────────
@@ -923,6 +933,93 @@ export function easyMultiplierText({ k, mult }) {
 
 /** A multiplier's key, for a select's value. */
 export const easyMultiplierKey = ({ k, mult }) => `${k}:${mult}`;
+
+// ── the multiplier in the ratio, at 65536-TET (item 319) ────────────────────
+//
+// A format-3 project writes the WHOLE multiplier into the operator's ratio:
+// the field and its `IPit` extension byte (file format §9.18) hold 4096·log₂ m
+// to the sixteenth of a unit — ×3 within 0.002 cent — and past the ±8 octaves
+// sixteen bits reach, so the oscillator stays plain and an OPL or PSG operator
+// takes ×3 as readily as a sine. A rack an earlier version wrote, its odd
+// factor in the oscillator's rate, still reads as the multiplier it plays
+// (easyRatioOf), and the first edit of the row moves the factor into the ratio.
+
+/** The ratio, in 4096-TET units on the sixteenth grid, of multiplier m. */
+export function easyMultiplierUnits({ k, mult }) {
+  return Math.round(4096 * Math.log2(k * 2 ** mult) * 16) / 16;
+}
+
+const ALL_MULTIPLIERS = [];
+const multipliersByUnits = () => {
+  if (ALL_MULTIPLIERS.length === 0) {
+    const list = easyMultipliers(EASY_HARMONIC_MAX).map((m) => ({ m, u: easyMultiplierUnits(m) }));
+    list.sort((a, b) => a.u - b.u);
+    ALL_MULTIPLIERS.push(...list);
+  }
+  return ALL_MULTIPLIERS;
+};
+
+/** How far the detune beside the first and last multipliers may reach: half
+ *  an octave, as it always could. */
+const EASY_OUTER_FINE = 2048;
+
+/**
+ * A ratio (a VALUE: the field and its extension, in 4096-TET units) as the
+ * Easy tab shows it: the multiplier nearest it, and the detune left over —
+ * {m: {k, mult}, fine}. Nearest by the ratio's own units; a tie goes to the
+ * smaller multiplier. easyFineRange is the reach of `fine` that keeps `m`.
+ */
+export function easySplitRatio(value) {
+  const list = multipliersByUnits();
+  let best = list[0];
+  for (const e of list) {
+    if (Math.abs(value - e.u) < Math.abs(value - best.u)) best = e;
+  }
+  return { m: best.m, fine: Math.round((value - best.u) * 16) / 16 + 0 };
+}
+
+/** The detunes, in 4096-TET units on the sixteenth grid, that read back as
+ *  multiplier `m` — [lo, hi], both inside. */
+export function easyFineRange(m) {
+  const list = multipliersByUnits();
+  const u = easyMultiplierUnits(m);
+  const i = list.findIndex((e) => e.u === u);
+  const q = (x) => Math.round(x * 16) / 16;
+  // A tie goes to the smaller multiplier: the midpoint below is the one under
+  // us, so we start a sixteenth above it; the one above is ours.
+  const lo = i <= 0 ? -EASY_OUTER_FINE : Math.floor(((list[i - 1].u + u) / 2) * 16) / 16 + 1 / 16 - u;
+  const hi = i < 0 || i >= list.length - 1 ? EASY_OUTER_FINE - 1 / 16 : Math.floor(((u + list[i + 1].u) / 2) * 16) / 16 - u;
+  return [q(lo), q(hi)];
+}
+
+/** The ratio value for multiplier `m` with `fine` beside it, the fine kept
+ *  inside the reach that still reads as `m`. */
+export function easyJoinRatio(m, fine) {
+  const [lo, hi] = easyFineRange(m);
+  const f = Math.round((Number(fine) || 0) * 16) / 16;
+  return easyMultiplierUnits(m) + Math.min(Math.max(f, lo), hi);
+}
+
+/**
+ * The ratio an operator SOUNDS at, as a value: its entry's ratio (field and
+ * extension), plus — for a rack an earlier version wrote — the harmonic its
+ * oscillator's rate carries. null when the oscillator is tuned by hand, which
+ * no ratio can say (the row then shows the entry's ratio alone).
+ */
+export function easyRatioOf(o, osc) {
+  const entry = o.detune + (o.dDetune || 0);
+  if (osc === null || osc === undefined) return entry;
+  const h = osc.harmonic;
+  if (h === null) return null;
+  return entry + (h.k === 1 && h.octaves === 0 ? 0 : easyMultiplierUnits({ k: h.k, mult: h.octaves }));
+}
+
+/** Does `osc` carry a multiplier of its own in its rate (a rack an earlier
+ *  version wrote), which writing the ratio has to take back out of it? */
+export function easyOscCarries(osc) {
+  const h = osc?.harmonic;
+  return !!h && (h.k !== 1 || h.octaves !== 0);
+}
 
 /** The multiplier an operator's row shows: its entry's octaves, plus the
  *  oscillator's harmonic and whatever octaves its tuning carries besides. */

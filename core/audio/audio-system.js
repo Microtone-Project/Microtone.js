@@ -55,7 +55,20 @@ const ENV_PLAYHEAD_ROLE = {
 };
 
 const WORKLET_MODULE = new URL("../worklet/taud-processor.js", import.meta.url);
+import { prepareEngineModule } from "../engine/wasm-module.js";
+
 const WORKLET_BUNDLE = new URL("../worklet/taud-processor.bundle.js", import.meta.url);
+
+/** `?engine=js` on the page's address runs the JavaScript engine instead of
+ *  the WebAssembly one (core/engine/create.js) — the way back while the C
+ *  engine is young, and the way to hear the two side by side. */
+const ENGINE_FROM_URL = (() => {
+  try {
+    return new URLSearchParams(globalThis.location?.search ?? "").get("engine") === "js" ? "js" : "wasm";
+  } catch {
+    return "wasm";
+  }
+})();
 const RENDER_WORKER = new URL("./render.worker.js", import.meta.url);
 
 export class AudioSystem {
@@ -107,7 +120,17 @@ export class AudioSystem {
    *  Test knobs: forceBundle loads the single-file worklet concat; sampleRate
    *  overrides the context rate (exercises the engine→context resampler —
    *  at the default 48 kHz the engine's rate IS the context rate). */
-  async init({ snapshotIntervalMs = 16, forceBundle = false, sampleRate = 48000, profile = false } = {}) {
+  async init({
+    snapshotIntervalMs = 16, forceBundle = false, sampleRate = 48000, profile = false,
+    engine = ENGINE_FROM_URL,
+  } = {}) {
+    this.engineKind = engine === "js" ? "js" : "wasm";
+    // The page builds engines of its own later (an export, a pattern rendered
+    // to a sample): have the module compiled off the main thread by then, so
+    // `new TaudEngine()` only has to instantiate it. Not awaited — the audio
+    // thread compiles its own copy — and a failure here is that later
+    // construction's to report.
+    prepareEngineModule().catch(() => {});
     let ctx;
     try {
       ctx = new AudioContext({ sampleRate, latencyHint: "interactive" });
@@ -133,7 +156,7 @@ export class AudioSystem {
       numberOfInputs: 0,
       numberOfOutputs: 1,
       outputChannelCount: [2],
-      processorOptions: { snapshotIntervalMs, profile },
+      processorOptions: { snapshotIntervalMs, profile, engine: this.engineKind },
     });
     this.node.port.onmessage = (e) => this._onEngineMessage(e.data);
     this.node.connect(ctx.destination);
@@ -161,7 +184,7 @@ export class AudioSystem {
         this.node.port.postMessage({ t: CMD.USE_AUDIO_SAB, sab: audioSab }); // worklet → consume
         this._postWorker({ t: CMD.USE_SAB, sab: snapSab });           // worker fills snapshots
         this._postWorker({ t: CMD.USE_AUDIO_SAB, sab: audioSab });    // worker produces into the ring
-        this._postWorker({ t: CMD.INIT, snapshotIntervalMs });
+        this._postWorker({ t: CMD.INIT, snapshotIntervalMs, engine: this.engineKind });
         this.engineTarget = this.worker; // route engine commands to the worker
         this.usingWorker = true;
       } catch (e) {
@@ -170,10 +193,10 @@ export class AudioSystem {
         this.worker = null;
         this.workerDoorbell = null;
         this.node.port.postMessage({ t: CMD.USE_SAB, sab: snapSab });
-        this.node.port.postMessage({ t: CMD.INIT, snapshotIntervalMs });
+        this.node.port.postMessage({ t: CMD.INIT, snapshotIntervalMs, engine: this.engineKind });
       }
     } else {
-      this.node.port.postMessage({ t: CMD.INIT, snapshotIntervalMs });
+      this.node.port.postMessage({ t: CMD.INIT, snapshotIntervalMs, engine: this.engineKind });
     }
     return this;
   }
@@ -342,6 +365,8 @@ export class AudioSystem {
     // The lyric instruments' lyrics (item 280) — pushed whether the file has
     // any or not, so a document without them clears the previous one's.
     this.setLyrics(doc.lyrics ?? []);
+    // The instruments' pitch extensions (§9.18) — likewise pushed either way.
+    this.setPitchExt(doc.pitchExt ?? null);
 
     for (const entry of doc.ixmp) {
       const bytes = entry.blob.slice().buffer;
@@ -411,6 +436,12 @@ export class AudioSystem {
   /** Item 280: install the project's lyrics (decoded `ILyr` entries; empty =
    *  no instrument has lyrics). */
   setLyrics(entries) { this._post({ t: CMD.SET_LYRICS, entries: entries ?? [] }); }
+  /** The project's `IPit` payload (file format §9.18), or null for none: the
+   *  engine applies each entry to its instrument, now and whenever the
+   *  instrument is uploaded again. */
+  setPitchExt(bytes) {
+    this._post({ t: CMD.SET_PITCH_EXT, bytes: bytes && bytes.length > 0 ? Uint8Array.from(bytes).buffer : null });
+  }
   /** Item 217: meter one instrument's bus for the Mixing tab (slot < 0 = off),
    *  in `seat` — one per split pane, so each pane's copy of the tab meters its
    *  own instrument. Costs nothing while off; the tab turns its seat off when

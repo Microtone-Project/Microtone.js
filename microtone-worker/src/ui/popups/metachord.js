@@ -18,9 +18,10 @@ import {
   chordPresetsFor, maxInversion, voiceUnits, UNITS_PER_OCTAVE,
 } from "../../doc/chord.js";
 import {
-  metaLayers, metaRecordOf, stackLayer, clampDetune, clampLayerPitch, META_MAX_LAYERS,
+  metaLayers, metaRecordOf, stackLayer, clampLayerPitch, META_MAX_LAYERS,
 } from "../../doc/metaedit.js";
-import { setMetaRecordOp } from "../../doc/ops.js";
+import { setMetaLayersOp } from "../../doc/ops.js";
+import { layerDetune, fitOffset } from "../../doc/pitchedit.js";
 import { ANCHOR_NOTE } from "../../../core/tuning/pitchtables.js";
 import { JAM_VOICES, JAM_VOICE_BASE } from "../../../core/engine/constants.js";
 import { noteGlyph } from "../components/noteglyph.js";
@@ -60,7 +61,8 @@ export function chordOffsets(presetId, pitchPreset, inversion = 0) {
   for (let i = 1; i < units.length; i++) {
     if (Math.abs(units[i]) < Math.abs(units[ref])) ref = i;
   }
-  return units.filter((_, i) => i !== ref).map((u) => clampDetune(u - units[ref]));
+  // Sixteenths of a unit, as a format-3 project holds a degree (§9.18).
+  return units.filter((_, i) => i !== ref).map((u) => fitOffset(u - units[ref]));
 }
 
 /**
@@ -185,7 +187,7 @@ export function showChordStack(store, metaSlot, layerIdx) {
       voiceNotes.length = 0;
       const rows = [{ d: 0, root: true }, ...use.map((o) => ({ d: o, root: false }))];
       for (const r of rows) {
-        const units = clampLayerPitch(base, base.detune + r.d);
+        const units = clampLayerPitch(base, layerDetune(base) + r.d);
         const line = el("div", "meta-chord-voice" + (r.root ? " root" : ""));
         // Spelled in the song's own notation, like every other note readout —
         // a stack built from degrees of a 31-TET table must not report itself
@@ -266,11 +268,11 @@ export function showChordStack(store, metaSlot, layerIdx) {
     okBtn.addEventListener("click", (e) => {
       e.preventDefault();
       const offsets = chordOffsets(presetId, pitchPreset, inversion)
-        .map((o) => clampLayerPitch(base, base.detune + o));
+        .map((o) => clampLayerPitch(base, layerDetune(base) + o));
       const next = stackLayer(layers, layerIdx, offsets);
       const added = next.length - layers.length;
       if (added <= 0) { finish(null); return; }
-      store.undo.apply(setMetaRecordOp(metaSlot & 0x3ff, metaRecordOf(inst, next)));
+      store.undo.apply(setMetaLayersOp(metaSlot & 0x3ff, metaRecordOf(inst, next), next));
       finish(added);
     });
     dlg.showModal();

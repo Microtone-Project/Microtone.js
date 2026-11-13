@@ -144,17 +144,19 @@
         // symlog fix: -1, 0, +1 must occupy DISTINCT, visibly-separated slider
         // positions (a pure log collapsed |v|<=1 onto the centre), and 0 must be
         // reachable at the exact centre position.
-        // The box reads cents; `$1` is one 4096-TET unit, as hex always is.
+        // The box reads cents; hex counts 65536-TET steps, so `$10` is one
+        // 4096-TET unit.
         detNum.value = "0"; fire(detNum, "change"); const posZero = Number(detRange.value);
-        detNum.value = "$1"; fire(detNum, "change"); const posP1 = Number(detRange.value);
-        detNum.value = "-$1"; fire(detNum, "change"); const posN1 = Number(detRange.value);
+        detNum.value = "$10"; fire(detNum, "change"); const posP1 = Number(detRange.value);
+        detNum.value = "-$10"; fire(detNum, "change"); const posN1 = Number(detRange.value);
         const spreadOk = posZero === 0 && posP1 === -posN1 && posP1 >= 10;
         detRange.value = 0; fire(detRange, "input");
         const zeroReachOk = inst.sampleDetuneSigned === 0;
-        // The spinner reads cents (−600 ¢ is −2048 units); the stored word is beside it.
+        // The spinner reads cents (−600 ¢ is −2048 units); the value in
+        // 65536-TET steps is beside it.
         detNum.value = "-600"; fire(detNum, "change");
         const spinnerOk = inst.sampleDetuneSigned === -2048 && /¢/.test(detNum.value) &&
-          /\$F800/.test(detRow.querySelector(".sl-ann").textContent);
+          /−\$08000/.test(detRow.querySelector(".sl-ann").textContent);
         const detOk = detWide && axisOk && maxV === 0x7fff && minV === -0x8000 &&
           zeroV === 0 && detLogOk && spreadOk && zeroReachOk && spinnerOk;
         log(`detune: wide=${detWide} axis=${axisOk} max=${maxV} min=${minV} zero=${zeroV} ` +

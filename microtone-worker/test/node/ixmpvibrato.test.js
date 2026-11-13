@@ -15,12 +15,13 @@ import { setSamplingRate } from "../../core/engine/constants.js";
 import {
   makeInstPatch, writePatchesBlob, patchVibratoInherits,
 } from "../../core/engine/inst.js";
-import { applyActiveSample } from "../../core/engine/trigger.js";
-import { Voice } from "../../core/engine/voice.js";
+import { engineParts } from "../fixtures/engine-parts.js";
 
 setSamplingRate(32000);
 
 const NOTE_C4 = 0x5000;
+
+const parts = new WeakMap(); // an instrument → the parts of the engine it is in
 
 /** One instrument with a real auto-vibrato, plus whatever patches are given. */
 function makeInst(patches) {
@@ -41,6 +42,7 @@ function makeInst(patches) {
   rec[196] = 255;    // defaultNoteVolume
   eng.uploadInstrument(1, rec);
   if (patches) eng.uploadInstrumentPatches(1, writePatchesBlob(patches));
+  parts.set(eng.instruments[1], engineParts(eng));
   return eng.instruments[1];
 }
 
@@ -55,8 +57,9 @@ function zone(fields) {
 
 /** What applyActiveSample puts on a voice for this instrument's C4. */
 function activeVibrato(inst) {
-  const v = new Voice();
-  applyActiveSample(v, inst, inst.resolvePatch(NOTE_C4, 0x3f));
+  const P = parts.get(inst);
+  const v = P.voice();
+  P.applyActiveSample(v, inst, inst.resolvePatch(NOTE_C4, 0x3f));
   return {
     speed: v.activeVibratoSpeed, sweep: v.activeVibratoSweep,
     depth: v.activeVibratoDepth, rate: v.activeVibratoRate,

@@ -28,7 +28,7 @@ import {
   bitRotate8, applyExtLevel, applyExtLevelPrev,
 } from "../../core/engine/samplemod.js";
 import { setRandomSource, makeSeededRandom } from "../../core/engine/rng.js";
-import { readSamplePoint } from "../../core/engine/sampler.js";
+import { engineParts } from "../fixtures/engine-parts.js";
 import { EffectOp } from "../../core/engine/tables.js";
 
 setSamplingRate(32000);
@@ -365,7 +365,7 @@ function renderSettled(eng, samples) {
 
 /** The byte the mixer would read at `i`, back in U8. */
 const rawOf = (eng, voice, inst) => (i) =>
-  Math.round(readSamplePoint(eng, voice, inst, i, 1000, 1 << 23) * 127.5 + 127.5);
+  Math.round(engineParts(eng).readSamplePoint(voice, inst, i, 1000, 1 << 23) * 127.5 + 127.5);
 
 test("notefx 3 confines its operation to the region it names", () => {
   const eng = makeEngine();
@@ -1015,7 +1015,7 @@ test("a step crossfades out of the mapping it replaced", () => {
     // Mid-fade a read is a genuine BLEND of the two mappings, so it need not
     // equal either byte.
     const w = voice.modXfade / MOD_XFADE_SAMPLES;
-    const mixed = readSamplePoint(eng, voice, inst, 400, 1000, 1 << 23) * 127.5 + 127.5;
+    const mixed = engineParts(eng).readSamplePoint(voice, inst, 400, 1000, 1 << 23) * 127.5 + 127.5;
     const now = (400 + inst.modRot) % 1000 & 0xff;
     const then = (400 + inst.modPrevRot) % 1000 & 0xff;
     assert.ok(Math.abs(mixed - (then * w + now * (1 - w))) < 1e-6,
@@ -1059,7 +1059,7 @@ test("the crossfade actually flattens the step a jump would otherwise cut", () =
     let prev = null;
     for (let x = MOD_XFADE_SAMPLES; x >= 0; x--) {
       voice.modXfade = x;
-      const v = readSamplePoint(eng, voice, inst, 400, 1000, 1 << 23) * 127.5 + 127.5;
+      const v = engineParts(eng).readSamplePoint(voice, inst, 400, 1000, 1 << 23) * 127.5 + 127.5;
       if (prev !== null) {
         assert.ok(Math.abs(v - now) <= Math.abs(prev - now) + 1e-9,
           `sample ${x} moved away from the new mapping (${prev} → ${v}, target ${now})`);

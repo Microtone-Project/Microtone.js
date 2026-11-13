@@ -115,30 +115,35 @@
         check("multiplier ×2 is +4096 on operator 1's detune", decode(slot).model.ops[1].detune === 4096);
         check("the multiplier is explained on the tab", /×3 an octave and a fifth/.test(iv.panel.querySelector(".fm-easy-hint")?.textContent ?? ""));
 
-        // ── ×3: the odd factor goes into the oscillator's rate, exactly ──
+        // ── ×3: the whole multiplier goes into the operator's ratio, to the
+        //    sixteenth of a unit (item 319, file format §9.18); the oscillator
+        //    stays plain ──
         const op0Slot = decode(slot).model.ops[0].instIdx & 0x3ff;
         const undoDepth = store.undo.undoStack.length;
+        const ratio0 = () => { const o = decode(slot).model.ops[0]; return o.detune + o.dDetune; };
+        const q16 = (u) => Math.round(u * 16) / 16;
         const m3 = iv.panel.querySelectorAll(".fm-easy-table tbody tr")[0].querySelector("select.fm-easy-mult");
         m3.value = "3:0";
         m3.dispatchEvent(new win.Event("change"));
         await sleep(100);
         const osc0 = fe.easyOscOf(store.doc.instruments[op0Slot]);
-        check("×3 tunes operator 0's oscillator to harmonic 3, leaving the entry at no octaves",
-          osc0.harmonic?.k === 3 && osc0.harmonic.octaves === 0 && decode(slot).model.ops[0].detune === 0);
+        check("×3 is 4096·log₂3 in operator 0's ratio, its oscillator left at harmonic 1",
+          osc0.harmonic?.k === 1 && ratio0() === q16(4096 * Math.log2(3)));
         check("…and the row reads ×3",
           iv.panel.querySelectorAll(".fm-easy-table tbody tr")[0].querySelector("select.fm-easy-mult").selectedOptions[0].textContent === "×3");
         const m6 = iv.panel.querySelectorAll(".fm-easy-table tbody tr")[0].querySelector("select.fm-easy-mult");
         m6.value = "5:1";
         m6.dispatchEvent(new win.Event("change"));
         await sleep(100);
-        check("×10 is harmonic 5 and one octave, written as one undo step",
-          fe.easyOscOf(store.doc.instruments[op0Slot]).harmonic?.k === 5 && decode(slot).model.ops[0].detune === 4096 &&
+        check("×10 is 4096·log₂10 in the ratio, one undo step",
+          fe.easyOscOf(store.doc.instruments[op0Slot]).harmonic?.k === 1 && ratio0() === q16(4096 * Math.log2(10)) &&
           store.undo.undoStack.length === undoDepth + 2);
+        check("…which the project carries as an IPit section", store.doc.pitchExt() !== null);
         store.undo.undo(); store.undo.undo();
         iv.renderPanel();
         await sleep(100);
-        check("…and undo puts the oscillator and the entry back",
-          fe.easyOscOf(store.doc.instruments[op0Slot]).harmonic?.k === 1 && decode(slot).model.ops[0].detune === 0);
+        check("…and undo puts the entry back",
+          fe.easyOscOf(store.doc.instruments[op0Slot]).harmonic?.k === 1 && ratio0() === 0);
 
         // ── phase: the oscillator's play start ──
         const phase = iv.panel.querySelectorAll(".fm-easy-table tbody tr")[0].querySelector('.fm-phase input[type="range"]');
@@ -197,7 +202,7 @@
           mf.ops.every((o, k) => k === 3 || !o.fixedPitch));
         check("…the rack still reads as preset 9", fe.easyPresetOf(mf) === 9);
         check("…and the multiplier gives way to a note field",
-          /^\$[0-9A-F]{4}$/.test(easyRow(3).querySelector(".fm-easy-freq input")?.value ?? ""));
+          /^−?\$[0-9A-F]{5,6}$/.test(easyRow(3).querySelector(".fm-easy-freq input")?.value ?? "")); // 65536-TET steps
         easyRow(3).querySelector(".fm-easy-freq button.meta-fixed").click();
         await sleep(150);
         check("…and switching it off puts the multiplier back",

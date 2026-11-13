@@ -180,8 +180,10 @@
         pitch.value = "-700";
         pitch.dispatchEvent(new win.Event("change"));
         await sleep(30);
-        log(`partner pitch −700 cents is ${inst().opl.partnerDetune} units: ` +
-          ok(inst().opl.partnerDetune === Math.round(-700 * 4096 / 1200)));
+        // To the sixteenth of a unit, the extension holding the fraction (§9.18).
+        const pv = inst().opl.partnerDetune + inst().opl.dPartnerDetune;
+        log(`partner pitch −700 cents is ${pv} units: ` +
+          ok(pv === Math.round(-700 * 4096 / 1200 * 16) / 16));
         kindBtn("Bass drum").click();
         await waitFor(() => inst().opl.kind === 2);
         await sleep(30);

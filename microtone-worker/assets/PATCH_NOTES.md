@@ -4,6 +4,37 @@ Every entry below is one version of Microtone, newest first, with the date it wa
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone-project/Microtone.js).
 
+## Version 5.0.0 (2026-11-13)
+
+**Microtone has a new engine: the same one, rewritten in C and run as WebAssembly, and faster in every browser.** Everything that makes sound goes through it: playback, jamming, every preview, audio export, stems and surround, Pattern to Sample and Motif builds.
+
+- Playing a song takes less of the processor: measured on the demo songs, the engine is at least one and a half times as fast as before in Chrome, two and a half times in Firefox, and a little faster in the desktop app on Linux. A dense song that crackled on a slow machine has that much more room.
+- Songs sound as they did. One thing is computed differently on purpose: the default (sinc) interpolation now reads its table at the nearest of 1024 positions below the playhead instead of blending two entries, which is where part of the speed comes from. The difference is some 70 dB below the music, under the noise of an 8-bit sample.
+- The engine is the same bits everywhere now. It carries its own mathematics instead of the browser's, so a song renders to the identical file in Chrome, Firefox, Safari, the desktop app and the player libraries, whatever the machine.
+- Microtone Touch and the desktop app run the same engine.
+- The `taudplay` JavaScript library is version 5.0.0 and runs this engine too, with the API it had; `libtaudplay`, the C library, is no longer a port of the engine but its source.
+- Fixed: a note lying between two 4096ths of an octave, which the built-in tuning systems now write, could fall into the gap between two keyboard zones of a sampled instrument and play its base sample instead; a zone, a layer's range and an operator's range now run through the whole of their last step.
+
+**FM instruments are computed at 192 kHz inside, so a hard-driven patch no longer aliases.** A deep modulation makes partials far above what the output can hold, and they used to fold back into the audible range as tones that belong to no harmonic of the note.
+
+- An FM rack now runs at four times the usual 48 kHz (the smallest whole multiple of the engine's rate that reaches 192 kHz) and is filtered down to the output: in a patch driven hard, the folded tones are more than 20 dB quieter than before. A gentle patch sounds as it did.
+- Feedback loops close at that rate too, so an operator that feeds itself back changes its tone a little.
+- An operator's own filter keeps the cutoff you set; an OPL or a PSG instrument used as an operator still runs on its chip's own clock.
+- An FM instrument costs about four times the processor per operator that it did, so a song made mostly of FM instruments is heavier than before; songs without them are not affected.
+
+**An instrument's pitches are as fine as its notes now: 65536 steps to the octave.** A detune, a keyboard zone's or a layer's pitch range, a fixed pitch, the pitch-pan centre and an FM operator's ratio all keep sixteenths of a 4096-TET step, so they can sit exactly on a degree of the song's tuning system instead of up to 0.15 cent beside it.
+
+- The pitch boxes count those 65536 steps, as the note column does: in hex (`$50000` is C4) or as a plain decimal number. Cents and ratios go straight onto the nearest step, so typing `5/4` lands within 0.002 cent of a just major third, and the cents boxes show a hundredth of a cent where a pitch falls between two 4096ths.
+- A fixed-pitch layer or a fixed-frequency operator can sit below C0 (`−$10000` is an octave below it), and an operator's ratio can reach past eight octaves.
+- The top of a pitch range is the last step inside it: a note name or a press of + or − takes the whole of a 4096th, as before (`C-4` as a top is `$5000F`), and a typed step count is taken as it is.
+- Reordering, duplicating or removing layers, operators and zones, copying or importing an instrument, renumbering it, and undo all keep each pitch's fine part with it.
+- The song's tuning base note stays on the 4096-step grid.
+
+**FM Easy Mode writes the whole multiplier into the operator's ratio.** ×3, ×5 and every other whole number to ×31 is within 0.002 cent of exact, on every kind of operator: an OPL or PSG instrument used as an operator takes ×3 as readily as a sine, which it could not before.
+
+- An operator's waveform is no longer retuned to carry an odd multiplier. A rack made by an earlier version still plays as it did, and the next multiplier or detune you choose on its Easy tab moves the multiplier into the ratio.
+- Fixed: the detune beside a multiplier would not go past 600 cents, as it was held to half an octave. It now takes any amount; one past halfway to the next multiplier is shown from that one, at the same pitch.
+
 ## Version 4.10.0 (2026-11-11)
 
 **Every project is now in format 3, and every note can be tuned to a 65536th of an octave.** Format 3's wider pattern cell used to be for surround songs only; now it is the format every project is written in, stereo ones included, and its note column carries four more bits of pitch: sixteen times finer than before.

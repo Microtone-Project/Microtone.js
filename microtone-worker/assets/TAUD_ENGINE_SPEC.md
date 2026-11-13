@@ -2,7 +2,7 @@
 
 This document defines the **Taud playback engine**: how a conforming implementation turns the structures of a Taud file into audio. It covers timing, pitch, the trigger path, envelopes, the sampler, filters, mixing, the spatial model and the output stage. It does **not** define the file layout (see the **Taud File Format Specification**) or the effect column (see the **Note Effects** reference); it defines everything those two documents assume.
 
-The **reference implementation** is the Microtone web engine. Its renders are the worked examples conformance is measured against ([§13](#13-determinism)), and where it and this document disagree, one of the two has a defect to fix — neither is a licence for an implementation to differ. The TSVM Audio Adapter's engine follows the reference implementation.
+The **reference implementation** is the Microtone web engine. Its renders are the worked examples conformance is measured against ([§13](#13-determinism)), and where it and this document disagree, one of the two has a defect to fix — neither is a licence for an implementation to differ. It is written in C — compiled to WebAssembly for the browser, and the same sources are the `libtaudplay` player library — and carries its own `pow`, so its renders are the same bits on every machine. The TSVM Audio Adapter's engine follows the reference implementation.
 
 Taud is a ScreamTracker 3-lineage tracker extended with 16-bit effect arguments and a 4096 tone-equal-temperament pitch grid. Where behaviour has an ancestor, this document names it — ImpulseTracker (via Schism Tracker's mixer), FastTracker 2 (via MilkyTracker), ProTracker, SoundFont 2 (via FluidSynth). Those lineages are the *reason* for many rules that would otherwise look arbitrary, and an implementation that follows the rule but not the lineage will drift on real songs.
 
@@ -125,7 +125,7 @@ playback_rate = (sampling_rate ÷ rate)
               × tuning_ratio
 ```
 
-where `sampling_rate` and `detune` come from the voice's **active sample** — the base instrument record, or the Ixmp patch this trigger resolved to ([§5.4](#5-4-patch-resolution)). `note` is the final per-tick pitch after slides, arpeggio, vibrato and the pitch envelope.
+where `sampling_rate` and `detune` come from the voice's **active sample** — the base instrument record, or the Ixmp patch this trigger resolved to ([§5.4](#5-4-patch-resolution)), the detune with its extension if it has one ([File Format §9.18](TAUD_FILE_FORMAT.md#9-18-ipit-pitch-extensions)). `note` is the final per-tick pitch after slides, arpeggio, vibrato and the pitch envelope. A layer's or an operator's voice adds one more term to the exponent's sum, its **pitch excess** ([§5.5](#5-5-metainstruments)), which is zero for every other voice.
 
 Because that pitch is a per-*tick* quantity and the sample position advances per *sample*, the rate computed here is a **target**: what the sampler actually steps by glides toward it ([§8.7](#8-8-the-pitch-glide)).
 
@@ -323,7 +323,7 @@ A carried envelope keeps its current *value* too — the walker re-reads it from
 
 ### 5.4 Patch resolution
 
-If the instrument carries Ixmp patches, the engine walks the list **in order** and takes the **first** patch whose pitch × volume rectangle contains the trigger. When nothing matches, the base record's fields are used unchanged. Because the first match wins, patch order is significant and a fully covered patch is dead weight.
+If the instrument carries Ixmp patches, the engine walks the list **in order** and takes the **first** patch whose pitch × volume rectangle contains the trigger. A pitch range runs through the whole of the last unit it names: a trigger at pitch `p` is inside `S`…`E` when `S ≤ p < E + 1`, so that a pitch between two 4096-TET units — which a wide cell can write — is never between two zones that meet ([File Format §9.11](TAUD_FILE_FORMAT.md#9-11-ixmp-patch-records); the bounds with their extensions, where they have them). The same test gates a layer and an operator. When nothing matches, the base record's fields are used unchanged. Because the first match wins, patch order is significant and a fully covered patch is dead weight.
 
 The volume axis used for the lookup is the *pre-patch* seed: the volume column's SET if present; otherwise the instrument's default note volume if the row carried an instrument byte; otherwise the voice's current note volume. Using the post-patch volume would make the lookup depend on its own result.
 
@@ -363,6 +363,8 @@ Otherwise the first surviving layer sounds on the foreground voice and every fur
 - the **gating rectangle is unaffected** — it still asks about the trigger, so a fixed-pitch layer covers the keys its rectangle covers and simply plays its own note within them;
 - the *relative* detune a child carries is the difference between the two layers' **sounding notes**, not between their detune fields, which is what keeps the arrangement intact when layer 0 is the fixed one. Where neither layer is fixed the two are identical, so nothing about an existing file changes.
 
+**An entry's pitch is not confined to a note value.** A detune, an operator's ratio or a fixed pitch may put the pitch an entry sounds outside `$0020`…`$FFFF` — far outside, with a pitch extension ([File Format §9.18](TAUD_FILE_FORMAT.md#9-18-ipit-pitch-extensions)): a fixed-frequency operator at a fraction of a hertz is written that way. The voice's note value is then that pitch clamped to `$0020`…`$FFFF`, as it always was, and the difference — the pitch minus the clamped value — is the voice's **pitch excess**, which the playback rate adds back ([§3.2](#3-2-playback-rate)). It is set at the trigger, from the entry's whole pitch; a melodic child's is set again at every per-tick sync, from the parent's whole pitch (its note value plus its own excess) plus the child's relative detune; a fixed-pitch entry keeps the one its trigger gave it; and a voice that is nobody's layer or operator has none. Everything that reads a note value — patch resolution, slides, the pitch-pan rule — reads the clamped one. An OPL or a PSG instrument sounds the pitch its chip can, from the note value alone.
+
 A fixed-pitch child then does **not** track the parent's note in the per-tick sync below: it holds the note it was triggered at for the whole note. Everything else in that sync still reaches it — key-off, fading, the volumes, both pan axes, and the pattern's **pitch overlay**, so a vibrato written on the lane still bends it. What the flag takes away is the keyed note, not the pattern's reach over the note.
 
 **A Layered metainstrument is a soundfield, and layer 0 is where it sits.** A layer's own default position ([§5.3.1](#5-3-1-the-default-position)) is not kept as an absolute place but as a **relative** one: the engine records how far the layer sits from layer 0's own position and holds that distance for the whole note. This is the pan twin of the relative detune beside it, and it has the same consequence — a note-pan SET, or anything else that moves the meta, **rotates** the whole arrangement instead of collapsing it onto one point. A layer that declares no position of its own has no opinion about where it sits relative to the centre, so its offset is zero and it simply rides wherever the meta goes.
@@ -389,7 +391,7 @@ An operator's **oscillator is an ordinary instrument** — sample, loop, envelop
 
 An operator voice is **not** a layer child in two respects. It carries no position of its own: a rack is one signal, sitting where the lane sits, so an operator's own default pan is not read and nothing pulls the rack sideways. And it is never mixed: the mixer **MUST** skip it, because the rack that owns it already read it.
 
-**Reading an operator.** Each sounding operator is evaluated **at most once per output sample**, in the order the algorithm reaches it, through the ordinary sampler ([§8](#8-the-sampler)) — loops, interpolation, invert loop, funk repeat and the sample modifications included. Its value is that sample times its own mix gain and, for every operator except 0, its own volume envelope, fadeout, instrument global volume, initial attenuation and anti-click ramps, with its own filter applied. That list is exhaustive, and what it leaves out is the point: the note and lane volume are **NOT** applied to an operator. A rack is one voice, the mixer applies those to the finished patch through operator 0, and an operator's level is a modulation INDEX — applying the volume column to a modulator as well would make a patch played quietly also play duller. **Operator 0's envelope, fadeout, instrument global volume, filter and voice effects are applied by the mixer to the finished patch instead** — it is the lane's own voice, and that is what makes it the principal: its envelope is the note's shape and its sample ending is the note's end.
+**Reading an operator.** Each sounding operator is evaluated **at most once per run of the algorithm** — which is several times an output sample ([below](#the-rack-s-own-rate)) — in the order the algorithm reaches it, through the ordinary sampler ([§8](#8-the-sampler)) — loops, interpolation, invert loop, funk repeat and the sample modifications included. Its value is that sample times its own mix gain and, for every operator except 0, its own volume envelope, fadeout, instrument global volume, initial attenuation and anti-click ramps, with its own filter applied. That list is exhaustive, and what it leaves out is the point: the note and lane volume are **NOT** applied to an operator. A rack is one voice, the mixer applies those to the finished patch through operator 0, and an operator's level is a modulation INDEX — applying the volume column to a modulator as well would make a patch played quietly also play duller. **Operator 0's envelope, fadeout, instrument global volume, filter and voice effects are applied by the mixer to the finished patch instead** — it is the lane's own voice, and that is what makes it the principal: its envelope is the note's shape and its sample ending is the note's end.
 
 **Phase modulation.** A `$04xx` word pops a value *m* and reads its operator at
 
@@ -412,9 +414,43 @@ An operator whose instrument is a **PSG instrument** is its oscillator pair ([§
 
 Every other part of an operator's value — its own envelopes, fadeout, global volume, initial attenuation and filter for an operator past the first, the anti-click ramps, the mixer's treatment of operator 0 — is as for any operator. An OPL channel that can no longer sound ends its operator, as a one-shot's end does; for operator 0 that is the end of the note.
 
-**The stack.** Words run in order, every word every sample; the value left on the stack at the end is the patch. `$08xx` pushes what its operator produced on the *previous* output sample, and every operator's tap advances together after the whole program has run — so a tap reads last sample's value wherever it sits, which is what lets a rack close a feedback loop in one pass. `$08xx` on an operator the algorithm does not sound reads 0.
+**The stack.** Words run in order, every word every run; the value left on the stack at the end is the patch. `$08xx` pushes what its operator produced on the *previous* run — the previous sub-step, at the rack's own rate ([below](#the-rack-s-own-rate)) — and every operator's tap advances together after the whole program has run, so a tap reads the last run's value wherever it sits, which is what lets a rack close a feedback loop in one pass. `$08xx` on an operator the algorithm does not sound reads 0.
 
-**Cost.** A rack costs one voice against the lane plus one background voice per sounding operator beyond the first, and one sample fetch per sounding operator per output sample. A released rack keeps that whole cost for as long as it rings, because what rings is the rack and not a snapshot of it. Unlike a layered metainstrument, none of it reaches the mix as a separate source: however many operators a rack has, it is one note in one place.
+##### The rack's own rate
+
+A modulated carrier has partials far above the engine's Nyquist frequency, and at the engine's own rate every one of them folds back into the audible band as a tone that belongs to no harmonic. So **a rack runs faster than the engine**: at `N × rate`, where `N` is the smallest whole number for which that reaches **192 kHz** — 4 at 48 kHz, 6 at 32 kHz, 5 at 44.1 kHz — and at most 8. With `N = 1` (an engine at 192 kHz or above) nothing in this subsection applies and the algorithm's value is the output sample.
+
+For each output sample the algorithm runs `N` times, a **sub-step** each, and what it leaves on the stack each time goes through a low-pass; the rack's output sample is the low-pass's output after the last sub-step. Within a sub-step:
+
+- **A sample-playing operator** is read through the sampler at its position — with the phase modulation that sub-step gives it — and then moves on by `current_playback_rate ÷ N`. What the sampler counts in output samples (funk repeat's and the sample modifications' crossfades, [§8.4](#8-4-invert-loop-and-funk-repeat)) counts once an output sample, on the last sub-step.
+- **A chip operator** (OPL, PSG) is its chip, on the chip's own clock: it is evaluated on the first sub-step, with that sub-step's modulation, and its value is held for the rest.
+- **A feedback tap** reads the previous sub-step, so a loop closes at the rack's rate.
+- **An operator past the first** has its filter applied on every sub-step, with coefficients computed for a sampling rate of `N × rate` — so its cutoff is where it was written — while everything that shapes its *level* (its envelope, fadeout, global volume, attenuation and anti-click ramps, and the step of a SoundFont filter's glide) is evaluated on the first sub-step and held for the frame. Its pitch glide ([§8.8](#8-8-the-pitch-glide)) steps once an output sample, **after** the last sub-step: every sub-step of one output sample moves an operator by the same rate, as operator 0's do.
+- **Operator 0** is otherwise untouched by all this: the mixer applies its envelope, filter and effects to the rack's output sample, at the engine's rate, as before.
+
+The low-pass is an **eighth-order Butterworth at 0.45 × rate**, designed at the rack's rate: four second-order sections, `k` = 0…3, run in that order,
+
+```
+Q   = 1 ÷ (2 cos((2k + 1) π ÷ 16))
+w   = 2π × 0.45 ÷ N
+α   = sin w ÷ (2 Q)
+b0  = b2 = ((1 − cos w) ÷ 2) ÷ (1 + α)
+b1  = (1 − cos w) ÷ (1 + α)
+a1  = −2 cos w ÷ (1 + α)
+a2  = (1 − α) ÷ (1 + α)
+```
+
+each in transposed direct form II on its own two numbers of state, `z1` and `z2`:
+
+```
+y  = b0 × x + z1
+z1 = b1 × x − a1 × y + z2
+z2 = b2 × x − a2 × y
+```
+
+The state is zero at a trigger and travels with a ghosted rig. The filter is minimum-phase on purpose — its delay is under two output samples in the pass band — so that the rack's output stays in step with what the mixer does to it: operator 0's envelope and anti-click ramps are applied to the sample they were computed for, and an Easy Mode rack sounds as the plain rack it wraps.
+
+**Cost.** A rack costs one voice against the lane plus one background voice per sounding operator beyond the first, and `N` sample fetches per sounding operator per output sample. A released rack keeps that whole cost for as long as it rings, because what rings is the rack and not a snapshot of it. Unlike a layered metainstrument, none of it reaches the mix as a separate source: however many operators a rack has, it is one note in one place.
 
 **A DSP-only principal.** Operator 0 is **DSP-only** when the program's last two words are `$0000 $FF01` and no other word names operator 0, in any class: the whole patch is multiplied by it and it is read nowhere else. Its instrument is then the instrument's shared processing and not one of its oscillators — a constant (an editor's Easy Mode writes a looped sample of `$FF`, at rate 0 so the read never leaves its first frame and the interpolator returns exactly 1.0), whose envelope, filter and pan the mixer applies to the finished patch as it applies any principal's. Nothing in playback changes for it: the rule exists for **`S $Apsd`** ([Note Effects](TAUD_NOTE_EFFECTS.md), Instrument Sound Control), which on a live rack sets operator *k*'s active auto-vibrato speed to `s × 17` and depth to `d × 17` for the note, *k* = *p* + 1 when the principal is DSP-only and *k* = *p* otherwise; an operator that is not sounding, or *k* past the rack's end, takes nothing. On a rack the command is the rack's alone, so a PSG operator in it takes no register write from it.
 
@@ -1365,7 +1401,7 @@ The interpolation mode comes from the global behaviour flags and applies to ever
 
 | Mode | Algorithm |
 |---|---|
-| 0 — default | Windowed sinc: a Hann-windowed sinc kernel over ±3 taps, tabulated at 1024 sub-sample positions and linearly interpolated between table entries |
+| 0 — default | Windowed sinc: a Hann-windowed sinc kernel three samples wide each way, tabulated at 1024 sub-sample phases and read at the phase the position falls in ([below](#the-windowed-sinc)) |
 | 1 — none | Zero-order hold — take the sample under the integer position |
 | 2 — Amiga 500 | Zero-order hold, plus a post-mix one-pole low-pass at 4420.971 Hz and the optional LED filter |
 | 3 — Amiga 1200 | Zero-order hold, plus the optional LED filter only: the A1200's own one-pole sits at ~34 kHz, above Nyquist at any rate the engine runs at, and is bypassed |
@@ -1375,6 +1411,27 @@ The interpolation mode comes from the global behaviour flags and applies to ever
 The Amiga LED filter is a second-order section at 3090.533 Hz with Q = 0.660225, toggled by `S $00` / `S $01` and applied to the **stereo mix**, not per voice. It is available only in the two Amiga modes.
 
 SNES and NES DPCM modes carry per-voice state (the DPCM counter), and a stereo voice keeps a separate counter per channel.
+
+#### The windowed sinc
+
+The kernel is a table, and a voice reads it **without interpolating between its entries**. `T(i)` is the kernel `i ÷ 1024` samples from its centre:
+
+```
+T(0) = 1
+T(i) = sin(π i ÷ 1024) ÷ (π i ÷ 1024) × (0.5 + 0.5 cos(π i ÷ 3072)),   i = 1…3071
+T(i) = 0,                                                             i ≥ 3072
+```
+
+A voice at sample position `pos` takes `i0 = trunc(pos)` clamped to the sample (`0`…`length − 1`) and the **phase** `q = floor((pos − i0) × 1024)`, and sounds
+
+```
+out = Σ s(i0 + j) × T(|1024 j − q|),   j = −3, −2, … +3
+```
+
+- `s(n)` is the sample's byte `n` as a number, `(byte − 127.5) ÷ 127.5`; an `n` outside the sample reads the nearest byte it has.
+- The terms are added in ascending `j`, starting from zero — the order is part of the result ([§13](#13-determinism)).
+- Inside a sample `q` is 0…1023 and tap −3 lies where the kernel is zero, so six bytes are read, with the six coefficients of that phase. A position past the sample's end (a funk-repeat window may reach there) has a larger `q` and reaches only the taps still within three samples of it; past those the voice is silent.
+- The phase is taken **downwards**: not rounded, and not blended with the next one. What that costs is a timing error of under 1⁄1024 of a sample, some 70 dB below the signal — beneath the noise an 8-bit sample carries — and what it buys is a kernel of six table reads.
 
 ### 8.4 Invert loop and funk repeat
 

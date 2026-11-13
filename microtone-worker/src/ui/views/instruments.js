@@ -12,11 +12,17 @@ import {
   setInstFieldOp, setInstBytesOp, setEnvDragOp, setEnvPointOp, setEnvArrayOp,
   setMetaRecordOp, setSectionOp, renumberInstrumentOp, deleteInstrumentOp,
   importBankOp, compositeOp, syncBaseStereoPatchOp, rebindBaseStereoPatchOp,
+  setMetaLayersOp, withPitchExtOp,
 } from "../../doc/ops.js";
+import {
+  layerDetune, layerLow, layerHigh, layerDetuneFields, layerLowFields, layerHighFields,
+  OFFSET_EXT_MIN, OFFSET_EXT_MAX, instDetune, instPanCentre, splitOffset, splitNote, baseExtWith,
+  patchExtWith,
+} from "../../doc/pitchedit.js";
 import {
   metaLayers, metaRecordOf, metaFlags, metaRecordWithFlags,
   duplicateLayer, removeLayer, moveLayer, patchLayer,
-  linkCount, clampDetune, fixedPitchFields, META_MAX_LAYERS,
+  linkCount, clampDetune, clampLayerPitch, fixedPitchFields, META_MAX_LAYERS,
 } from "../../doc/metaedit.js";
 import { VEL_SHOWN_MAX, velShown, velStored } from "../../doc/velaxis.js";
 import { volEnvMaxOf } from "../../doc/volenv.js";
@@ -49,7 +55,8 @@ import {
 import { mapSpinner, setMapped, parsePitchText } from "../components/spinner.js";
 import { hzSpinnerMap } from "../components/hzspinner.js";
 import {
-  MIX_DB_MAP, centsMap, pitchHexMap, hexMap, sfResoDbMap, centsOfUnits, unitsOfCents,
+  MIX_DB_MAP, centsMap, hexMap, sfResoDbMap, centsOfUnits, unitsOfCents,
+  widePitchMap, stepsText, stepsHex,
 } from "../spinmaps.js";
 import { dragGrip, focusGrip } from "../components/dragsort.js";
 import { lampButton } from "../components/lampbutton.js";
@@ -1139,7 +1146,8 @@ export class InstrumentsView {
 
     let gid = null;
     const commit = (v, g) => {
-      v = clampN(Math.round(v), min, max);
+      // `fine`: a pitch at 65536-TET keeps its sixteenths of a unit (§9.18).
+      v = clampN(opts.fine ? Math.round(v * 16) / 16 : Math.round(v), min, max);
       if (opts.map) setMapped(num, v); else num.value = v;
       range.value = toPos(v); paint(v);
       onChange(v, g);
@@ -1363,20 +1371,28 @@ export class InstrumentsView {
    *  the ±8-octave extremes still reachable — with an editable signed spinner
    *  plus hex-word and cents readout (taut.js detuneRow). */
   detuneRow(inst) {
-    const min = -0x8000, max = 0x7fff;
-    const value = inst.sampleDetuneSigned;
+    const min = -0x8000, max = 0x7fff + 15 / 16;
+    const value = instDetune(inst);
     // The box reads cents and steps degrees of the song's notation (spinmaps
-    // centsMap); the stored word, in 4096-TET units, is the readout beside it.
-    const ann = (v) => `$${(v & 0xffff).toString(16).toUpperCase().padStart(4, "0")} · 4096-TET`;
+    // centsMap); the value in 65536-TET steps — the field and its `IPit`
+    // extension together (§9.18) — is the readout beside it, in hex.
+    const ann = (v) => `${stepsHex(v)} · 65536-TET`;
     return this.sliderRow(t("inst.detune"), value, min, max,
       (v, gid) => {
-        const nv = v & 0xffff;
-        const sync = syncBaseStereoPatchOp(this.store.doc, this.selected, { sampleDetune: nv }, gid);
-        this.applyQuiet(sync
-          ? compositeOp([setInstFieldOp(this.selected, "sampleDetune", nv, gid), sync], gid)
-          : setInstFieldOp(this.selected, "sampleDetune", nv, gid));
+        const slot = this.selected;
+        const cur = this.store.doc.instruments[slot];
+        const { field, ext } = splitOffset(v);
+        const nv = field & 0xffff;
+        const sync = syncBaseStereoPatchOp(this.store.doc, slot, { sampleDetune: nv }, gid);
+        const groups = { base: baseExtWith(cur, 0, ext) };
+        // The base stereo patch mirrors the detune, extension and all.
+        const bi = sync ? baseStereoPatchIndex(cur) : -1;
+        if (bi >= 0) groups.patches = patchExtWith(cur, bi, 2, ext);
+        this.applyQuiet(withPitchExtOp(sync
+          ? compositeOp([setInstFieldOp(slot, "sampleDetune", nv, gid), sync], gid)
+          : setInstFieldOp(slot, "sampleDetune", nv, gid), slot, groups, gid));
       },
-      { ann, wide: true, signedLog: true, map: centsMap(this.store.pitchPreset, min, max), title: t("inst.detuneTitle") });
+      { ann, wide: true, signedLog: true, fine: true, map: centsMap(this.store.pitchPreset, min, max, true), title: t("inst.detuneTitle") });
   }
 
   /**
@@ -1434,9 +1450,14 @@ export class InstrumentsView {
       ...this.defaultPositionRows(inst),
       this.sliderRow(t("inst.pitchPanSep"), inst.pitchPanSeparation, -128, 127, fSet("pitchPanSeparation"), { title: t("inst.pitchPanSepTitle") }),
       this.sliderRow(t("inst.panSwing"), inst.panSwing, 0, 255, fSet("panSwing"), { ann: annHex2, title: t("inst.panSwingTitle") }),
-      this.sliderRow(t("inst.pitchPanCentre"), inst.pitchPanCentre, 0, 0xffff, fSet("pitchPanCentre"), {
-        map: pitchHexMap(this.store.pitchPreset), title: t("inst.pitchPanCentreTitle"),
-        annNode: (v) => noteGlyph(clampN(v, 0x20, 0xffff), this.store.pitchPreset),
+      this.sliderRow(t("inst.pitchPanCentre"), instPanCentre(inst), 0, 0xffff + 15 / 16, (v, gid) => {
+        const slot = this.selected;
+        const { field, ext } = splitNote(v);
+        this.applyQuiet(withPitchExtOp(setInstFieldOp(slot, "pitchPanCentre", field, gid), slot,
+          { base: baseExtWith(this.store.doc.instruments[slot], 1, ext) }, gid));
+      }, {
+        map: widePitchMap(this.store.pitchPreset, { min: 0, max: 0xffff + 15 / 16 }), title: t("inst.pitchPanCentreTitle"),
+        fine: true, annNode: (v) => noteGlyph(clampN(v, 0x20, 0xffff + 15 / 16), this.store.pitchPreset),
       }),
       // Pan LOOP word bit 7 = "use default pan" (engine trigger.js:280).
       this.checkRow(t("inst.useDefaultPan"), ((inst.panEnvLoop >> 7) & 1) !== 0,
@@ -2009,7 +2030,7 @@ export class InstrumentsView {
    *  setMetaRecordOp's job, not setMetaBytesOp's. */
   applyMetaLayers(slot, layers) {
     const inst = this.store.doc.instruments[slot];
-    this.store.undo.apply(setMetaRecordOp(slot, metaRecordOf(inst, layers)));
+    this.store.undo.apply(setMetaLayersOp(slot, metaRecordOf(inst, layers), layers));
     this.refresh();
   }
 
@@ -2049,7 +2070,7 @@ export class InstrumentsView {
     if (title) inp.title = title;
     inp.dataset.mtDecTitle = t("meta.detuneDownTitle");
     inp.dataset.mtIncTitle = t("meta.detuneUpTitle");
-    mapSpinner(inp, centsMap(this.store.pitchPreset, min, max), units);
+    mapSpinner(inp, centsMap(this.store.pitchPreset, min, max, true), units);
     inp.addEventListener("change", () => onCommit(inp.rawValue));
     return inp;
   }
@@ -2058,20 +2079,14 @@ export class InstrumentsView {
    *  note word (items 179, 266) — typed as `$5000` or as `C-4` and stepped by
    *  degrees of the song's own pitch table, as the detune beside it is. */
   fixedNoteInput(note, onCommit, title = "") {
-    const preset = this.store.pitchPreset;
     const inp = document.createElement("input");
     inp.className = "meta-num";
     if (title) inp.title = title;
     inp.dataset.mtDecTitle = t("meta.detuneDownTitle");
     inp.dataset.mtIncTitle = t("meta.detuneUpTitle");
-    mapSpinner(inp, {
-      toDisplay: (n) => annHex4(n),
-      fromDisplay: (text) => {
-        const v = parseFieldValue("note", text);
-        return clampN(v === null ? ANCHOR_NOTE : v, 0x20, 0xffff);
-      },
-      step: (n, dir) => stepNoteInTable(clampN(n, 0x20, 0xffff), preset, dir),
-    }, note);
+    // A note at 65536-TET with the extension's octaves (file format §9.18),
+    // in steps: `$51555`, and an octave below C0 `−$10000`.
+    mapSpinner(inp, widePitchMap(this.store.pitchPreset), note);
     inp.addEventListener("change", () => onCommit(inp.rawValue));
     return inp;
   }
@@ -2084,15 +2099,17 @@ export class InstrumentsView {
   }
 
   /** One end of a layer's or operator's pitch range, as `$xxxx` (spinmaps
-   *  pitchHexMap): typed in hex or as a note name, stepped by degrees of the
-   *  song's own notation; 0 and $FFFF stay reachable past every note. */
-  metaPitchIn(word, onCommit, title = "") {
+   *  widePitchMap): typed in hex or as a note name, stepped by degrees of the
+   *  song's own notation; 0 and $FFFF stay reachable past every note. A VALUE
+   *  at 65536-TET (pitchedit.js) — for the `high` end, the last pitch inside
+   *  the range. */
+  metaPitchIn(value, onCommit, title = "", high = false) {
     const i = document.createElement("input");
     i.className = "meta-num";
     if (title) i.title = title;
     i.dataset.mtDecTitle = t("meta.detuneDownTitle");
     i.dataset.mtIncTitle = t("meta.detuneUpTitle");
-    mapSpinner(i, pitchHexMap(this.store.pitchPreset), word);
+    mapSpinner(i, widePitchMap(this.store.pitchPreset, { high }), value);
     i.addEventListener("change", () => onCommit(i.rawValue));
     return i;
   }
@@ -2268,8 +2285,14 @@ export class InstrumentsView {
     const fixed = allowFixed && entry.fixedPitch === true;
     const detCell = tr.querySelector(".detCell");
     let centsIn;
+    //
+    // Both are VALUES at 65536-TET (file format §9.18): the field and its
+    // extension byte together, so a ratio can sit on a degree of a format-3
+    // song's table to the sixteenth, run past the ±8 octaves sixteen bits
+    // hold, and a fixed pitch can sit below C0 (pitchedit.js).
+    const det = layerDetune(entry);
     if (fixed) {
-      centsIn = this.fixedNoteInput(entry.detune, (v) => commit({ detune: v }),
+      centsIn = this.fixedNoteInput(det, (v) => commit(layerDetuneFields(entry, clampLayerPitch(entry, v))),
         t(fm ? "fm.fixedNoteTitle" : "meta.fixedNoteTitle"));
     } else {
       centsIn = document.createElement("input");
@@ -2277,25 +2300,17 @@ export class InstrumentsView {
       centsIn.title = t(fm ? "fm.ratioTitle" : "meta.detuneTitle");
       centsIn.dataset.mtDecTitle = t("meta.detuneDownTitle");
       centsIn.dataset.mtIncTitle = t("meta.detuneUpTitle");
-      mapSpinner(centsIn, {
-        toDisplay: (units) => `${centsOfUnits(units).toFixed(1)} ¢`,
-        fromDisplay: (text) => {
-          const c = parsePitchText(text, "cents");
-          return clampDetune(Number.isFinite(c) ? unitsOfCents(c) : 0);
-        },
-        step: (units, dir) => clampDetune(
-          stepNoteInTable(clampN(ANCHOR_NOTE + units, 0x20, 0xffff), preset, dir) - ANCHOR_NOTE),
-      }, entry.detune);
-      centsIn.addEventListener("change", () => commit({ detune: centsIn.rawValue }));
+      mapSpinner(centsIn, centsMap(preset, OFFSET_EXT_MIN, OFFSET_EXT_MAX, true), det);
+      centsIn.addEventListener("change", () => commit(layerDetuneFields(entry, centsIn.rawValue)));
     }
     // The note the detune lands on, spelled in the SONG's notation (the
     // grids' own spelling) rather than in 12-EDO — the − +
     // buttons already step degrees of this table, so the readout has to agree
-    // with them. The raw 4096-TET units stay as text beside the glyph.
+    // with them. The value in 65536-TET steps stays as text beside the glyph.
     const detAnn = Object.assign(document.createElement("span"), { className: "dim meta-det-ann" });
     detAnn.append(
-      noteGlyph(clampN(fixed ? entry.detune : ANCHOR_NOTE + entry.detune, 0x20, 0xffff), preset),
-      ` · ${entry.detune}`);
+      noteGlyph(clampN(fixed ? det : ANCHOR_NOTE + det, 0x20, 0xffff + 15 / 16), preset),
+      ` · ${stepsText(det)}`);
     detCell.append(centsIn, detAnn);
     // The flag itself. It lives beside the field it re-reads, because that is
     // the only thing it changes: the rectangle above still decides which keys
@@ -2330,8 +2345,8 @@ export class InstrumentsView {
     const rngAnn = Object.assign(document.createElement("span"), { className: "dim meta-rng-ann" });
     rngAnn.append(rangeGlyph(entry.pitchStart, entry.pitchEnd, preset, t("range.whole")));
     rngCell.append(
-      this.metaPitchIn(entry.pitchStart, (v) => commit({ pitchStart: v }), t("meta.pitchLoTitle")),
-      this.metaPitchIn(entry.pitchEnd, (v) => commit({ pitchEnd: v }), t("meta.pitchHiTitle")),
+      this.metaPitchIn(layerLow(entry), (v) => commit(layerLowFields(v)), t("meta.pitchLoTitle")),
+      this.metaPitchIn(layerHigh(entry), (v) => commit(layerHighFields(v)), t("meta.pitchHiTitle"), true),
       rngAnn);
 
     const velCell = tr.querySelector(".velCell");
@@ -2535,7 +2550,7 @@ export class InstrumentsView {
       }
     }
     this._fmDraft = null;
-    this.store.undo.apply(setMetaRecordOp(slot, fmRecordOf(inst, ops, program)));
+    this.store.undo.apply(setMetaLayersOp(slot, fmRecordOf(inst, ops, program), ops));
     this.refresh();
   }
 
@@ -2545,7 +2560,7 @@ export class InstrumentsView {
     if (!d) return;
     const inst = this.store.doc.instruments[d.slot];
     this._fmDraft = null;
-    this.store.undo.apply(setMetaRecordOp(d.slot, fmRecordOf(inst, d.ops, d.program, { easy: false })));
+    this.store.undo.apply(setMetaLayersOp(d.slot, fmRecordOf(inst, d.ops, d.program, { easy: false }), d.ops));
     this.refresh();
   }
 
@@ -2999,11 +3014,19 @@ export class InstrumentsView {
           num(f.partnerMult, 15, (v) => apply(oplPartnerMultBytes(v), "pmult")),
           t("opl.partnerMultTitle")));
       if (f.kind !== OPL_KIND_SD) {
-        // Shown in cents: the field is 4096-TET units from the drum's own pitch.
-        box.appendChild(field(t("opl.partnerPitch"),
-          num(Math.round((f.partnerDetune * 1200) / 4096), 9600,
-            (v) => apply(oplPartnerDetuneBytes((v * 4096) / 1200), "pdet"), -9600, "cents"),
-          t("opl.partnerPitchTitle")));
+        // Shown in cents: the field is 4096-TET units from the drum's own
+        // pitch, and its extension byte (file format §9.18) adds sixteenths.
+        const pdet = document.createElement("input");
+        mapSpinner(pdet, centsMap(this.store.pitchPreset, -0x8000, 0x7fff + 15 / 16, true),
+          f.partnerDetune + (inst.opl?.dPartnerDetune || 0));
+        pdet.addEventListener("change", () => {
+          const { field: w, ext } = splitOffset(pdet.rawValue);
+          this.applyQuiet(withPitchExtOp(setInstBytesOp(slot, oplPartnerDetuneBytes(w), this.oplGesture("pdet")),
+            slot, { base: baseExtWith(this.store.doc.instruments[slot], 2, ext) }));
+          this.refreshOplSketches();
+          this.refreshListBadge(slot);
+        });
+        box.appendChild(field(t("opl.partnerPitch"), pdet, t("opl.partnerPitchTitle")));
       }
       return box;
     };

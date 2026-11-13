@@ -652,7 +652,7 @@ Each entry — a *layer* in a type-0 record, an *operator* in a type-4 one:
 | +8 | `U8` | bits 0…5 = volume range low (0…63); bits 6…7 = entry instrument index bits 8…9 |
 | +9 | `U8` | bits 0…5 = volume range high, inclusive; bit 6 = **fixed pitch** (a layer's, [§7.5](#7-5-metainstrument-type-0-layered-instruments); an operator's fixed frequency, [§7.7](#7-7-metainstrument-type-4-fm-operator-racks)); bit 7 **RESERVED** |
 
-The four range fields define a rectangle over the same pitch × volume space as an Ixmp patch. An entry fires only when the trigger falls inside its rectangle, which is how key- and velocity-conditional layering — and, in a rack, velocity-switched brightness — is expressed.
+The four range fields define a rectangle over the same pitch × volume space as an Ixmp patch, tested by the same rule ([§9.11](#9-11-ixmp-patch-records): the pitch range runs through the whole of its last unit). An entry fires only when the trigger falls inside its rectangle, which is how key- and velocity-conditional layering — and, in a rack, velocity-switched brightness — is expressed.
 
 The two remaining fields are the ones each kind reads its own way: in a Layered record the mix octet is the layer's **mix level** and the detune is its **detune**, while in a rack they are the operator's **output level** and its **frequency ratio** ([§7.7](#7-7-metainstrument-type-4-fm-operator-racks)). The bytes are identical; the meaning is the kind's.
 
@@ -931,16 +931,18 @@ Byte 0's bit 0 — strict layering in a type-0 record — is in a rack the **Eas
 | Entries | What they are |
 |---|---|
 | 0 | The **principal**: DSP-only ([Engine Specification §5.5.1](TAUD_ENGINE_SPEC.md)) — the program ends `$0000 $FF01` and names it nowhere else. Its instrument is a constant 1.0, so its envelopes, filter, pan, fadeout and note actions are the whole instrument's, and its output level the instrument's level |
-| 1 … *n* | The **operators**, numbered 0 … *n* − 1 from entry 1: oscillators, each on an instrument of its own, so each has its own volume envelope. An operator's frequency is its detune field, read as a whole number of octaves (`round(detune ÷ 4096)`, −8 … 7) and what is left (−2048 … 2047) — or, on a fixed-frequency operator, read as the note it plays — times the **harmonic** its oscillator carries, and the operator's **phase** is its oscillator's play start (below) |
+| 1 … *n* | The **operators**, numbered 0 … *n* − 1 from entry 1: oscillators, each on an instrument of its own, so each has its own volume envelope. An operator's frequency is its **ratio** — the detune field with its `IPit` extension ([§9.18](#9-18-ipit-pitch-extensions)), read as the **multiplier** nearest it and what is left over (below) — or, on a fixed-frequency operator, the note it plays; times the **harmonic** its oscillator carries, which is 1 for every oscillator an editor writes now. The operator's **phase** is its oscillator's play start (below) |
 | after them | The **constants**: one per feedback loop deeper or shallower than one cycle — a constant 1.0 read only as `a′ × c`, the loop from operator *a*. The loop's depth is the constant's level |
 
 A loop's depth is counted in the classic unit — 0, π/16, π/8, π/4, π/2, π, 2π, 4π radians of phase per unit of output, numbered 0…7. The rack measures phase in cycles, so these are 1/32 … 2, and an editor writes the decibel octets nearest them: `$00`, `$39`, `$3F`, `$4B`, `$57`, `$6F`, `$9F`, `$CF` (within 1.2 %). Depth 6 is exactly one cycle and is written as a bare tap, with no constant.
 
 #### The oscillator's harmonic and phase
 
+An Easy operator's **multiplier** is in its ratio, not in its oscillator. An editor writes multiplier *m* — a whole number 1 … 31, or a power of two from 1/256 to 256 — as `4096 × log₂ m` rounded to the sixteenth of a unit, the field and its `IPit` extension byte ([§9.18](#9-18-ipit-pitch-extensions)) holding it together, with any detune added: within 0.002 cent of *m* for every multiplier, on every kind of operator, and as far past the ±8 octaves of the sixteen-bit field as the octave nibble reaches. It reads a ratio back as the multiplier whose `4096 × log₂ m` is nearest (a tie going to the smaller), and the rest as the detune — so a detune that reaches past halfway to a neighbouring multiplier reads back from that one.
+
 Two things an Easy operator has live on its oscillator's own instrument record rather than in the rack, in fields every instrument has ([§7.1](#7-1-byte-map)); a player reads them as it reads any instrument, and nothing about them is Easy Mode's to play. An editor reads them only from an oscillator that is **one looped cycle**: a forward loop starting at frame 0, a non-zero sampling rate, and no Ixmp patches to override its fields. The cycle is the loop, *L* frames long.
 
-- The **harmonic** is an odd whole number *k*, 1 … 31, carried by the sampling rate. The oscillator is tuned as a looped cycle is tuned to sound C at C-4 — the rate *R* = `target`, halved until it fits 16 bits, where `target` = *L* × 440 × 2^(−9/12) Hz (middle C, 261.6255653… Hz), and the detune *D* = `round(4096 × log₂(target ÷ R))` — and then *R* × *k* is halved *e* times until it fits 16 bits, and *D* + 4096 *e* is written beside it. That is **exact** wherever *R* × *k* ÷ 2^*e* is a whole number and *D* + 4096 *e* fits its field — for every power-of-two cycle from 16 to 1024 frames, every odd *k* to 31 — and an editor **MUST NOT** offer a harmonic where it is not. An editor reads the harmonic back as the tuning's ratio to the C-4 tuning, `(rate ÷ R) × 2^((detune − D) ÷ 4096)`, when that is *k* × 2^*j* (to within 5 × 10⁻⁵) for an odd *k* ≤ 31; the octaves *j* add to the entry's. A multiplier is then *k* × 2^octaves: ×3, ×6 and ×31 are as exact as ×2, which a ratio written in the detune field alone, in 4096ths of an octave, is not.
+- The **harmonic** is how an editor before the `IPit` section wrote a multiplier's odd factor, and a reader still honours it: an odd whole number *k*, 1 … 31, carried by the sampling rate. The oscillator is tuned as a looped cycle is tuned to sound C at C-4 — the rate *R* = `target`, halved until it fits 16 bits, where `target` = *L* × 440 × 2^(−9/12) Hz (middle C, 261.6255653… Hz), and the detune *D* = `round(4096 × log₂(target ÷ R))` — and then *R* × *k* is halved *e* times until it fits 16 bits, and *D* + 4096 *e* is written beside it. That is **exact** wherever *R* × *k* ÷ 2^*e* is a whole number and *D* + 4096 *e* fits its field — for every power-of-two cycle from 16 to 1024 frames, every odd *k* to 31 — and an editor **MUST NOT** offer a harmonic where it is not. An editor reads the harmonic back as the tuning's ratio to the C-4 tuning, `(rate ÷ R) × 2^((detune − D) ÷ 4096)`, when that is *k* × 2^*j* (to within 5 × 10⁻⁵) for an odd *k* ≤ 31; the octaves *j* add to the entry's. A multiplier is then *k* × 2^octaves, times the ratio's own. An editor **SHOULD NOT** write a harmonic any longer, and **SHOULD** fold one it reads into the ratio — and retune the oscillator to *k* = 1 — the next time that operator's multiplier or detune is edited.
 - The **phase** is the play start, 0 … *L* − 1 frames into the cycle: every note starts that far round it.
 
 The mark is a promise the editor keeps, not one a reader may rely on: a record whose mark is set but which does not read in this shape is an ordinary rack, and an editor **SHOULD** say so rather than guess. What reads in this shape is decided the engine's way — every operator defined where the program first names it — so the words may come in any order, a modulator shared by DUP or by naming it again, the constants anywhere in the table; an editor that rewrites the rack **MAY** put them back in a canonical order, since that changes nothing that sounds.
@@ -1309,13 +1311,14 @@ If your samples are already pre-tuned for your system, leave the project's tunin
 
 ### 9.8 Reading Project Data on a device that ignores it
 
-Nothing in Project Data is required to play a song correctly, with five exceptions that a conforming *player* **MUST** honour:
+Nothing in Project Data is required to play a song correctly, with six exceptions that a conforming *player* **MUST** honour:
 
 - `xHDR`, because it changes the cue stride.
 - `Ixmp`, because it changes which samples an instrument plays.
 - `sMst`, because it is the chain the song is delivered through ([§9.12](#9-12-smst-song-mastering)).
 - `IMix`, because it is the chains the instruments are mixed through ([§9.15](#9-15-imix-instrument-mixing-chains)).
 - `ILyr`, because it is which syllable a lyric instrument's note sings ([§9.17](#9-17-ilyr-lyric-instruments)).
+- `IPit`, because it is the rest of an instrument's pitches ([§9.18](#9-18-ipit-pitch-extensions)): a reader without it plays an extended field at its sixteen bits — at most a sixteenth of a 4096-TET unit short where only the fraction is extended, and **sixteen octaves or more away** where the octave is.
 
 Everything else is naming, display and editor state — including `PKey` ([§9.13](#9-13-pkey-project-keymap)), which decides which key on a typing keyboard sounds which degree and so cannot reach playback at all, and `PMtf` ([§9.14](#9-14-pmtf-motif-source)), the program a project was built from.
 
@@ -1412,7 +1415,9 @@ Patch records are **variable length**. Each begins with a version byte that is r
 | 29 | `U8` | Auto-vibrato rate |
 | 30 | `U8` | Auto-vibrato waveform, bits 0…2; **`$FF` = no override** |
 
-The first four fields define a rectangle over pitch × volume space. **Patch selection walks the list in order and the first patch whose rectangle contains the trigger wins**; when nothing matches, the base record's sample fields are used unchanged. The "no override" sentinels let a converter that has no per-sample data for one axis defer to the base record.
+The first four fields define a rectangle over pitch × volume space. **Patch selection walks the list in order and the first patch whose rectangle contains the trigger wins**; when nothing matches, the base record's sample fields are used unchanged.
+
+**A pitch range runs through the whole of its last unit.** A trigger's pitch may lie between two 4096-TET units — a wide cell's note carries sixteenths ([§5.5](#5-5-format-version-3-the-wide-cell)) — so the inclusive end `E` of a range means every pitch below `E + 1`: a trigger at pitch `p` is inside `S`…`E` when `S ≤ p < E + 1`. Two zones written `…$4FFF` and `$5000…` therefore meet, with no pitch between them that belongs to neither. The same holds for a layer's and an operator's range ([§7.4](#7-4-metainstrument-records)), and a range whose bounds are extended ([§9.18](#9-18-ipit-pitch-extensions)) is tested the same way one step finer. The "no override" sentinels let a converter that has no per-sample data for one axis defer to the base record.
 
 The IT and XM formats do not define a velocity axis; those converters leave the volume range at 0…63. SoundFont does, but its velocity is not an amplitude, and the volume range is: it is a range of **note volume**, which the engine plays as linear amplitude. A SoundFont converter therefore carries a zone's velocity range through the SoundFont's own velocity curve, onto the note volumes that sound at those velocities' loudness ([Conversion Notes §7.4](TAUD_CONVERSION_NOTES.md#7-4-soundfont-presets-to-taud-instruments)). Rounding velocity linearly onto 0…63 instead makes a volume choose the layer the SoundFont plays at a different loudness.
 
@@ -1796,6 +1801,42 @@ What follows the syllables is the lyrics as an editor keeps them, to edit them a
 
 Microtone writes the lyrics as syllables separated by spaces, full stops or hyphens, and derives the rest from them: each consonant at its own length, then every onset (its consonants and glide) moved towards the median of the onsets — of the syllables that have one and no length of their own — by the convergence, shortened or lengthened, and last each syllable with a length of its own scaled by it. A missing or short editor's part is lyrics no editor wrote, which play the same.
 
+### 9.18 `IPit` — pitch extensions
+
+An instrument's pitch fields are sixteen bits: 4096 steps to the octave, over sixteen octaves. A pattern cell has more ([§5.5](#5-5-format-version-3-the-wide-cell)), and some instruments need more than either: a zone tuned finer than 0.29 cent, an operator ratio that is not a whole number of 4096ths, a fixed-frequency operator below C0. This section gives a pitch field **one more byte** without moving anything in the record.
+
+**The extension byte** is `oooo ffff`: four more bits of **fraction** below the field, and four more bits of **octave** above it, as a two's-complement nibble (−8…+7). The value of an extended field, in 65536-TET units, is
+
+```
+value = field × 16 + ffff + oooo × 2^20
+```
+
+with `field` read exactly as it is read without the section — signed where it is a signed offset, unsigned where it is a note word. So:
+
+- **A zero byte changes nothing**, and a writer **MUST NOT** write an entry whose bytes are all zero: a file that needs none of this has no `IPit` section, and is the file it always was.
+- **A note word becomes a signed 8.16 number.** `oooo` = 0 is the sixteen octaves a note word has always named, C0…C15; −1 is the sixteen below them, and so on down to C−128 — **two's complement throughout**, so a larger number is always a higher pitch, and a pitch below C0 is still "an octave, and a fraction upward from it".
+- **A signed offset** gains sixteenths of a unit and steps of sixteen octaves in the same way.
+- **A range's high bound stores `ffff` complemented**: its value is `field × 16 + (15 − ffff) + oooo × 2^20`, the last 65536-TET pitch inside the range. With a zero byte that is the last sixteenth of the unit the field names — the rule of [§9.11](#9-11-ixmp-patch-records), which this is the finer form of: a trigger at pitch `p` (in 65536-TET units) is inside a range when `low ≤ p < high + 1`.
+
+Instrument-scoped, so a `.tsii` bank carries its instruments' extensions with it. The payload is a repetition of entries, one per instrument that has any:
+
+| Type | Field |
+|---|---|
+| `U8` | Instrument ID, low 8 bits |
+| `U8` | bits 0…1 = instrument ID bits 8…9; bit 2 = a **base group** follows; bit 3 = a **table group**; bit 4 = a **patch group**; bits 5…7 **RESERVED** (0) |
+| `U16` | **Guard** (below) |
+| `U8 × 3` | *Base group*, if present: the extension of the sample detune (record bytes 184…185), of the pitch-pan centre (178…179), and of **the kind's own pitch field** — a formant instrument's reference word ([§7.6](#7-6-metainstrument-type-1-formant-instruments); its bits 0…14 are the note, and a note of 0 stays "no vowel" whatever the byte), an OPL instrument's rhythm-partner pitch ([§7.8](#7-8-metainstrument-type-8-opl-instruments)); 0 for a kind with none |
+| `U8`, `U8 × 3n` | *Table group*, if present: `n`, then per entry of a type-0 or type-4 record, in record order — the extension of its detune (a layer's detune, an operator's ratio, or the fixed pitch: [§7.4](#7-4-metainstrument-records)), of its pitch range low, and of its pitch range high |
+| `U16`, `U8 × 3n` | *Patch group*, if present: `n`, then per Ixmp patch of the instrument, in list order ([§9.11](#9-11-ixmp-patch-records)) — the extension of its pitch range start, of its pitch range end, and of its sample detune |
+
+The groups come in that order. A table group's `n` **MUST** be the number of entries a reader reads from the record — its count byte, at most 25, at most 16 in a rack — and a patch group's the number of patches the instrument's `Ixmp` entry holds. A base group belongs to a record that has the base byte map (an ordinary instrument and types 1, 8 and 9), a table group to a type-0 or type-4 record; the other way round is **INVALID**.
+
+**The guard** is what makes it safe for an editor that does not know this section to carry it along. It is a CRC-16 — polynomial `$1021`, initial value `$FFFF`, most significant bit first, no final XOR (CRC-16/CCITT-FALSE) — over the sixteen-bit fields the entry extends, each as its two bytes stand in the file, in the order above: for a base group, record bytes 184…185, 178…179 and the kind's own field's two bytes (`$00 $00` for a kind with none); for a table group, bytes +2…+7 of each entry; for a patch group, bytes 1…2, 3…4 and 21…22 of each patch. A reader **MUST** compute it from the instrument as it has it, and **MUST** ignore the whole entry — every group of it — when the guard differs, when a group's `n` is not the instrument's, or when a group is one the instrument's kind cannot have: the instrument then plays its sixteen-bit values. An edit that changes any of those fields without rewriting the entry therefore switches the entry off rather than leaving its bytes on fields they were not written for.
+
+An entry with a reserved flag bit set has a size a reader cannot know: it **MUST** stop reading the section there, keeping the entries before it. Two entries naming one instrument are **INVALID**. A writer **SHOULD** omit a group whose bytes are all zero.
+
+**What an extended pitch may be.** A range bound, the pitch-pan centre and a formant reference note are compared with a trigger's pitch or measured against it, and mean what they say at any value. A detune — and a fixed pitch — is added into the pitch a voice *sounds*, which may then lie outside the sixteen octaves a note value holds; how a player sounds such a pitch is the [Engine Specification's §5.5](TAUD_ENGINE_SPEC.md#5-5-metainstruments). The sentinel space of a pattern cell (`$0000`…`$001F`) has no meaning in an instrument field once it is extended: a fixed pitch whose value falls there is that pitch.
+
 ## 10. Validity checklist
 
 A writer producing a file that any conforming reader will accept must satisfy all of the following.
@@ -1818,6 +1859,7 @@ A writer producing a file that any conforming reader will accept must satisfy al
 - Every `ILyr` entry names a distinct formant instrument, holds at least one syllable and is at least as long as its counts say; every syllable's consonant ids are 0 or defined, and every recipe with a sample lies inside the pool with its offset inside its sample ([§9.17](#9-17-ilyr-lyric-instruments)).
 - Envelopes carrying nodes have `P = 1` in their LOOP word.
 - The two pitch/filter slots of one record do not claim the same role.
+- Every `IPit` entry names a distinct instrument, has no reserved flag bit set and no all-zero group, carries only the groups its instrument's kind has, counts its instrument's entries and patches exactly, and carries the guard of the fields it extends ([§9.18](#9-18-ipit-pitch-extensions)).
 
 ## 11. Version history
 
@@ -1859,3 +1901,5 @@ A writer producing a file that any conforming reader will accept must satisfy al
 | 2026-11-03 | `ILyr` — lyric instruments: a formant instrument with an entry sings its syllables one a note, each the record with its own vowel, consonants, marks and per-consonant timing, its consonants' noise in recipes; the fifth Project-Data section a player must honour |
 | 2026-11-10 | Easy Mode: an operator's **harmonic** (an odd *k* ≤ 31, exactly, in its oscillator's sampling rate) and **phase** (its oscillator's play start) — editor conventions over existing instrument fields; nothing a player reads changed |
 | 2026-11-11 | Format version 3 for every song: no longer surround songs only, and the version a writer **SHOULD** emit. The wide cell's byte 13 bits 4…7 are the pitch's **fine nibble**, making its note 65536-TET (`$50000` = C4). `nota` version 'b': flags bits 0…4 name a definition's pitch resolution, its pitch fields `U32` in 2^(n−4)-TET; the standalone `.taudnot` version byte `'b'` |
+| 2026-11-13 | A pitch range runs through the whole of its last unit ([§9.11](#9-11-ixmp-patch-records)): a trigger between two 4096-TET units, which a wide cell can write, no longer falls between two zones that meet. `IPit` — pitch extensions ([§9.18](#9-18-ipit-pitch-extensions)): one more byte for each sixteen-bit pitch field of an instrument (four bits of fraction, four of octave, two's complement), in a guarded entry per instrument; the sixth Project-Data section a player must honour. A file without the section is unchanged |
+| 2026-11-13 | Easy Mode: an operator's **multiplier** is written into its ratio with the `IPit` extension, `4096 × log₂ m` to the sixteenth of a unit, and read back as the nearest multiplier plus a detune; the oscillator's **harmonic** stays readable but is no longer written |

@@ -7,7 +7,7 @@ nothing here knows which app is using it.
 
 | Path | Contents |
 |---|---|
-| `engine/` | The Taud engine — the reference implementation (TSVM's `AudioAdapter.kt` follows it). Pure computation: importable by a Worker, an AudioWorklet and Node alike |
+| `engine/` | The Taud engine — the reference implementation (TSVM's `AudioAdapter.kt` follows it). It is written in C (`engine/c/`) and committed built, as one WebAssembly module in an ES module (`taud-engine.wasm.js`); `engine.js` is its JavaScript face. Pure computation: importable by a Worker, an AudioWorklet and Node alike |
 | `worklet/` | The AudioWorkletProcessor, the engine command protocol, and the committed single-file bundle for worklets that cannot import modules |
 | `audio/` | The live audio system (context, worklet or render Worker, snapshots), its SharedArrayBuffer ring, the resampler, and offline rendering (`loadIntoEngine`, the one upload sequence every host uses) |
 | `format/` | `.taud` / `.tsii` / `.tpif` parse and write, section codecs (saves compress with Zstandard in a worker, `zstd.js`), the name-escape convention |
@@ -38,6 +38,9 @@ as real files — the `[build]` step in `/wrangler.toml` for microtone.cc and
   the golden gate (`microtone-worker/test/node/engine-golden.test.js`), no
   `Math.random` outside `engine/rng.js`, a Float32 mix bus, and no imports from
   `vendor/` or anything DOM- or Web-Audio-touching.
+- After any change under `engine/c/`, rebuild the module first
+  (`node tools/make-engine-wasm.js`, from `microtone-worker/`; it needs clang
+  with the wasm32 target, a matching `wasm-ld` and a wasi-libc sysroot).
 - After any change under `engine/`, `worklet/`, `audio/` or `format/`, rebuild
   `worklet/taud-processor.bundle.js` (`node tools/make-worklet-bundle.js`, from
   `microtone-worker/`) and taudplay (`node tools/make-taudplay.js`).

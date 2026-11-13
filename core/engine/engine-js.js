@@ -1,0 +1,1101 @@
+// TaudEngine — the device facade, port of AudioAdapter.kt state fields
+// (356-397) + AudioJSR223Delegate.kt (the `audio.*` API surface consumed by
+// taut.js / playtaud / taud.mjs). One instance ≈ one AudioAdapter.
+//
+// Differences from the Kotlin device (deliberate, per the port plan):
+//  - uploadSampleInstBlob takes the DECOMPRESSED 8650752-byte image
+//    (decompression is a format-layer / main-thread concern).
+//  - No PCM/MP2/TAD paths, no MMIO/banked windows: callers address the API,
+//    playback addresses the 8 MB pool directly (as the Kotlin engine does).
+//  - Per-lane calls (mute, fader, readbacks) clamp the voice index to
+//    MAX_VOICES-1: voice storage is always 64 lanes wide, and a 64-lane song's
+//    lanes 33-64 must be reachable (the delegate used to clamp at NUM_VOICES-1,
+//    folding every one of them onto lane 32). jamNote also clamps to
+//    MAX_VOICES-1.
+
+import { psgCurrentWave } from "./psg.js";
+import { formantEndsOnKeyOff } from "./formant.js";
+import {
+  SAMPLE_BIN_TOTAL, NUM_PATTERNS, NUM_CUES, NUM_VOICES, MAX_VOICES,
+  JAM_VOICES, JAM_VOICE_BASE, TOTAL_VOICES,
+  CUE_BYTES, CUE_BYTES_64, TRACKER_CHUNK,
+  CELL_BYTES, CELL_BYTES_WIDE, PATTERN_BYTES, PATTERN_BYTES_WIDE,
+  BPM_MIN, BPM_MAX,
+} from "./constants.js";
+import { tuningRatioOf } from "./tables.js";
+import {
+  TaudInst, parsePatchesBlob, writePatchesBlob, makeInstPatch, layerNote, pitchInRange,
+  parsePitchExtSection, applyPitchExt,
+} from "./inst.js";
+import { PlayCue, TaudPlayData, Playhead } from "./state.js";
+import { makeXorshift32 } from "./rng.js";
+import {
+  SURROUND_STEREO, SURROUND_SPATIAL, foldAzimuthToPan, voiceAzimuth, voiceElevation,
+} from "./spatial.js";
+import { generateTrackerAudio } from "./mixer.js";
+import { imixBlockMap, syncImixRoutes } from "./imix.js";
+import { triggerMetaOrNote, triggerNote } from "./trigger.js";
+import { startCutRamp } from "./sampler.js";
+import { applyKeyLift } from "./envelope.js";
+import { reconstructDittoState, applyTrackerRow } from "./row.js";
+import { applyTrackerTick } from "./tick.js";
+import { chaseSongPath, chaseCueOrder } from "./chase.js";
+
+/** How many sounding voices getInstrumentFormantState reports at most. */
+const FORMANT_LIVE_MAX = 8;
+
+// Scratch instrument slot for the raw-sample preview (jamSample). It sits just
+// past the 1024 addressable bank slots so an audition never borrows a real one;
+// every `instruments[voice.instrumentId]` lookup indexes it directly (no & mask).
+const AUDITION_SLOT = 1024;
+
+/** The bytes of a pattern whose every cell is the no-op one: both column
+ *  selectors FINE by zero, everything else zero (file format §5.5). */
+function blankPatternBytes(wide) {
+  const size = wide ? CELL_BYTES_WIDE : CELL_BYTES;
+  const out = new Uint8Array(64 * size);
+  for (let r = 0; r < 64; r++) {
+    if (wide) out[r * size + 8] = 0x33;
+    else { out[r * size + 3] = 0xc0; out[r * size + 4] = 0xc0; }
+  }
+  return out;
+}
+
+function isBlankPatternBytes(bytes, wide) {
+  const size = wide ? CELL_BYTES_WIDE : CELL_BYTES;
+  if (bytes.length < 64 * size) return false;
+  for (let i = 0; i < 64 * size; i++) {
+    const k = i % size;
+    const want = wide ? (k === 8 ? 0x33 : 0) : (k === 3 || k === 4 ? 0xc0 : 0);
+    if ((bytes[i] & 0xff) !== want) return false;
+  }
+  return true;
+}
+
+function makePattern() {
+  const rows = new Array(64);
+  for (let i = 0; i < 64; i++) {
+    const c = new TaudPlayData();
+    c.pan = 32;
+    rows[i] = c;
+  }
+  return rows;
+}
+
+export class TaudEngine {
+  constructor() {
+    this.sampleBin = new Uint8Array(SAMPLE_BIN_TOTAL);
+    this.instruments = new Array(AUDITION_SLOT + 1);
+    for (let i = 0; i <= AUDITION_SLOT; i++) this.instruments[i] = new TaudInst(i);
+    // Pattern store — lazily allocated (memory scales with actual song size).
+    this.playdata = new Array(NUM_PATTERNS).fill(null);
+    this.emptyPattern = makePattern();
+    this.sharedBlank = [null, null]; // narrow, wide — see blankPattern()
+    this.scratchPattern = makePattern();
+    this.cueSheet = new Array(NUM_CUES);
+    for (let i = 0; i < NUM_CUES; i++) this.cueSheet[i] = new PlayCue();
+    this.is64ChannelMode = false;
+    // Format version 3's 16-byte pattern cell — a whole-file property.
+    this.wideCells = false;
+    this.playheads = [
+      new Playhead(this, 0), new Playhead(this, 1),
+      new Playhead(this, 2), new Playhead(this, 3),
+    ];
+    // Dither state (pcm32fToPcm8): per-adapter xorshift32 + error history.
+    this.xorshift32 = makeXorshift32();
+    this.ditherError = new Float32Array(4); // [L0, L1, R0, R1]
+    // Stem-export tap (item 93; JS-only, no Kotlin counterpart). null on every
+    // normal path — playback and the WAV export never set it. When non-null the
+    // mixer hands each voice's PRE-PAN mono contribution to `add()`; nothing
+    // else about the render changes, so the main output stays bit-identical.
+    this.stemBus = null;
+    // Instrument mixing chains (item 217): the project's IMix blocks by id.
+    // Like the instruments, they belong to the engine, not to a playhead;
+    // `imixGen` counts every change to them or to an instrument record, and a
+    // playhead rebuilds its route table when it sees a new count.
+    this.imixBlocks = new Map();
+    this.imixGen = 0;
+  }
+
+  channelCount() { return this.is64ChannelMode ? MAX_VOICES : NUM_VOICES; }
+  cueByteStride() { return this.is64ChannelMode ? CUE_BYTES_64 : CUE_BYTES; }
+
+  /** Read-only view of pattern idx (shared empty pattern when unallocated). */
+  patternRead(idx) {
+    if (idx < 0 || idx >= NUM_PATTERNS) return this.emptyPattern;
+    return this.playdata[idx] ?? this.emptyPattern;
+  }
+
+  /** Writable pattern idx, allocating its 64 rows on first access — and
+   *  copying the shared blank before anything is written over it. */
+  patternFor(idx) {
+    if (idx < 0 || idx >= NUM_PATTERNS) return this.scratchPattern;
+    let p = this.playdata[idx];
+    if (p === null) {
+      p = makePattern();
+      this.playdata[idx] = p;
+    } else if (p === this.sharedBlank[0] || p === this.sharedBlank[1]) {
+      p = p.map((c) => Object.assign(new TaudPlayData(), c));
+      this.playdata[idx] = p;
+    }
+    return p;
+  }
+
+  /** The one copy every slot holding a BLANK pattern shares (every cell the
+   *  no-op one), one per cell format. Read-only: playback never writes a
+   *  pattern cell, and patternFor copies it before an upload would. */
+  blankPattern() {
+    const k = this.wideCells ? 1 : 0;
+    if (this.sharedBlank[k] === null) {
+      const rows = makePattern();
+      this.decodePattern(rows, blankPatternBytes(this.wideCells));
+      this.sharedBlank[k] = rows;
+    }
+    return this.sharedBlank[k];
+  }
+
+  decodePattern(pat, bytes) {
+    if (this.wideCells) {
+      const n = Math.min(PATTERN_BYTES_WIDE, bytes.length);
+      for (let i = 0; i < n; i++) {
+        pat[(i / CELL_BYTES_WIDE) | 0].setByteWide(i % CELL_BYTES_WIDE, bytes[i] & 0xff);
+      }
+      return;
+    }
+    const n = Math.min(PATTERN_BYTES, bytes.length);
+    for (let i = 0; i < n; i++) pat[(i / CELL_BYTES) | 0].setByte(i % CELL_BYTES, bytes[i] & 0xff);
+  }
+
+  // ── content upload (AudioJSR223Delegate.kt:343-497, 610-640) ──
+
+  /**
+   * Install a DECOMPRESSED sample+instrument image: 8 MB samples followed by
+   * 1024 (or fewer, for older files) 256-byte instrument records. Slots absent
+   * from the blob are cleared; all Ixmp patches are dropped (they point into
+   * the replaced pool).
+   */
+  uploadSampleInstBlob(image) {
+    const sampleSize = SAMPLE_BIN_TOTAL;
+    if (image.length < sampleSize + 65536) return 0;
+    this.sampleBin.set(image.subarray(0, sampleSize));
+    const instCount = Math.min(1024, Math.trunc((image.length - sampleSize) / 256));
+    const rec = new Uint8Array(256);
+    for (let instIdx = 0; instIdx < 1024; instIdx++) {
+      if (instIdx < instCount) {
+        rec.set(image.subarray(sampleSize + instIdx * 256, sampleSize + (instIdx + 1) * 256));
+      } else {
+        rec.fill(0);
+      }
+      this.instruments[instIdx].loadRecord(rec);
+    }
+    for (const inst of this.instruments) inst.extraPatches = null;
+    this.imixGen++; // byte 255 of every record may have moved
+    return image.length;
+  }
+
+  /** Capture the raw 8650752-byte sample+instrument image (save path). */
+  captureSampleInstImage() {
+    const out = new Uint8Array(SAMPLE_BIN_TOTAL + 1024 * 256);
+    out.set(this.sampleBin);
+    for (let i = 0; i < 1024 * 256; i++) {
+      out[SAMPLE_BIN_TOTAL + i] = this.instruments[(i / 256) | 0].getByte(i % 256);
+    }
+    return out;
+  }
+
+  /** Upload up to 256 bytes defining instrument slot (0-1023; 256+ = aux bin). */
+  uploadInstrument(slot, bytes) {
+    const inst = this.instruments[slot & 0x3ff];
+    const rec = new Uint8Array(256);
+    for (let i = 0; i < Math.min(256, bytes.length); i++) rec[i] = bytes[i] & 0xff;
+    inst.loadRecord(rec);
+    this.imixGen++;
+  }
+
+  /**
+   * Install the project's LYRICS (item 280, the `ILyr` section, §9.17): an
+   * array of decoded entries ({instId, syllables, recipes}, lyric-section.js),
+   * replacing whatever was installed — an instrument no entry names has none.
+   * The entries are the engine's to keep; the host must not mutate them.
+   */
+  setLyrics(entries) {
+    const by = new Map();
+    for (const e of entries ?? []) if (!by.has(e.instId & 0x3ff)) by.set(e.instId & 0x3ff, e);
+    for (const inst of this.instruments) {
+      const e = by.get(inst.index) ?? null;
+      if (e !== inst.lyricEntry) inst.setLyric(e);
+    }
+  }
+
+  /**
+   * Upload an Ixmp "extra samples" block for instrument slot. Patches are
+   * variable-length: version byte (0b x00Pfpvi) + 30 common bytes + optional
+   * x/v/p/f/P blocks in that order (AudioJSR223Delegate.kt:357-430).
+   */
+  uploadInstrumentPatches(slot, bytes) {
+    const inst = this.instruments[slot & 0x3ff];
+    const patches = parsePatchesBlob(bytes);
+    inst.extraPatches = patches.length === 0 ? null : patches;
+    applyPitchExt(inst);
+  }
+
+  /**
+   * Install the instruments' PITCH EXTENSIONS (the `IPit` section, §9.18): the
+   * whole payload, or null / empty for none. An entry is applied to its
+   * instrument now and again whenever the instrument's record or patch list
+   * is uploaded, so the order a host does those in does not matter.
+   */
+  setPitchExt(bytes) {
+    const by = parsePitchExtSection(bytes && bytes.length > 0 ? bytes : null);
+    for (const inst of this.instruments) {
+      inst.pitchExtEntry = by.get(inst.index) ?? null;
+      applyPitchExt(inst);
+    }
+  }
+
+  getInstrumentPatchCount(slot) {
+    const p = this.instruments[slot & 0x3ff].extraPatches;
+    return p === null ? 0 : p.length;
+  }
+
+  /** Exact byte-inverse of uploadInstrumentPatches (capture path). */
+  getInstrumentPatches(slot) {
+    const patches = this.instruments[slot & 0x3ff].extraPatches;
+    if (patches === null) return new Uint8Array(0);
+    return writePatchesBlob(patches);
+  }
+
+  clearInstrumentPatches(slot) {
+    this.instruments[slot & 0x3ff].extraPatches = null;
+  }
+
+  /** Name the mixing chain an instrument runs through, overriding byte 255 of
+   *  its record without rewriting it (the WebAssembly engine has the same
+   *  call; a host must not reach into `instruments` for this). */
+  setInstrumentImixId(slot, id) {
+    this.instruments[slot & 0x3ff].imixId = id & 0xff;
+    this.imixGen++;
+  }
+
+  /** Deallocate pattern slot back to unallocated (patternRead then falls back
+   *  to emptyPattern, same as a slot that was never written) — used to blank
+   *  the persistent pattern store's stale tail when a shorter song loads over
+   *  a longer one (item 174), the same trouble uploadDocument's cue high-water
+   *  blanking already covers for the cue sheet. */
+  clearPattern(slot) {
+    this.playdata[slot & 0x7fff] = null;
+  }
+
+  /** Upload 512 bytes (64 rows × 8) defining pattern slot. A blank pattern is
+   *  not stored but shared (blankPattern): a song renumbered lane by lane
+   *  (Microtone item 253) leaves thousands of them in the gaps between lanes. */
+  uploadPattern(slot, bytes) {
+    const idx = slot & 0x7fff;
+    if (idx < NUM_PATTERNS && isBlankPatternBytes(bytes, this.wideCells)) {
+      this.playdata[idx] = this.blankPattern();
+      return;
+    }
+    this.decodePattern(this.patternFor(idx), bytes);
+  }
+
+  /**
+   * Select the file format's cell layout (version 3 = the wide cell). A
+   * whole-file property: patterns uploaded afterwards are read in this layout,
+   * and the volume columns' width follows it. Set it BEFORE uploading anything.
+   */
+  setCellFormat(wide) {
+    this.wideCells = !!wide;
+    for (const p of this.playheads) p.trackerState?.setCellFormat(this.wideCells);
+  }
+  getCellFormat() { return this.wideCells; }
+
+  /** Upload one cue entry (64 bytes / 128 bytes in 64-lane mode). */
+  uploadCue(idx, bytes) {
+    const cue = this.cueSheet[idx & (NUM_CUES - 1)];
+    const n = Math.min(this.cueByteStride(), bytes.length);
+    for (let i = 0; i < n; i++) cue.write(i, bytes[i] & 0xff);
+  }
+
+  set64ChannelMode(enabled) { this.is64ChannelMode = enabled; }
+
+  // ── transport / params (delegate 56-139, 328-337, 505-575) ──
+
+  setTrackerMode(ph) { /* PCM mode does not exist here; tracker is the only mode */ }
+  play(ph) { this.playheads[ph].isPlaying = true; }
+
+  /**
+   * Stop the transport, and end the song's voices with it. Clearing isPlaying
+   * is all it takes to go SILENT (the mixer runs only while isPlaying or
+   * jamActive), but on its own it leaves every voice FROZEN mid-note for
+   * whatever turns the mix back on — see Playhead.silenceSongVoices. Ramped
+   * while an audition is still sounding, because that mix keeps running;
+   * dropped outright otherwise, where nothing renders and nothing is heard.
+   */
+  stop(ph) {
+    const p = this.playheads[ph];
+    p.isPlaying = false;
+    p.silenceSongVoices(p.jamActive);
+  }
+
+  isPlaying(ph) { return this.playheads[ph].isPlaying; }
+
+  setMasterVolume(ph, volume) { this.playheads[ph].masterVolume = volume & 255; }
+  getMasterVolume(ph) { return this.playheads[ph].masterVolume; }
+  setMasterPan(ph, pan) { this.playheads[ph].masterPan = pan & 255; }
+  getMasterPan(ph) { return this.playheads[ph].masterPan; }
+
+  setBPM(ph, bpm) { this.playheads[ph].bpm = Math.min(Math.max(bpm, BPM_MIN), BPM_MAX); }
+  getBPM(ph) { return this.playheads[ph].bpm; }
+  setTickRate(ph, rate) { this.playheads[ph].tickRate = rate & 255; }
+  getTickRate(ph) { return this.playheads[ph].tickRate; }
+
+  /**
+   * Song tuning (item 77): `baseNote` sounds at `freq` Hz. Either reading zero
+   * means the tracker default (spec) — tuningRatioOf applies that rule. Takes
+   * effect on the next tick for notes already sounding, so dialling a tuning
+   * while the song plays bends it in place rather than waiting for retriggers.
+   */
+  setTuning(ph, baseNote, freq) {
+    const p = this.playheads[ph];
+    p.tuningBaseNote = baseNote & 0xffff;
+    p.tuningFreq = freq;
+    p.trackerState.tuningRatio = tuningRatioOf(p.tuningBaseNote, p.tuningFreq);
+  }
+  getTuningRatio(ph) { return this.playheads[ph].trackerState.tuningRatio; }
+
+  setCuePosition(ph, pos) {
+    const p = this.playheads[ph];
+    p.position = pos & (NUM_CUES - 1);
+    p.trackerState.cuePos = p.position;
+  }
+  getCuePosition(ph) { return this.playheads[ph].position; }
+  getTrackerRow(ph) { return this.playheads[ph].trackerState.rowIndex; }
+
+  /** Set the starting row for the next play, resetting timing + silencing every
+   *  voice. This is the common pre-play reset point (playFrom / pattern
+   *  preview), so it clears the transient per-play state that would otherwise
+   *  bleed a prior playback into a fresh start — notably the NNA background
+   *  ghosts, which stop() leaves active and a replay would resume (the
+   *  "mysteriously lingering notes" bug), and the LANE-scope mixer state the
+   *  song's own effects write (item 125: pan, elevation, lane volume). The
+   *  playhead's tempo/volume are deliberately NOT touched (a replay must keep
+   *  the song's tempo — that's why this is not a full resetParams), and neither
+   *  is the host's per-lane fader/mute, which belongs to the desk. */
+  setTrackerRow(ph, row) {
+    const ts = this.playheads[ph].trackerState;
+    ts.rowIndex = Math.min(Math.max(row, 0), 63);
+    // Timing, jumps, voices, the ghost pool, the mastering chain's state.
+    ts.resetPlayState();
+    for (const v of ts.voices) {
+      // Clear per-voice pattern-loop (S$Bx) + Ditto (effect 7) memory so a replay
+      // never resumes effect status from the previous play (item 44). These are
+      // transient playback state, not song settings — the same rationale as the
+      // ghost/note clears; resetPatternLoopState normally does this on cue
+      // advances, but nothing did it at play START.
+      v.loopStartRow = 0; v.loopCount = 0;
+      v.dittoActive = false; v.dittoSourceStart = 0; v.dittoLength = 0; v.dittoEndRow = 0;
+      // Lane-scope state, back to the song-start defaults (item 125). A
+      // trigger deliberately does NOT reset any of this — pan and lane volume
+      // belong to the LANE, not the note — so without a clear here the last
+      // S $80xx / M / N / P / X / Z of the previous play was still in force, and
+      // a song played twice, or a second file opened on top of the first, panned
+      // its notes wherever the last one had left them. Same defaults as
+      // resetParams (state.js).
+      v.channelVolume = ts.volMax;
+      v.channelPan = 0x80;
+      v.channelVolumeSet = false;
+      v.channelPanSet = false;
+      v.rowPan = 32;
+      v.panAzimuth = 128.0;
+      v.panElevation = 0.0;
+      v.notePan = 0;
+      v.noteElevation = 0.0;
+      v.spatialTargetAz = 128.0;
+      v.spatialTargetEl = 0.0;
+      v.spatialSlideActive = false;
+      v.panbrelloOffset = 0;
+      v.glissandoOn = false;
+      // Bitcrusher (8) / Overdrive (9) are lane colouring in exactly the same
+      // sense — the song writes them, a trigger deliberately leaves them, and
+      // nothing else clears them — so without this a song that crushed once was
+      // still crushed on the replay, right through the rows before its next
+      // `8 $xxxx`. right.reset() covers the stereo twin's crusher history.
+      v.clipMode = 0;
+      v.bitcrusherDepth = 0;
+      v.bitcrusherSkip = 0;
+      v.bitcrusherCounter = 0;
+      v.bitcrusherHeld = 0.0;
+      v.overdriveAmp = 0;
+      v.right.bitcrusherCounter = 0;
+      v.right.bitcrusherHeld = 0.0;
+      // Per-note S $7x overrides (NNA + the four envelope switches).
+      v.nnaOverride = -1;
+      v.volEnvOn = true; v.panEnvOn = true; v.pitchEnvOn = true; v.filterEnvOn = true;
+    }
+    // Re-arm any Pattern-Ditto (effect 7) region that a mid-pattern start lands
+    // inside, so a ghosted (repeated) row sounds when you play from it (item 81).
+    reconstructDittoState(this, ts, ts.rowIndex);
+  }
+
+  /**
+   * Put the playhead on row `row` of cue `cue` in the state the song itself
+   * arrives there with — the CHASE (item 215, TAUD_ENGINE_SPEC.md §15.1) —
+   * where setCuePosition + setTrackerRow put every lane back to the song's
+   * start instead. From the song's start, every row event and tick pass of
+   * the song's own path to that row is run with nothing mixed (chase.js), so
+   * the lanes' volume, panning and colouring, their effect memory and
+   * instrument, the tempo, the tick rate and the global volume are what a
+   * play from the start would have there; then the per-play reset, so no
+   * voice is sounding and the ghost pool and the mastering chain are empty.
+   * Ready for play().
+   *
+   * The song's starting tempo, tick rate and volumes are taken from the
+   * playhead: the engine has no song table, so a host sets the file's own
+   * first (setBPM …), as it does when it loads the song. A row the song's
+   * path never reaches is chased through the cues in order instead; returns
+   * false when that happened. The desk's faders and mutes are left as they
+   * are; every voice is stopped, the jam bank's included, as setTrackerRow
+   * stops them.
+   */
+  chaseTrackerRow(ph, cue, row) {
+    const p = this.playheads[ph];
+    const ts = p.trackerState;
+    cue &= NUM_CUES - 1;
+    row = Math.min(Math.max(row, 0), 63);
+    const start = {
+      bpm: p.bpm, tickRate: p.tickRate,
+      globalVolume: p.globalVolume, mixingVolume: p.mixingVolume,
+    };
+    const wasPlaying = p.isPlaying;
+    p.isPlaying = true; // the walk's halt test: a halt cue clears it
+    p.resetToSongStart(start);
+    const reached = chaseSongPath(this, ts, p, cue, row);
+    if (!reached) {
+      p.resetToSongStart(start);
+      chaseCueOrder(this, ts, p, cue, row);
+    }
+    p.isPlaying = wasPlaying;
+    p.position = cue;
+    ts.cuePos = cue;
+    ts.rowIndex = row;
+    ts.resetPlayState();
+    return reached;
+  }
+
+  setTrackerMixerFlags(ph, flags) {
+    const p = this.playheads[ph];
+    p.initialGlobalFlags = flags;
+    p.updateTrackerGlobalBehaviour(flags);
+  }
+  getTrackerMixerFlags(ph) { return this.playheads[ph].initialGlobalFlags; }
+
+  /**
+   * Song-immutable surround model (#998): 0 stereo, 1 planar (360° panning),
+   * 2 spatial. Anything but stereo mixes through the object bus.
+   */
+  setSurroundModel(ph, model) {
+    const p = this.playheads[ph];
+    p.surroundModel = model & 3;
+    p.applySurroundModel();
+  }
+  getSurroundModel(ph) { return this.playheads[ph].surroundModel; }
+
+  /**
+   * Swap the render target the object bus feeds (#998.0). Null = the device's
+   * own monitor (see setMonitorMode); an exporter installs e.g. an
+   * AmbisonicRenderer and reads `trackerState.spatial.data` after each chunk.
+   * No-op for a stereo song.
+   */
+  setSpatialRenderer(ph, renderer) {
+    const p = this.playheads[ph];
+    p.spatialRenderer = renderer;
+    p.applySurroundModel();
+  }
+
+  /**
+   * How the device monitors a surround song (#998.3): MONITOR_FOLD folds it
+   * onto the stereo pan law, MONITOR_BINAURAL renders it through a head model
+   * so elevation and front/back are audible on headphones. Ignored while an
+   * exporter's renderer is installed, and irrelevant to a stereo song.
+   */
+  setMonitorMode(ph, mode) {
+    const p = this.playheads[ph];
+    p.monitorMode = mode & 1;
+    p.applySurroundModel();
+  }
+  getMonitorMode(ph) { return this.playheads[ph].monitorMode; }
+
+  /**
+   * Master-strip analysis tap (item 98): ANALYSIS_OFF, ANALYSIS_STEREO,
+   * ANALYSIS_AMBISONIC or a speaker-layout key. Costs nothing while off, so the
+   * host turns it on only while the strip is visible.
+   */
+  setAnalysis(ph, target) { this.playheads[ph].trackerState.setAnalysis(target); }
+  getAnalysis(ph) { return this.playheads[ph].trackerState.analysisTarget; }
+
+  /**
+   * The song's mastering chain (item 178, TAUD_ENGINE_SPEC.md §12.1). `params`
+   * is the decoded `sMst` record; a neutral one costs nothing at all, so this
+   * is safe to push on every load whether the song declares a chain or not.
+   *
+   * A conforming player MUST call this with what the file declares — the
+   * chain is part of how the song sounds, not an editor preference.
+   */
+  setMastering(ph, params) { this.playheads[ph].trackerState.setMastering(params); }
+  getMastering(ph) { return this.playheads[ph].trackerState.masteringParams; }
+
+  /**
+   * The project's instrument mixing chains (item 217, TAUD_ENGINE_SPEC.md
+   * §12.4): every IMix block, as decoded from the file's `IMix` section. An
+   * instrument whose byte 255 names one of them mixes through it on every
+   * playhead. Replaces the whole set; a block that keeps its id keeps its
+   * running state, so a host may push the set on every edit.
+   *
+   * Like the mastering chain, a conforming player MUST install what the file
+   * declares.
+   */
+  setImix(blocks) {
+    this.imixBlocks = imixBlockMap(blocks);
+    this.imixGen++;
+  }
+  getImix() { return [...this.imixBlocks.values()]; }
+
+  /** Install (or drop, slot < 0) the Mixing tab's tap on one instrument's bus,
+   *  in `seat` (one per split pane, < IMX_METER_SEATS). */
+  setImixMeter(ph, slot, seat = 0) { this.playheads[ph].trackerState.setImixMeter(slot, seat); }
+
+  /**
+   * Install (or drop) the Mastering view's metering tap (loudness.js). Like the
+   * strip's analysis tap this costs nothing while off, so a host turns it on
+   * only while the view that reads it is on screen.
+   */
+  setMasterMeter(ph, on, scramble = false, bitDepth = undefined, histSpan = 0) {
+    this.playheads[ph].trackerState.setMasterMeter(on, scramble, bitDepth, histSpan);
+  }
+
+  setSongGlobalVolume(ph, volume) { this.playheads[ph].globalVolume = volume & 255; }
+  getSongGlobalVolume(ph) { return this.playheads[ph].globalVolume; }
+  setSongMixingVolume(ph, volume) { this.playheads[ph].mixingVolume = volume & 255; }
+  getSongMixingVolume(ph) { return this.playheads[ph].mixingVolume; }
+
+  resetParams(ph) { this.playheads[ph].resetParams(); }
+  resetSampleFxState(ph) { this.playheads[ph].resetSampleFxState(); }
+
+  getFreePlayhead(fallback) {
+    for (let i = 0; i < this.playheads.length; i++) {
+      if (!this.playheads[i].isPlaying) return i;
+    }
+    return fallback;
+  }
+
+  /** Drain the pending interrupt latch (read-to-acknowledge, edge-triggered). */
+  pollTrackerInterrupts(ph) {
+    return this.playheads[ph].trackerState.drainInterrupts();
+  }
+
+  /** Argument that fired with Int `n` (item 181) — read alongside the mask the
+   *  drain above returned, and only for the bits it actually set. */
+  interruptArg(ph, n) {
+    return this.playheads[ph].trackerState.interruptArg(n);
+  }
+
+  // ── jam / audition (AudioAdapter.kt:4322-4337) ──
+
+  /** Voice index of jam-bank slot `i` (item 140). Hosts address the bank
+   *  through this rather than by arithmetic, so the base can move. */
+  jamVoice(i) { return JAM_VOICE_BASE + (((i | 0) % JAM_VOICES) + JAM_VOICES) % JAM_VOICES; }
+
+  jamNote(ph, vi, note, inst, audition = false) {
+    const p = this.playheads[ph];
+    const ts = p.trackerState;
+    const v = Math.min(Math.max(vi, 0), TOTAL_VOICES - 1);
+    note &= 0xffff;
+    inst &= 0x3ff;
+    // A lyric instrument jammed sings its lyrics on, a syllable a key, over
+    // the whole jam bank — the bank rotates voices, so the place is the
+    // playhead's, kept per instrument (item 280).
+    const lyric = this.instruments[inst].lyric !== null;
+    if (lyric) {
+      if (ts.jamLyricInst !== inst) { ts.jamLyricInst = inst; ts.jamLyricPos = 0; }
+      ts.voices[v].lyricPos = ts.jamLyricPos;
+    }
+    triggerMetaOrNote(this, ts, ts.voices[v], v, note, inst, -1, !lyric);
+    if (lyric) ts.jamLyricPos = ts.voices[v].lyricPos;
+    // Audition-only (item 51): a STRICT metainstrument only sounds where its
+    // Ixmp zones actually place a sample, so an arbitrary jammed pitch is often
+    // silent. In pure-audition contexts (Instruments/Samples views) retry at the
+    // nearest note it can actually sound, so the user hears the instrument.
+    // Note ENTRY (Timeline/Patterns) keeps the exact pitch.
+    if (audition && !ts.voices[v].active &&
+        !ts.backgroundVoices.some((b) => b.sourceChannel === v && b.active)) {
+      const alt = this._auditionNoteFor(inst, note);
+      if (alt >= 0) triggerMetaOrNote(this, ts, ts.voices[v], v, alt, inst, -1);
+    }
+    p.jamActive = true;
+  }
+
+  /**
+   * Preview the EXACT pooled sample `spec` (ptr/len/rate/loop) on voice `vi`,
+   * BYPASSING all instrument / metainstrument zone resolution. The Samples and
+   * Instruments editors call this so the audition plays the wave the user is
+   * looking at, not whatever a metainstrument would map `note` to (bug #65).
+   * JS-only (no Kotlin counterpart): a scratch instrument in AUDITION_SLOT
+   * carries the sample and its clean default envelope so the note simply
+   * sounds at full volume until jamStop / sample end.
+   * `spec`: { ptr, len, rate, playStart?, loopStart, loopEnd, loopMode, detune?,
+   * chanPtr2?, chanMode? } — chanPtr2 auditions a STEREO pair (item 90) by
+   * hanging a synthetic full-range 's' patch off the scratch instrument, since
+   * only an Ixmp patch can carry a second channel.
+   */
+  jamSample(ph, vi, note, spec) {
+    const p = this.playheads[ph];
+    const ts = p.trackerState;
+    const v = Math.min(Math.max(vi, 0), TOTAL_VOICES - 1);
+    note &= 0xffff;
+    const inst = this.instruments[AUDITION_SLOT];
+    inst.samplePtr = spec.ptr >>> 0;
+    inst.sampleLength = spec.len | 0;
+    inst.samplingRate = spec.rate | 0;
+    inst.samplePlayStart = spec.playStart | 0;
+    inst.sampleLoopStart = spec.loopStart | 0;
+    inst.sampleLoopEnd = spec.loopEnd | 0;
+    inst.loopMode = (spec.loopMode | 0) & 0x07; // loop mode + sustain, drop percussion bit
+    inst.sampleDetune = (spec.detune | 0) & 0xffff;
+    inst.extraPatches = spec.chanPtr2
+      ? [makeInstPatch({
+          pitchStart: 0, pitchEnd: 0xffff, volumeStart: 0, volumeEnd: 63,
+          samplePtr: inst.samplePtr, sampleLength: inst.sampleLength,
+          playStart: inst.samplePlayStart, loopStart: inst.sampleLoopStart,
+          loopEnd: inst.sampleLoopEnd, samplingRate: inst.samplingRate,
+          sampleDetune: inst.sampleDetuneSigned, loopMode: inst.loopMode,
+          hasChanBlock: true, chanCount: 2, chanMode: spec.chanMode | 0,
+          chanPtrs: [spec.chanPtr2 >>> 0],
+        })]
+      : null;
+    triggerNote(this, ts, ts.voices[v], note, AUDITION_SLOT, -1);
+    p.jamActive = true;
+  }
+
+  /** True when metainstrument `inst` would produce at least one sounding layer
+   *  at `note` (mirrors the strict-layer gating in triggerMetaOrNote). */
+  _metaSoundsAt(inst, note) {
+    // An FM rack stands or falls on operator 0: the rest of the rack is read
+    // through it, so a note its rectangle excludes is silent whatever the
+    // modulators say (§5.5.1, triggerFmRack).
+    if (inst.isFm) {
+      const o = inst.metaLayers[0];
+      return inst.fmProgram !== null && o.instIdx >= 1 &&
+        pitchInRange(note, o.pitchStart, o.dLo, o.pitchEnd, o.dHi) && o.volStart <= 0x3f && o.volEnd >= 0x3f;
+    }
+    let layers = inst.resolveMetaLayers(note, 0x3f);
+    if (inst.metaStrict) {
+      layers = layers.filter((l) => {
+        // The pitch the layer SOUNDS — a fixed-pitch layer's own (item 179).
+        let n = layerNote(l, note);
+        n = n < 0x20 ? 0x20 : n > 0xffff ? 0xffff : n;
+        return this.instruments[l.instIdx].resolvePatch(n, 0x3f) !== null;
+      });
+    }
+    return layers.length > 0;
+  }
+
+  /** Nearest note to `note` (within the metainstrument's layer bboxes) that
+   *  actually sounds, or -1 if none / not a metainstrument. */
+  _auditionNoteFor(instId, note) {
+    const inst = this.instruments[instId];
+    if (!inst || !inst.isMeta) return -1;
+    let lo = 0xffff, hi = 0x20;
+    for (const l of inst.metaLayers) {
+      if (l.pitchStart < lo) lo = l.pitchStart;
+      if (l.pitchEnd > hi) hi = l.pitchEnd;
+    }
+    if (lo < 0x20) lo = 0x20;
+    if (hi < lo) return -1;
+    // Sweep outward from the requested note at a fine step, clamped to the
+    // bboxes' union (a jam event, so the cost is irrelevant).
+    const step = 0x20;
+    for (let d = 0; d <= hi - lo; d += step) {
+      const up = note + d, dn = note - d;
+      if (up >= lo && up <= hi && this._metaSoundsAt(inst, up)) return up;
+      if (dn >= lo && dn <= hi && this._metaSoundsAt(inst, dn)) return dn;
+    }
+    return -1;
+  }
+
+  jamStop(ph) {
+    const p = this.playheads[ph];
+    const ts = p.trackerState;
+    for (const v of ts.voices) v.active = false;
+    for (const v of ts.backgroundVoices) v.active = false;
+    p.jamActive = false;
+  }
+
+  /**
+   * Stop ONE audition voice and everything it spawned (metainstrument layer
+   * children, NNA ghosts) — what a released key of a held chord ends, where
+   * jamStop's "deactivate the world" would take the song's own voices with it.
+   * `vi < 0` stops the whole jam bank, which is the focus-loss panic: still not
+   * a single song voice. JS-only (item 140), no Kotlin counterpart.
+   *
+   * Ramped through the pattern note-cut's own path (note word 0x0002) rather
+   * than dropped on the spot: a key release lands wherever the waveform happens
+   * to be, and that ramp exists because stepping to zero there clicks.
+   */
+  jamStopVoice(ph, vi) {
+    const ts = this.playheads[ph].trackerState;
+    const lo = vi < 0 ? JAM_VOICE_BASE : Math.min(vi, TOTAL_VOICES - 1);
+    const hi = vi < 0 ? TOTAL_VOICES - 1 : lo;
+    for (let v = lo; v <= hi; v++) startCutRamp(ts.voices[v]);
+    for (const bg of ts.backgroundVoices) {
+      if (bg.sourceChannel >= lo && bg.sourceChannel <= hi) startCutRamp(bg);
+    }
+  }
+
+  /**
+   * RELEASE one audition voice exactly as a pattern key-off (note word
+   * 0x0001) releases a lane: the sustain region lets go, a key-lift instrument
+   * jumps to its sustain end, and the release plays out — where jamStopVoice
+   * cuts. A finger lifted off a touch keyboard is a key-off, not a cut.
+   * Metainstrument layer children follow through the per-tick sync, as they
+   * follow a pattern key-off; an instrument with neither a release nor a
+   * fadeout keeps sounding, as it would after one. JS-only (item 206), no
+   * Kotlin counterpart.
+   */
+  jamKeyOff(ph, vi) {
+    const ts = this.playheads[ph].trackerState;
+    const voice = ts.voices[Math.min(Math.max(vi, 0), TOTAL_VOICES - 1)];
+    if (!voice.active || voice.keyOff) return;
+    voice.keyOff = true;
+    applyKeyLift(voice, this.instruments[voice.instrumentId]);
+  }
+
+  /**
+   * A computer-keyboard piano key LIFTED (the tracker's jam keyboard): a
+   * formant syllable that a key-off ends by itself — it has a coda to speak —
+   * is keyed off, so the coda is heard as a pattern key-off would sound it;
+   * anything else is cut as jamStopVoice cuts, since an ordinary instrument
+   * with no release, or a syllable with no coda, would otherwise sound on.
+   * JS-only (item 240), no Kotlin counterpart.
+   */
+  jamRelease(ph, vi) {
+    const ts = this.playheads[ph].trackerState;
+    const voice = ts.voices[Math.min(Math.max(vi, 0), TOTAL_VOICES - 1)];
+    if (voice.active && !voice.keyOff && voice.formant !== null && formantEndsOnKeyOff(voice.formant)) {
+      this.jamKeyOff(ph, vi);
+    } else {
+      this.jamStopVoice(ph, vi);
+    }
+  }
+
+  // ── per-voice readbacks (delegate 144-325; clamps mirror the delegate) ──
+
+  _voice(ph, vi) {
+    const v = Math.min(Math.max(vi, 0), MAX_VOICES - 1);
+    return this.playheads[ph].trackerState.voices[v];
+  }
+
+  setVoiceMute(ph, vi, muted) { this._voice(ph, vi).fader = muted ? 255 : 0; }
+  getVoiceMute(ph, vi) { return this._voice(ph, vi).fader === 255; }
+  setVoiceFader(ph, vi, fader) { this._voice(ph, vi).fader = fader & 255; }
+  getVoiceFader(ph, vi) { return this._voice(ph, vi).fader; }
+
+  getVoiceEffectiveVolume(ph, vi) {
+    const v = this._voice(ph, vi);
+    if (!v.active) return 0.0;
+    const effEnvVol = v.hasVolEnv && v.volEnvOn ? v.envVolMix : 1.0;
+    const faderGain = (255 - v.fader) / 255.0;
+    return Math.min(Math.max(effEnvVol * v.fadeoutMix * v.currentMixVolume * faderGain, 0.0), 1.0);
+  }
+
+  /** Pan as the stereo meters want it: a surround voice reports where the
+   *  monitor downmix puts it (rear positions fold onto the front arc). */
+  getVoiceEffectivePan(ph, vi) {
+    const v = this._voice(ph, vi);
+    if (!v.active) return 128;
+    if (this.playheads[ph].surroundModel !== SURROUND_STEREO) {
+      return Math.round(foldAzimuthToPan(voiceAzimuth(v)));
+    }
+    // Panbrello counts here (the surround branch already has it, via
+    // voiceAzimuth): it is a commanded movement the meter should show. The
+    // random pan swing still does not — that is per-trigger jitter, not a
+    // position the song asked for.
+    if (v.hasPanEnv && v.panEnvOn) {
+      const envPanRaw = Math.min(Math.max(Math.trunc(v.envPan * 255.0), 0), 255);
+      return Math.min(Math.max(v.channelPan + v.notePan + envPanRaw - 128 + v.panbrelloOffset,
+        0), 255);
+    }
+    return Math.min(Math.max(v.channelPan + v.notePan + v.panbrelloOffset, 0), 255);
+  }
+
+  /** Where a voice actually sits (#998): 512-unit azimuth, 128-unit elevation.
+   *  Stereo songs report the pan byte's front-arc position. */
+  getVoiceSpatialAzimuth(ph, vi) {
+    const v = this._voice(ph, vi);
+    return this.playheads[ph].surroundModel === SURROUND_STEREO
+      ? clamp(v.channelPan + v.notePan + v.panbrelloOffset, 0, 255) : voiceAzimuth(v);
+  }
+  getVoiceSpatialElevation(ph, vi) {
+    const v = this._voice(ph, vi);
+    return this.playheads[ph].surroundModel === SURROUND_STEREO ? 0 : voiceElevation(v);
+  }
+
+  getVoiceActive(ph, vi) { return this._voice(ph, vi).active; }
+
+  /**
+   * The LANE axis as the pattern left it (item 198.3): `channel_vol`, and the
+   * lane position `S $8aaa` / `X $eeaa` share. Deliberately NOT gated on
+   * `active` — the two registers belong to the lane and survive between notes,
+   * which is the whole reason a display wants them; the effective readings
+   * above answer the other question, "where did the sounding note end up".
+   */
+  getVoiceChannelVolume(ph, vi) { return this._voice(ph, vi).channelVolume; }
+  /** `S $8aaa`'s `aaa`: the pan byte in a stereo song, the 512-unit azimuth otherwise. */
+  getVoiceChannelAzimuth(ph, vi) {
+    const v = this._voice(ph, vi);
+    return this.playheads[ph].surroundModel === SURROUND_STEREO ? v.channelPan : v.panAzimuth;
+  }
+  /** `X $eeaa`'s `ee` — signed, 128 units = 90°; zero unless the song is spatial. */
+  getVoiceChannelElevation(ph, vi) {
+    const v = this._voice(ph, vi);
+    return this.playheads[ph].surroundModel === SURROUND_SPATIAL ? v.panElevation : 0.0;
+  }
+
+  /**
+   * Has the song STATED either lane axis, as opposed to leaving it where a
+   * reset put it? A different question from "is it at its default value":
+   * `M $3F00` and `S $8080` write exactly the values a reset leaves behind,
+   * and they are statements, not absences. Only a command that writes the
+   * register raises these; only a reset clears them.
+   */
+  getVoiceChannelVolumeSet(ph, vi) { return this._voice(ph, vi).channelVolumeSet; }
+  getVoiceChannelPanSet(ph, vi) { return this._voice(ph, vi).channelPanSet; }
+
+  /**
+   * Fill the per-voice soundscope rings (`Voice.scopeBuffer`) or not. Off by
+   * default: the Kotlin device has no such switch because a TSVM guest can read
+   * the scope window through MMIO at any instant, whereas here a host that
+   * wants waveforms has to ask for them — and the two stores per voice per
+   * sample the ring costs are charged over all 80 voice slots, sounding or not.
+   */
+  setVoiceScopeTap(ph, on) { this.playheads[ph].trackerState.scopeOn = !!on; }
+
+  getActiveNoteCounts(ph) {
+    const counts = new Int32Array(1024);
+    const ts = this.playheads[ph].trackerState;
+    for (const v of ts.voices) {
+      if (v.active) counts[v.instrumentId & 0x3ff]++;
+    }
+    return counts;
+  }
+
+  getVoiceInvertSpeed(ph, vi) {
+    const v = this._voice(ph, vi);
+    return v.active ? v.invertSpeed : 0;
+  }
+
+  getInstrumentInvertMask(slot) {
+    const mask = this.instruments[slot & 0x3ff].invertMask;
+    return mask === null ? new Uint8Array(0) : mask.slice();
+  }
+
+  /**
+   * The instrument's live sample modification (item 130), for the sample view's
+   * overlay: the operation, which side of the region it works on, the region as
+   * a FRACTION pair plus its comb (item 153), and whatever the operation has
+   * accumulated. Plain numbers — the reply crosses a postMessage. The MOD_INVERT
+   * bit-mask travels with it as `modMask`.
+   *
+   * Field names are the instrument's own, so the reply can be handed straight to
+   * resolveModGeom / modTouches / extModTouches / modAddressExt / applyExtLevel:
+   * the view draws the modification through the engine's own geometry and
+   * argument-extension machinery (item 162) rather than a re-implementation of
+   * it. The `modOpExt`-and-after fields are only ever live while `modOpExt` is
+   * non-zero (see inst.js setModOpExt/clearModState) — harmless to always send.
+   */
+  getInstrumentSampleMod(slot) {
+    const inst = this.instruments[slot & 0x3ff];
+    return {
+      modOp: inst.modOp, modInvert: inst.modInvert,
+      modFrom: inst.modFrom, modTo: inst.modTo,
+      modCombBits: inst.modCombBits, modCombOdd: inst.modCombOdd,
+      modRot: inst.modRot, modSub: inst.modSub, modOn: inst.modOn,
+      modScatter: inst.modScatter, modSeed: inst.modSeed, modEpoch: inst.modEpoch,
+      modOpExt: inst.modOpExt, modF: inst.modF, modStepIndex: inst.modStepIndex,
+      modXor: inst.modXor, modBitRot: inst.modBitRot,
+      modBitPermIdx: inst.modBitPermIdx, modBitPermOn: inst.modBitPermOn,
+      modExtSwapA: inst.modExtSwapA, modExtSwapB: inst.modExtSwapB,
+      modExtMirror: inst.modExtMirror,
+      // 102/12x: the instrument's own funk-repeat walk (item 173 follow-up),
+      // for the Samples view's overlay — same idea as SNAP_V_FUNK_POS/LEN
+      // above, but this state is the INSTRUMENT's, not a voice's.
+      modFunkWalk: inst.modFunkWalk, modFunkPos: inst.modFunkPos, modFunkLen: inst.modFunkLen,
+    };
+  }
+
+  /**
+   * A PSG instrument's live state (§7.9), for the PSG tab's playback display,
+   * or null for any other instrument: the S $Axxx overlay (each field −1 while
+   * the record's own value stands) and the waveform each oscillator is playing
+   * now on the first sounding voice of it — a lane's before a ghost's — which
+   * the auto-advance moves; null when nothing is sounding it.
+   */
+  getInstrumentPsgState(slot) {
+    const patch = this.instruments[slot & 0x3ff].psg;
+    if (patch === null) return null;
+    let wave = null;
+    for (const p of this.playheads) {
+      const ts = p.trackerState;
+      if (ts === null || ts === undefined || wave !== null) continue;
+      for (const list of [ts.voices, ts.backgroundVoices]) {
+        for (const v of list) {
+          if (v.active && v.psg !== null && v.psg.patch === patch) {
+            wave = [psgCurrentWave(v.psg, 0), psgCurrentWave(v.psg, 1)];
+            break;
+          }
+        }
+        if (wave !== null) break;
+      }
+    }
+    return {
+      rtAdvance: [patch.rtAdvance[0], patch.rtAdvance[1]],
+      rtLevel: [patch.rtLevel[0], patch.rtLevel[1]],
+      rtMute: patch.rtMute,
+      wave,
+    };
+  }
+
+  /**
+   * A formant instrument's live state, for the Formant tab's playback display
+   * (item 240), or null for any other instrument: every sounding voice of it
+   * — lanes before ghosts, at most FORMANT_LIVE_MAX — that the pattern has
+   * changed: a vowel of its OWN (`own`: an `S $Afgr`, or an instrument change
+   * still gliding), as the chart bytes it stands at now, fractional
+   * mid-glide, and where a glide is heading; and what `S $9xxx` gave it
+   * (item 292) — its nasalisation and r-colouring (`nasal`, `rhotic`: null,
+   * or where each stands, 0…1, and where it is heading), its glide time in
+   * 2 ms units (`glide`, −1 for the record's) and a coda called for while
+   * the key is held (`coda`). A voice singing the record as it is is not
+   * listed: the record shows it.
+   *
+   * A lyric instrument's (item 280) also lists `lyric`: the syllables its
+   * notes are singing now, as indices into its lyrics, ascending, each once —
+   * the lanes' and jammed notes' (a note let go still sings until it is
+   * silent), not the ghosts' an NNA left behind. Empty for any other.
+   */
+  getInstrumentFormantState(slot) {
+    const inst = this.instruments[slot & 0x3ff];
+    const patch = inst.formant;
+    if (patch === null) return null;
+    const voices = [];
+    const lyric = [];
+    if (inst.lyric !== null) {
+      for (const p of this.playheads) {
+        const ts = p.trackerState;
+        if (ts === null || ts === undefined) continue;
+        for (const v of ts.voices) {
+          const st = v.formant;
+          if (!v.active || st === null || st.patch === null || st.patch.lyricOf !== patch) continue;
+          const k = inst.lyric.indexOf(st.patch);
+          if (k >= 0 && !lyric.includes(k)) lyric.push(k);
+        }
+      }
+      lyric.sort((a, b) => a - b);
+    }
+    for (const p of this.playheads) {
+      const ts = p.trackerState;
+      if (ts === null || ts === undefined) continue;
+      for (const list of [ts.voices, ts.backgroundVoices]) {
+        for (const v of list) {
+          if (voices.length >= FORMANT_LIVE_MAX) break;
+          const st = v.formant;
+          if (!v.active || st === null) continue;
+          const nas = st.nasAmt, rho = st.rhoAmt;
+          if (!st.ownVowel && !nas.own && !rho.own && st.glideOv < 0 && !st.codaCall) continue;
+          // A lyric instrument's note sings one of its syllables (item 280).
+          if (st.patch !== patch && (st.patch === null || st.patch.lyricOf !== patch)) continue;
+          const gliding = st.glideLeft > 0;
+          voices.push({
+            own: st.ownVowel,
+            front: st.vFront, open: st.vOpen, round: st.vRound,
+            toFront: gliding ? st.tFront : st.vFront, toOpen: gliding ? st.tOpen : st.vOpen,
+            toRound: gliding ? st.tRound : st.vRound,
+            // What S $9xxx gave it (item 292): null where it has not.
+            nasal: nas.own ? { v: nas.v, to: nas.left > 0 ? nas.to : nas.v } : null,
+            rhotic: rho.own ? { v: rho.v, to: rho.left > 0 ? rho.to : rho.v } : null,
+            glide: st.glideOv,
+            coda: st.codaCall,
+          });
+        }
+      }
+    }
+    return { voices, lyric };
+  }
+
+  /** The modification's inversion mask, one bit per SAMPLE byte (item 130). */
+  getInstrumentModMask(slot) {
+    const mask = this.instruments[slot & 0x3ff].modMask;
+    return mask === null ? new Uint8Array(0) : mask.slice();
+  }
+
+  getVoiceNote(ph, vi) {
+    const v = this._voice(ph, vi);
+    return v.active ? v.noteVal & 0xffff : 0;
+  }
+
+  getVoiceInstrument(ph, vi) {
+    const v = this._voice(ph, vi);
+    // Pattern-level instrument (meta slot), not the resolved layer child.
+    return v.active ? (v.displayInst || v.instrumentId) & 0x3ff : 0;
+  }
+
+  getVoiceSamplePos(ph, vi) {
+    const v = this._voice(ph, vi);
+    return v.active ? v.samplePos : -1.0;
+  }
+
+  getVoiceSamplePtr(ph, vi) {
+    const v = this._voice(ph, vi);
+    return v.active ? v.activeSamplePtr : -1;
+  }
+
+  getVoiceSampleLength(ph, vi) {
+    const v = this._voice(ph, vi);
+    return v.active ? v.activeSampleLength : 0;
+  }
+
+  getVoiceEnvVolIndex(ph, vi) { const v = this._voice(ph, vi); return v.active ? v.envIndex : -1; }
+  getVoiceEnvVolTime(ph, vi) { const v = this._voice(ph, vi); return v.active ? v.envTimeSec : 0.0; }
+  getVoiceEnvPanIndex(ph, vi) { const v = this._voice(ph, vi); return v.active ? v.envPanIndex : -1; }
+  getVoiceEnvPanTime(ph, vi) { const v = this._voice(ph, vi); return v.active ? v.envPanTimeSec : 0.0; }
+  getVoiceEnvPitchIndex(ph, vi) { const v = this._voice(ph, vi); return v.active ? v.envPitchIndex : -1; }
+  getVoiceEnvPitchTime(ph, vi) { const v = this._voice(ph, vi); return v.active ? v.envPitchTimeSec : 0.0; }
+  getVoiceEnvFilterIndex(ph, vi) { const v = this._voice(ph, vi); return v.active ? v.envFilterIndex : -1; }
+  getVoiceEnvFilterTime(ph, vi) { const v = this._voice(ph, vi); return v.active ? v.envFilterTimeSec : 0.0; }
+
+  /** Bring the instruments' route table up to date now (the mixer does it at
+   *  the top of a chunk); `trackerState.imixRoutes` then shows the buses. */
+  syncImixRoutes(ph = 0) { syncImixRoutes(this, this.playheads[ph].trackerState); }
+
+  /** Step the song by hand: run the row event at the playhead's position now,
+   *  as the mixer's clock would at the top of the row — and a tick pass. For a
+   *  test; the WebAssembly engine answers to the same two names. */
+  applyTrackerRow(ph = 0) {
+    const p = this.playheads[ph];
+    applyTrackerRow(this, p.trackerState, p);
+  }
+  applyTrackerTick(ph = 0) {
+    const p = this.playheads[ph];
+    applyTrackerTick(this, p.trackerState, p);
+  }
+
+  // ── rendering ──
+
+  /**
+   * Render one 512-frame chunk (interleaved U8 stereo, 1024 bytes) for playhead
+   * ph. Pass a reusable out buffer to avoid allocation; a fresh one is made
+   * otherwise. Returns the buffer (or null when the playhead has no state).
+   */
+  renderChunk(ph, out = new Uint8Array(TRACKER_CHUNK * 2)) {
+    return generateTrackerAudio(this, this.playheads[ph], out);
+  }
+}

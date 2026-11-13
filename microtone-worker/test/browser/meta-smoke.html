@@ -85,8 +85,10 @@
         nums(0)[1].value = "-100";           // one 12-TET semitone down (in ¢)
         fire(nums(0)[1]);
         await sleep(20);
-        const det = layers()[0].detune;
-        check(`detune reads cents (−100 ¢ → ${det} units)`, det === -341);
+        // A format-3 project keeps the sixteenths (item 319, §9.18): 100 ¢ is
+        // 341.33 units, so the field is −342 and its extension adds 11/16.
+        const det = layers()[0].detune + layers()[0].dDetune;
+        check(`detune reads cents (−100 ¢ → ${det} units)`, det === -341 - 5 / 16);
 
         // the spinner's + steps a whole degree of the song's notation — the
         // cell's own ◂ ▸ pair became the group's buttons (item 156)
@@ -215,15 +217,15 @@
         const fixedBox = () => rows()[0].querySelector("button.meta-fixed");
         check("every layer row carries a fixed-pitch switch",
           rows().every((_, r) => !!rows()[r].querySelector("button.meta-fixed")));
-        const detBefore = layers()[0].detune;
+        const detBefore = layers()[0].detune + layers()[0].dDetune;
         fixedBox().click();
         await sleep(40);
         check("ticking it sets the flag on that layer", layers()[0].fixedPitch === true);
         check("…carrying the pitch the row was showing (middle C + the detune)",
-          layers()[0].detune === 0x5000 + detBefore);
+          layers()[0].detune + layers()[0].dDetune === 0x5000 + detBefore);
         check("…and only that layer", layers().slice(1).every((l) => !l.fixedPitch));
-        check("the field now reads an absolute note word",
-          /^\$[0-9A-F]{4}$/.test(nums(0)[1].value));
+        check("the field now reads an absolute pitch, in 65536-TET steps (no hex point)",
+          /^−?\$[0-9A-F]{5,6}$/.test(nums(0)[1].value));
         check("…and the flag is in the record, byte +9 bit 6",
           (doc.instruments[metaSlot].metaRaw[4 + 9] & 0x40) !== 0);
         check("…with the volume range beside it intact",

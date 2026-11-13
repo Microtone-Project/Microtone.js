@@ -7,12 +7,12 @@
 // concern that does not exist here).
 
 import {
-  SAMPLING_RATE, MIDDLE_C, SAMPLE_BIN_TOTAL,
+  SAMPLING_RATE, MIDDLE_C, SAMPLE_BIN_TOTAL, FUNK_XFADE_SAMPLES,
   INTERP_DEFAULT, INTERP_NONE, INTERP_A500, INTERP_A1200, INTERP_SNES, INTERP_NES_DPCM,
-  SINC_WIDTH, RAMP_OUT_SAMPLES, ATTACK_RAMP_SAMPLES, FAST_FADE_SEC, VOL_RAMP_SAMPLES,
+  SINC_WIDTH, SINC_PRECISION, RAMP_OUT_SAMPLES, ATTACK_RAMP_SAMPLES, FAST_FADE_SEC, VOL_RAMP_SAMPLES,
   PITCH_GLIDE_FULL_RATIO,
 } from "./constants.js";
-import { sincTap, SNES_GAUSS } from "./tables.js";
+import { SINC_TABLE, SINC_TABLE_SIZE, SINC_PHASE, SINC_TAPS, SNES_GAUSS } from "./tables.js";
 import {
   MOD_OFF, MOD_XFADE_SAMPLES, modTouches, modAddress, resolveModGeom,
   extModTouches, modAddressExt, applyExtLevel, applyExtLevelPrev, isExtFunkOp,
@@ -27,7 +27,7 @@ import {
  */
 export function computePlaybackRate(voice, noteVal, tuningRatio = 1.0) {
   return (voice.activeSamplingRate / SAMPLING_RATE) *
-         2 ** ((noteVal - MIDDLE_C + voice.activeSampleDetune) / 4096.0) *
+         2 ** ((noteVal - MIDDLE_C + voice.activeSampleDetune + voice.pitchExcess) / 4096.0) *
          tuningRatio;
 }
 
@@ -200,43 +200,40 @@ function interpolateChannel(eng, voice, inst, interpMode, sampleLen, binMax, bas
 
   switch (interpMode) {
     case INTERP_DEFAULT: {
+      // The windowed sinc of spec §8.3: the position's fraction picks one of
+      // SINC_PRECISION phases (downwards — the kernel is not interpolated
+      // between them), and the phase's coefficients weigh the bytes around
+      // the position.
       let acc = 0.0;
       if (plain) {
-        // Interior kernel: when the whole 2·SINC_WIDTH+1 window sits inside
-        // both the sample and the pool, every clamp poolPoint would apply is
-        // the identity, so the taps become plain indexed loads off one base.
-        // That is the case for all but the first and last few frames of a
-        // sample, which is to say almost always.
-        //
-        // In here i0 IS trunc(samplePos) (both clamps are the identity), so
-        // frac lies in [0,1) and the first tap, j = -SINC_WIDTH, sits at
-        // |x| >= SINC_WIDTH·SINC_PRECISION — past the end of the table, where
-        // sincTap answers 0 and the generic loop below skips it. So the sum
-        // starts one tap in, unrolled (SINC_WIDTH is 3, asserted at load), and
-        // without that loop's `coeff !== 0` test: a zero coefficient makes a
-        // ±0 term, and adding ±0 to a sum that began at +0 changes nothing, so
-        // this is the same sum of the same terms in the same order — bit for
-        // bit — with a seventh of the kernel evaluations and every branch gone.
+        // The interior, which is nearly always: every tap is inside the
+        // sample and the pool, and i0 was not clamped, so frac is in [0, 1)
+        // and the phase is a row of the table.
         const base = basePtr + i0;
         if (i0 >= SINC_WIDTH && i0 + SINC_WIDTH <= sampleLen - 1 && base + SINC_WIDTH <= binMax) {
           const bin = eng.sampleBin;
-          acc += PCM_U8[bin[base - 2]] * sincTap(frac, -2);
-          acc += PCM_U8[bin[base - 1]] * sincTap(frac, -1);
-          acc += PCM_U8[bin[base]] * sincTap(frac, 0);
-          acc += PCM_U8[bin[base + 1]] * sincTap(frac, 1);
-          acc += PCM_U8[bin[base + 2]] * sincTap(frac, 2);
-          acc += PCM_U8[bin[base + 3]] * sincTap(frac, 3);
+          const k = SINC_TAPS * Math.trunc(frac * SINC_PRECISION);
+          acc += PCM_U8[bin[base - 2]] * SINC_PHASE[k];
+          acc += PCM_U8[bin[base - 1]] * SINC_PHASE[k + 1];
+          acc += PCM_U8[bin[base]] * SINC_PHASE[k + 2];
+          acc += PCM_U8[bin[base + 1]] * SINC_PHASE[k + 3];
+          acc += PCM_U8[bin[base + 2]] * SINC_PHASE[k + 4];
+          acc += PCM_U8[bin[base + 3]] * SINC_PHASE[k + 5];
           return acc;
         }
-        for (let j = -SINC_WIDTH; j <= SINC_WIDTH; j++) {
-          const coeff = sincTap(frac, j);
-          if (coeff !== 0.0) acc += poolPoint(eng, sampleLen, binMax, basePtr, i0 + j) * coeff;
-        }
-        return acc;
       }
+      // The same sum where a tap may fall off the sample (it reads the
+      // nearest byte the sample has), where the position itself has left it
+      // (frac is then outside [0, 1), and the taps it still reaches are the
+      // ones within SINC_WIDTH of it), or where the instrument's bytes are
+      // being modified as they are read.
+      const q = Math.floor(frac * SINC_PRECISION);
+      if (!(q >= -2 * SINC_TABLE_SIZE && q <= 2 * SINC_TABLE_SIZE)) return 0.0; // out of every tap's reach
       for (let j = -SINC_WIDTH; j <= SINC_WIDTH; j++) {
-        const coeff = sincTap(frac, j);
-        if (coeff !== 0.0) acc += readSamplePoint(eng, voice, inst, i0 + j, sampleLen, binMax, basePtr) * coeff;
+        const idx = Math.abs(j * SINC_PRECISION - q);
+        if (idx >= SINC_TABLE_SIZE) continue;
+        acc += (plain ? poolPoint(eng, sampleLen, binMax, basePtr, i0 + j)
+          : readSamplePoint(eng, voice, inst, i0 + j, sampleLen, binMax, basePtr)) * SINC_TABLE[idx];
       }
       return acc;
     }
@@ -304,7 +301,6 @@ function interpolateChannel(eng, voice, inst, interpMode, sampleLen, binMax, bas
  * $40, $80 bytes — a fixed 2 ms would span several grains and smear the walk
  * into a comb filter instead of smoothing it.
  */
-export const FUNK_XFADE_SAMPLES = 64;
 
 /** Arm the seam crossfade. `offset` is (old window − new window) in bytes, so
  *  the ghost read is just `samplePos + offset`, and 0 (the window did not move)
@@ -465,6 +461,41 @@ export function fetchTrackerSample(eng, voice, inst, interpMode, posOffset = 0) 
 }
 
 /**
+ * The same fetch as one of the `n` sub-steps an oversampled FM rack takes per
+ * output frame (§5.5.1): the position moves an n-th of the playback rate, and
+ * what is counted in output samples — the crossfades of funk repeat and of the
+ * sample modifications — counts once a frame, on the `last` sub-step.
+ */
+export function fetchTrackerSampleSub(eng, voice, inst, interpMode, posOffset, n, last) {
+  if (inst.index === 0) return 0.0;
+
+  const sampleLen = Math.max(voice.activeSampleLength, 1);
+  const binMax = SAMPLE_BIN_TOTAL - 1;
+  const keepPos = voice.samplePos;
+  if (posOffset !== 0) voice.samplePos = wrapReadPos(voice, keepPos + posOffset, sampleLen);
+  let sample = interpolateChannel(eng, voice, inst, interpMode, sampleLen, binMax,
+    voice.activeSamplePtr, voice);
+  if (voice.funkXfade > 0) {
+    const w = voice.funkXfade / voice.funkXfadeLen;
+    sample = funkGhostChannel(eng, voice, inst, interpMode, sampleLen, binMax,
+      voice.activeSamplePtr, voice) * w + sample * (1.0 - w);
+    if (last) voice.funkXfade--;
+  }
+  if (voice.modFunkXfade > 0) {
+    const w = voice.modFunkXfade / voice.modFunkXfadeLen;
+    sample = modFunkGhostChannel(eng, voice, inst, interpMode, sampleLen, binMax,
+      voice.activeSamplePtr, voice) * w + sample * (1.0 - w);
+    if (last) voice.modFunkXfade--;
+  }
+  if (posOffset !== 0) voice.samplePos = keepPos;
+
+  if (last && voice.modXfade > 0) voice.modXfade--;
+  if (voice.rampOutSamples > 0) return sample;
+  advanceSamplePos(voice, inst, sampleLen, voice.currentPlaybackRate / n);
+  return sample;
+}
+
+/**
  * Step samplePos by the playback rate and apply the loop/end rules.
  *
  * Funk repeat (Z $F0xx, item 161) is the one thing that can move the loop out
@@ -488,7 +519,7 @@ export function fetchTrackerSample(eng, voice, inst, interpMode, posOffset = 0) 
  * own row) is what the voice actually sounds; Z's own walk keeps running
  * underneath, ready the moment the row's `2`/`3` stops overriding it.
  */
-function advanceSamplePos(voice, inst, sampleLen) {
+function advanceSamplePos(voice, inst, sampleLen, step = voice.currentPlaybackRate) {
   // An NNA ghost inherits the window without inheriting the walk, so either
   // half of the pair on its own means the voice is sounding a moved loop.
   const zWindowed = voice.funkPos >= 0 || voice.funkWindow >= 0;
@@ -508,7 +539,7 @@ function advanceSamplePos(voice, inst, sampleLen) {
   const loopStart = extWindowed ? extLoopStart : zLoopStart;
   const loopEnd = extWindowed ? extLoopEnd : zLoopEnd;
   if (voice.forward) {
-    voice.samplePos += voice.currentPlaybackRate;
+    voice.samplePos += step;
     // Sustain bit set + key-off ⇒ escape the loop (loopMode 0 semantics).
     const effectiveLoopMode =
       voice.activeSampleLoopSustain && voice.keyOff ? 0 : voice.activeLoopMode & 3;
@@ -553,7 +584,7 @@ function advanceSamplePos(voice, inst, sampleLen) {
         break;
     }
   } else {
-    voice.samplePos -= voice.currentPlaybackRate;
+    voice.samplePos -= step;
     if (voice.samplePos < loopStart) {
       if (extWindowed) {
         const prevWindow = extLoopStart;

@@ -8,7 +8,7 @@
 
 import { META_MIX_GAIN } from "../../core/engine/tables.js";
 import { ANCHOR_NOTE, stepNoteInTable } from "../../core/tuning/pitchtables.js";
-import { parseFieldValue } from "../doc/patternquery.js";
+import { parseFieldValue, parseNoteName } from "../doc/patternquery.js";
 import { parseNumberText, parsePitchText } from "./components/spinner.js";
 import { t } from "./i18n.js";
 
@@ -89,20 +89,63 @@ export function sfResoDbMap({ flat = true } = {}) {
 export const centsOfUnits = (units) => (units * 1200) / UNITS_PER_OCTAVE;
 export const unitsOfCents = (cents) => (cents * UNITS_PER_OCTAVE) / 1200;
 
+/** A detune in 4096-TET units as cents: to a tenth on a whole unit, to a
+ *  hundredth when it carries sixteenths (a 65536-TET step is 0.018 cent). */
+export function centsText(units) {
+  const c = centsOfUnits(units);
+  return `${c.toFixed(Number.isInteger(units) ? 1 : 2)} ¢`;
+}
+
+// ── 65536-TET steps ────────────────────────────────────────────────────────
+// An instrument's pitch in a format-3 project is held in 4096-TET units that
+// carry sixteenths (file format §9.18, doc/pitchedit.js). Whatever a person
+// reads or types as a NUMBER of pitch steps is in 65536-TET steps: a hex
+// figure (`$51555`, never a hex point), a plain decimal, and what cents and
+// ratios land on.
+
+const STEPS_PER_UNIT = 16;
+const STEPS_PER_OCTAVE = UNITS_PER_OCTAVE * STEPS_PER_UNIT;
+
+/** A pitch as its 65536-TET step count in hex, five digits at least: C-4 is
+ *  `$50000`, an octave below C0 `−$10000`. */
+export function stepsHex(units, digits = 5) {
+  const n = Math.round(units * STEPS_PER_UNIT) + 0;
+  return (n < 0 ? "−$" : "$") + Math.abs(n).toString(16).toUpperCase().padStart(digits, "0");
+}
+
+/** …and as a decimal count of them: 1365⅓ units of a third is `21845`. */
+export const stepsText = (units) => String(Math.round(units * STEPS_PER_UNIT) + 0);
+
+/** Cents (or anything parsePitchText reads on the 65536 grid) → 4096-TET
+ *  units on the 65536-TET grid, computed in one step. */
+const unitsOfFineCents = (c) => Math.round((c * STEPS_PER_OCTAVE) / 1200) / STEPS_PER_UNIT;
+
 /**
  * A detune in cents over signed 4096-TET units, kept within [min, max], each
  * press a degree of the song's own pitch table (measured from middle C, as the
  * layer table's detune is). Typing takes cents, `700c`, `3/2` and `$100`.
+ *
+ * `fine`: the field is a 65536-TET value (file format §9.18). A plain number
+ * is cents, as the box shows; `700c` and `3/2` land straight on the nearest
+ * 65536-TET step, and hex counts those steps (`$100` is sixteen 4096ths).
+ * Text that names no pitch keeps the value the field held.
  */
-export function centsMap(preset, min = -0x8000, max = 0x7fff) {
-  const clampU = (u) => clampN(Math.round(u), min, max);
+export function centsMap(preset, min = -0x8000, max = 0x7fff, fine = false) {
+  const q = (u) => (fine ? Math.round(u * STEPS_PER_UNIT) / STEPS_PER_UNIT : Math.round(u));
+  const clampU = (u) => clampN(q(u), min, max);
   return {
-    toDisplay: (u) => `${centsOfUnits(u).toFixed(1)} ¢`,
-    fromDisplay: (text) => {
-      const c = parsePitchText(text, "cents");
-      return clampU(Number.isFinite(c) ? unitsOfCents(c) : 0);
-    },
-    step: (u, dir) => clampU(stepNoteInTable(clampN(ANCHOR_NOTE + u, 0x20, 0xffff), preset, dir) - ANCHOR_NOTE),
+    toDisplay: (u) => centsText(u),
+    fromDisplay: fine
+      ? (text) => {
+        const c = parsePitchText(text, "cents", STEPS_PER_OCTAVE);
+        return Number.isFinite(c) ? clampU(unitsOfFineCents(c)) : NaN;
+      }
+      : (text) => {
+        const c = parsePitchText(text, "cents");
+        return clampU(Number.isFinite(c) ? unitsOfCents(c) : 0);
+      },
+    step: (u, dir) => clampU(stepNoteInTable(clampN(ANCHOR_NOTE + u, 0x20, 0xffff + 15 / 16), preset, dir) - ANCHOR_NOTE),
+    fine,
   };
 }
 
@@ -147,6 +190,45 @@ export function pitchHexMap(preset, min = 0, max = 0xffff) {
     },
     step: (w, dir) => clampW(stepNoteInTable(clampN(w, 0x20, 0xffff), preset, dir)),
     inputMode: "text",
+  };
+}
+
+/**
+ * A pitch — a fixed note, a range bound, the pitch-pan centre — as its
+ * 65536-TET step count (file format §9.18): `$50000` is C-4, `$51555` the
+ * step above $5155 by five sixteenths, `−$10000` an octave below C0, `$120000`
+ * past C15. Typed as a note name (`C-4`), as hex (`$51555`, `0x51555`, a sign
+ * in front) or as a plain decimal count of steps (`327680` is C-4) — never with
+ * a hex point; stepped by degrees of the song's own table. Text that names no
+ * pitch keeps the value the field held.
+ *
+ *   high  a range's HIGH bound, whose value is the last pitch inside it. A
+ *         degree named or stepped to on a whole 4096-TET unit takes the whole
+ *         of that unit (C-4 as a top is `$5000F`), as the bound always has; a
+ *         typed step count is taken as it stands.
+ *   min, max  the reach, in units (default: what a field and its byte hold).
+ */
+export function widePitchMap(preset, { high = false, min = -8 * 65536, max = 8 * 65536 - 1 / 16 } = {}) {
+  const clampW = (w) => clampN(Math.round(w * STEPS_PER_UNIT) / STEPS_PER_UNIT, min, max);
+  const topOf = (v) => (high && Number.isInteger(v) ? v + 15 / 16 : v);
+  return {
+    toDisplay: (w) => stepsHex(w),
+    fromDisplay: (text) => {
+      const s = minus(text);
+      // A name before a number: `Ab4` is a note, not hex.
+      const named = /^[+-]?(\$|0x)/i.test(s) ? null : parseNoteName(s);
+      if (named !== null) return clampW(topOf(named));
+      // Cents and ratios measure an interval, which an absolute pitch is not.
+      if (/[c¢/:]/i.test(s.replace(/^[+-]?0x/i, ""))) return NaN;
+      const n = parsePitchText(s, "units", STEPS_PER_OCTAVE);
+      return Number.isFinite(n) ? clampW(Math.round(n) / STEPS_PER_UNIT) : NaN;
+    },
+    step: (w, dir) => {
+      const from = high && Math.round(w * STEPS_PER_UNIT) % STEPS_PER_UNIT === 15 ? Math.floor(w) : w;
+      return clampW(topOf(stepNoteInTable(clampN(from, 0x20, 0xffff + 15 / 16), preset, dir)));
+    },
+    inputMode: "text",
+    fine: true,
   };
 }
 

@@ -9,18 +9,12 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { TaudEngine } from "../../core/engine/engine.js";
 import { TRACKER_CHUNK, setSamplingRate, BPM_MIN, BPM_MAX } from "../../core/engine/constants.js";
-import { Voice } from "../../core/engine/voice.js";
 import {
   envPoint, buildMetaRecord, makeMetaLayer, makeInstPatch, writePatchesBlob,
   TaudInst,
 } from "../../core/engine/inst.js";
-import { ghostVoice, resolveActiveEnvelopes } from "../../core/engine/trigger.js";
-import { advancePitchRamp } from "../../core/engine/sampler.js";
-import { applyFilterParamEffect, applyEffectRow } from "../../core/engine/effects.js";
 import { EffectOp } from "../../core/engine/tables.js";
-import {
-  advancePfRole, seedPfRole, advanceEnvelope, pfIdxBox, pfTimeBox, applyKeyLift, forceKeyLift,
-} from "../../core/engine/envelope.js";
+import { engineParts } from "../fixtures/engine-parts.js";
 import { parseTaud } from "../../core/format/taud-parse.js";
 import { loadIntoEngine } from "../../core/audio/offline-render.js";
 
@@ -28,8 +22,6 @@ import { loadIntoEngine } from "../../core/audio/offline-render.js";
 // 48 kHz): the expectations below are sample counts and reference renders
 // taken from AudioAdapter.kt, and they stay diffable against it.
 setSamplingRate(32000);
-
-const scratch = new Int32Array(2);
 
 // Render ≈ `samples` frames of playhead 0, chunk-size-agnostic (renderChunk
 // always emits exactly TRACKER_CHUNK, so these tests advance by sample count
@@ -333,13 +325,14 @@ test("pitch is interpolated per sample, not held for a tick (item 141)", () => {
 
 test("the pitch glide spends (interval × time), not time (item 144)", () => {
   // How many calls it takes the glide to arrive, driving the ramp directly.
+  const P = engineParts();
   const glideSamples = (cents, spt = 640) => {
-    const v = new Voice();
+    const v = P.voice();
     v.snapPlaybackRate = false;
     v.currentPlaybackRate = 1.0;
     v.playbackRate = 2 ** (cents / 1200);
     let n = 0;
-    while (v.currentPlaybackRate !== v.playbackRate && n < spt * 4) { advancePitchRamp(v, spt); n++; }
+    while (v.currentPlaybackRate !== v.playbackRate && n < spt * 4) { P.advancePitchRamp(v, spt); n++; }
     return n;
   };
   // A control-sized move — vibrato, an ordinary slide — still gets the whole tick.
@@ -490,67 +483,73 @@ test("S$Dxny's $n action arms on a note-less row (Kxx-style deferred key-off)", 
 
 test("applyKeyLift respects the instrument's Key-Lift flag; forceKeyLift (S$Dxny n=4) bypasses it", () => {
   const sustainWord = (1 << 8) | 3 | 0x20; // enable, start=1, end=3
-  const makeVoice = () => { const v = new Voice(); v.activeVolEnvSustain = sustainWord; return v; };
+  const P = engineParts();
+  const makeVoice = () => { const v = P.voice(); v.activeVolEnvSustain = sustainWord; return v; };
+  const cut = P.eng.instruments[1], lift = P.eng.instruments[2];
+  cut.instrumentFlag = 0x01;  // New Note Action 1: note cut
+  lift.instrumentFlag = 0x20; // New Note Action 4: key lift
+  assert.equal(cut.nnaKeyLift, false);
+  assert.equal(lift.nnaKeyLift, true);
 
   const vOff = makeVoice();
-  applyKeyLift(vOff, { nnaKeyLift: false });
+  P.applyKeyLift(vOff, cut);
   assert.equal(vOff.envIndex, 0, "flag OFF: applyKeyLift (S$Dxny n=0 / '===') is a no-op");
 
   const vOn = makeVoice();
-  applyKeyLift(vOn, { nnaKeyLift: true });
+  P.applyKeyLift(vOn, lift);
   assert.equal(vOn.envIndex, 3, "flag ON: applyKeyLift jumps to the sustain-end node");
 
   const vForced = makeVoice();
-  forceKeyLift(vForced);
+  P.forceKeyLift(vForced);
   assert.equal(vForced.envIndex, 3, "forceKeyLift jumps regardless of the instrument's flag");
 });
 
 test("advancePfRole SKIPS zero-duration nodes; seedPfRole settles past them", () => {
   // Node 0: instant (offset 0) value 0 → node 1: value 200 over ~0.25 s.
-  const env = new Array(25);
-  for (let i = 0; i < 25; i++) env[i] = envPoint(220, 0);
-  env[0] = envPoint(0, 0);     // zero-duration attack node
-  env[1] = envPoint(200, 64);  // minifloat idx 64 = 0.25 s
-  env[2] = envPoint(220, 64);
+  const P = engineParts();
+  const env = P.envelope([
+    envPoint(0, 0),     // zero-duration attack node
+    envPoint(200, 64),  // minifloat idx 64 = 0.25 s
+    envPoint(220, 64),
+  ], envPoint(220, 0));
 
-  const seed = seedPfRole(env, 0x2000 /* P bit only */, 0);
-  assert.equal(pfIdxBox[0], 1, "seed must settle past the zero-duration node");
-  assert.ok(Math.abs(seed - 200 / 255) < 1e-12, "seed value is node 1's, not node 0's");
+  const seed = P.seedPfRole(env, 0x2000 /* P bit only */, 0);
+  assert.equal(seed.idx, 1, "seed must settle past the zero-duration node");
+  assert.ok(Math.abs(seed.value - 200 / 255) < 1e-12, "seed value is node 1's, not node 0's");
 
   // A fresh walk from index 0 must also skip, not freeze at node 0.
-  pfIdxBox[0] = 0;
-  pfTimeBox[0] = 0.0;
-  const v = advancePfRole(env, 0x2000, 0, false, 0.012, scratch, pfIdxBox, pfTimeBox);
-  assert.equal(pfIdxBox[0], 1);
-  assert.ok(v > 200 / 255 - 1e-9, "walker moved onto the node-1 segment");
+  const walk = P.advancePfRole(env, 0x2000, 0, false, 0.012, 0, 0.0);
+  assert.equal(walk.idx, 1);
+  assert.ok(walk.value > 200 / 255 - 1e-9, "walker moved onto the node-1 segment");
 });
 
 test("vol/pan walker FREEZES on zero-offset nodes (IT terminator semantics)", () => {
-  const v = new Voice();
-  v.activeVolEnv = new Array(25);
-  for (let i = 0; i < 25; i++) v.activeVolEnv[i] = envPoint(63, 0);
-  v.activeVolEnv[0] = envPoint(32, 0); // terminator at node 0
+  const P = engineParts();
+  const v = P.voice();
+  v.activeVolEnv = P.envelope([envPoint(32, 0)], envPoint(63, 0)); // terminator at node 0
+  v.activeVolEnvMax = 63;
   v.activeVolEnvLoop = 0x2000;
   v.hasVolEnv = true; // what resolveActiveEnvelopes reads off that P bit
   v.activeVolEnvSustain = 0;
   v.envIndex = 0;
-  advanceEnvelope(v, 0.05);
-  advanceEnvelope(v, 0.05);
+  P.advanceEnvelope(v, 0.05);
+  P.advanceEnvelope(v, 0.05);
   assert.equal(v.envIndex, 0, "vol env must hold at the terminator");
   assert.ok(Math.abs(v.envVolume - 32 / 63) < 1e-12);
 });
 
 // Item 207: the volume envelope answers to its P bit like the other three.
 test("an absent volume envelope never walks, so its zero end cannot cut", () => {
-  const inst = new TaudInst(1);
+  const P = engineParts();
+  const inst = P.eng.instruments[1];
   inst.volEnvelopes[0] = envPoint(63, 40);   // a short segment…
   inst.volEnvelopes[1] = envPoint(0, 0);     // …down to a zero terminator
   const run = (loopWord) => {
     inst.volEnvLoop = loopWord;
-    const v = new Voice();
+    const v = P.voice();
     v.active = true;
-    resolveActiveEnvelopes(v, inst, null);
-    for (let i = 0; i < 100; i++) advanceEnvelope(v, 0.02);
+    P.resolveActiveEnvelopes(v, inst, null);
+    for (let i = 0; i < 100; i++) P.advanceEnvelope(v, 0.02);
     return v;
   };
   const absent = run(0x0000);
@@ -590,7 +589,8 @@ test("an absent volume envelope plays at unity, whatever its nodes hold", () => 
 });
 
 test("ghostVoice copies SF2 biquad state and the active-envelope view", () => {
-  const src = new Voice();
+  const P = engineParts();
+  const src = P.voice();
   src.active = true;
   src.filterIsBiquad = true;
   src.filterSfMode = true;
@@ -605,12 +605,11 @@ test("ghostVoice copies SF2 biquad state and the active-envelope view", () => {
   src.activeFadeoutStep = 777;
   src.activeDefaultCutoff = 13500;
   src.activeAttenGain = 0.5;
-  const customEnv = new Array(25);
-  for (let i = 0; i < 25; i++) customEnv[i] = envPoint(i, 1);
-  src.activeVolEnv = customEnv;
+  src.activeVolEnv = P.envelope(Array.from({ length: 25 }, (_, i) => envPoint(i, 1)));
+  const customEnv = src.activeVolEnv;
   src.activeVolEnvSustain = 0x1234;
 
-  const g = ghostVoice(src, 3);
+  const g = P.ghostVoice(src, 3);
   assert.equal(g.sourceChannel, 3);
   assert.equal(g.filterIsBiquad, true);
   assert.equal(g.filterSfMode, true);
@@ -689,9 +688,9 @@ test("setTrackerRow clears NNA ghosts + transient state (no lingering notes on r
   // voice, a lingering NNA background ghost, a pattern-delay block, a pending
   // interrupt, a stale row jump.
   ts.voices[3].active = true;
-  const ghost = new Voice();
+  const ghost = engineParts(eng).backgroundVoice();
   ghost.active = true;
-  ts.backgroundVoices.push(ghost);
+  assert.equal(ts.backgroundVoices.length, 1);
   ts.patternDelayActive = true;
   ts.patternDelayRemaining = 4;
   ts.sexWinningChannel = 7;
@@ -1378,11 +1377,12 @@ test("item 116: clearing the cutoff override returns a patched voice to its patc
   assert.equal(v.activeDefaultCutoff, 4000, "the trigger takes the patch's cutoff");
   assert.equal(v.filterSfMode, true, "and the patch's filter mode");
 
-  applyFilterParamEffect(eng, ts, v, 0, 0x2000, false);
+  const P = engineParts(eng);
+  P.applyFilterParamEffect(v, 0, 0x2000, false);
   assert.equal(v.activeDefaultCutoff, 0x20, "an override is absolute and wins");
   assert.equal(v.filterSfMode, false, "decoded in the INSTRUMENT's mode");
 
-  applyFilterParamEffect(eng, ts, v, 0, 0xffff, false); // $FFFF clears it
+  P.applyFilterParamEffect(v, 0, 0xffff, false); // $FFFF clears it
   assert.equal(v.activeDefaultCutoff, 4000, "clearing returns to the PATCH, not the base");
   assert.equal(v.filterSfMode, true, "and restores the patch's units");
 
@@ -1391,7 +1391,7 @@ test("item 116: clearing the cutoff override returns a patched voice to its patc
   eng.instruments[1].extraPatches = null;
   eng.jamNote(0, 1, 0x5000, 1);
   assert.equal(v2.activePatchIndex, -1);
-  applyFilterParamEffect(eng, ts, v2, 1, 0xffff, false);
+  P.applyFilterParamEffect(v2, 1, 0xffff, false);
   assert.equal(v2.activeDefaultCutoff, 0xff, "no patch: the base record stands");
 });
 
@@ -1475,10 +1475,11 @@ test("key lift is the question every key-off asks", () => {
 });
 
 test("T sets all ten bits of tempo: $xx00, then $FFxx…$FCxx with xx > 0", () => {
+  const P = engineParts();
   const bpmAfter = (arg, from = 125) => {
-    const ph = { bpm: from };
-    applyEffectRow(null, null, ph, { mem: {} }, 0, EffectOp.OP_T, arg);
-    return ph.bpm;
+    P.eng.setBPM(0, from);
+    P.applyEffectRow(P.eng.playheads[0].trackerState.voices[0], 0, EffectOp.OP_T, arg);
+    return P.eng.getBPM(0);
   };
   // the plain set, $FB00…$FF00 among it
   assert.equal(bpmAfter(0x0100), 26);

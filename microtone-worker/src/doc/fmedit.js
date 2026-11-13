@@ -20,6 +20,7 @@ import {
 } from "../../core/engine/inst.js";
 import { metaFlags } from "./metaedit.js";
 import { fmTreeGraph } from "./fmlayout.js";
+import { copyLayerPitch } from "./pitchedit.js";
 
 export { FM_MAX_OPERATORS, FM_BUDGET_BYTES, FmOp, META_TYPE_FM };
 
@@ -68,9 +69,9 @@ export const FM_OPERATORS = [
 
 /** Editable copies of a rack's operator table (metaedit.metaLayers' twin). */
 export function fmOperators(inst) {
-  return (inst?.metaLayers ?? []).map((l) => makeMetaLayer(
+  return (inst?.metaLayers ?? []).map((l) => copyLayerPitch(makeMetaLayer(
     l.instIdx, l.mixOctet, l.detune, l.pitchStart, l.pitchEnd, l.volStart, l.volEnd,
-    l.fixedPitch === true));
+    l.fixedPitch === true), l));
 }
 
 /** …and of its algorithm. Never null: a rack whose program did not verify is
@@ -182,8 +183,8 @@ export function removeOperator(ops, program, i) {
 export function duplicateOperator(ops, program, i) {
   if (i < 0 || i >= ops.length || !fmCanAddOperator(ops, program)) return { ops, program };
   const src = ops[i];
-  const copy = makeMetaLayer(src.instIdx, src.mixOctet, src.detune,
-    src.pitchStart, src.pitchEnd, src.volStart, src.volEnd, src.fixedPitch === true);
+  const copy = copyLayerPitch(makeMetaLayer(src.instIdx, src.mixOctet, src.detune,
+    src.pitchStart, src.pitchEnd, src.volStart, src.volEnd, src.fixedPitch === true), src);
   const map = ops.map((_, n) => (n <= i ? n : n + 1));
   return {
     ops: [...ops.slice(0, i + 1), copy, ...ops.slice(i + 1)],
