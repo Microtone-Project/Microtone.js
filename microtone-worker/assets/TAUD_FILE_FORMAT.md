@@ -1245,7 +1245,8 @@ The beat divisions drive a tracker's row banding and are purely cosmetic. The **
 | 10121 | Pythagorean diminished fifth (12 tones) |
 | 10122 | Pythagorean augmented fourth (12 tones) |
 | 10123 | Shi'er lü — East Asian traditional tuning (12 tones) |
-| 35130 | Equal-tempered Bohlen–Pierce (13 divisions of the tritave) |
+| 20351, 20638, 20780 | Carlos gamma, beta and alpha: 35, 19 and 16 equal steps of 35.1, 63.8 and 78.0 cents, repeating at the stretched octave those steps make (2 followed by the step in tenths of a cent) |
+| 35130 | Bohlen–Pierce, equal-tempered variant (13 equal divisions of the tritave) |
 | 65520…65535 | Custom notations defined by the `nota` section, index 0 = 65535 downwards |
 
 An unknown index **SHOULD** fall back to 12-TET display.

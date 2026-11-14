@@ -3298,6 +3298,7 @@ grid):
 | 72-, 96-TET (Kite) | 72 / 96 | octave |
 | Pythagorean dim. 5th / aug. 4th | 12, just fifths | octave |
 | Shi'er lü | 12, 十二律 CJK names | octave |
+| Carlos Alpha / Beta / Gamma (stretched-octave) | 16 / 19 / 35, steps of 78.0 / 63.8 / 35.1 cents | **stretched octave** (1248 / 1212.2 / 1228.5 cents) |
 | Equal-Tempered Bohlen-Pierce | 13 | **tritave** (3:1) |
 
 **ProTracker Temperament** is the tuning of Amiga `.mod` files, and imported `.mod`s

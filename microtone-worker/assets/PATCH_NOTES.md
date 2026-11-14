@@ -12,6 +12,12 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 - The same happened in Safari, which reads the page the same way.
 - The badge's text now changes only when what it says does, so a click no longer makes it redraw for nothing.
 
+**Wendy Carlos's alpha, beta and gamma scales join the tuning systems**: equal steps of 78.0, 63.8 and 35.1 cents, which divide no octave.
+
+- **Carlos Alpha, Carlos Beta and Carlos Gamma** are new in the Project view's tuning list and the New Project dialog, with 16, 19 and 35 notes per "octave".
+- Each repeats after a whole number of its own steps, a little wider than an octave: 1248 cents for alpha, 1212.2 for beta and 1228.5 for gamma. Ctrl+↑ and Ctrl+↓ move a note by that period.
+- Notes keep the scales' exact step sizes in the tracker, so a note written in one stays on its grid across every period.
+
 ## Version 5.0.0 (2026-11-14)
 
 **Microtone has a new engine: the same one, rewritten in C and run as WebAssembly, and faster in every browser.** Everything that makes sound goes through it: playback, jamming, every preview, audio export, stems and surround, Pattern to Sample and Motif builds.

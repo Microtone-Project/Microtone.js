@@ -24,7 +24,13 @@
 //
 // A notation made in the Notation Maker becomes a built-in here through its
 // saved .taudnot: `node tools/taudnot2preset.js FILE --write` (from
-// microtone-worker/) prints or inserts its entry in this table's style.
+// microtone-worker/) prints or inserts its entry in this table's style. One
+// stated at 65536-TET keeps its fraction as `exactInterval` (and `exact` when
+// its degrees are not that period's equal division), read by finePreset().
+//
+// A notation that is not an equal division of the octave takes an index by
+// hand: a Carlos scale's is a 2 followed by its step in tenths of a cent
+// (20780 alpha, 20638 beta, 20351 gamma).
 
 import { MIDDLE_C } from "../engine/constants.js";
 
@@ -114,7 +120,10 @@ export const pitchTablePresets = {
   10121: { index: 10121, name: "Pythagorean dim. 5th", table: [0x0, 0x134, 0x2b8, 0x3ec, 0x570, 0x6a4, 0x7d8, 0x95c, 0xa90, 0xc14, 0xd48, 0xecc], interval: 0x1000, t: "d", sym: SYM_12 },
   10122: { index: 10122, name: "Pythagorean aug. 4th", table: [0x0, 0x134, 0x2b8, 0x3ec, 0x570, 0x6a4, 0x828, 0x95c, 0xa90, 0xc14, 0xd48, 0xecc], interval: 0x1000, t: "d", sym: SYM_12 },
   10123: { index: 10123, name: "Shi'er lü", table: [0x0, 0x184, 0x2b8, 0x43c, 0x570, 0x6f4, 0x828, 0x95c, 0xae0, 0xc14, 0xd98, 0xecc], interval: 0x1000, t: "d", sym: ["\u9EC3", "\u5927", "\u592A", "\u593E", "\u59D1", "\u4EF2", "\u8564", "\u6797", "\u5937", "\u5357", "\u7121", "\u61C9"] },
-  35130: { index: 35130, name: "Equal-Tempered Bohlen-Pierce", table: [0x0, 0x1f3, 0x3e7, 0x5da, 0x7ce, 0x9c1, 0xbb4, 0xda8, 0xf9b, 0x118e, 0x1382, 0x1575, 0x1769], interval: 0x195c, t: "M", sym: [" C-", " C#", " D-", " E-", " F-", " F#", " G-", " H-", " H#", " J-", " A-", " A#", " B-"] },
+  20351: { index: 20351, name: "Carlos Gamma", table: [0x0, 0x78, 0xf0, 0x167, 0x1df, 0x257, 0x2cf, 0x347, 0x3be, 0x436, 0x4ae, 0x526, 0x59e, 0x616, 0x68d, 0x705, 0x77d, 0x7f5, 0x86d, 0x8e4, 0x95c, 0x9d4, 0xa4c, 0xac4, 0xb3b, 0xbb3, 0xc2b, 0xca3, 0xd1b, 0xd92, 0xe0a, 0xe82, 0xefa, 0xf72, 0xfe9], interval: 0x1061, exactInterval: 0x10614 / 16, t: "m", sym: [".C-", "uC-", "dC#", ".C#", "uC#", "dD-", ".D-", "uD-", "dD#", ".D#", "dE-", ".E-", "uE-", "dF-", ".F-", "uF-", "dF#", ".F#", "uF#", "dG-", ".G-", "uG-", "dG#", ".G#", "uG#", "dA-", ".A-", "dA#", ".A#", "uA#", "dB-", ".B-", "uB-", "DC-", "dC-"] },
+  20638: { index: 20638, name: "Carlos Beta", table: [0x0, 0xda, 0x1b4, 0x28d, 0x367, 0x441, 0x51b, 0x5f4, 0x6ce, 0x7a8, 0x882, 0x95b, 0xa35, 0xb0f, 0xbe9, 0xcc3, 0xd9c, 0xe76, 0xf50], interval: 0x102a, exactInterval: 0x1029a / 16, t: "m", sym: [" C-", " Ct", " Dp", " D-", " Dt", " D#", " E-", " Et", " F-", " Ft", " Gp", " G-", " Gt", " Ap", " A-", " At", " A#", " B-", " Bt"] },
+  20780: { index: 20780, name: "Carlos Alpha", table: [0x0, 0x10a, 0x215, 0x31f, 0x429, 0x533, 0x63d, 0x748, 0x852, 0x95c, 0xa66, 0xb71, 0xc7b, 0xd85, 0xe8f, 0xf9a], interval: 0x10a4, exactInterval: 0x10a3d / 16, t: "m", sym: [" C-", " C#", " Dp", " Dt", " D#", " E-", " Et", " Ft", " F#", " G-", " G#", " Ap", " At", " A#", " B-", " Bt"] },
+  35130: { index: 35130, name: "Bohlen-Pierce", table: [0x0, 0x1f3, 0x3e7, 0x5da, 0x7ce, 0x9c1, 0xbb4, 0xda8, 0xf9b, 0x118e, 0x1382, 0x1575, 0x1769], interval: 0x195c, t: "M", sym: [" C-", " C#", " D-", " E-", " F-", " F#", " G-", " H-", " H#", " J-", " A-", " A#", " B-"] },
 };
 
 // ── 65536-TET: the precise twin of every table ──
@@ -167,9 +176,11 @@ function exactOffsets(preset) {
     case 10123: return LU_RATIOS.map(ratioUnits);
     default: break;
   }
-  // Every other built-in is an equal division of its interval: the octave, or
-  // Bohlen-Pierce's tritave (stored as 0x195C, exactly 4096·log2 3 rounded).
-  const period = preset.interval === 0x195c ? 4096 * LOG2_3 : preset.interval;
+  // Every other built-in is an equal division of its interval: the octave,
+  // Bohlen-Pierce's tritave (stored as 0x195C, exactly 4096·log2 3 rounded),
+  // or a period stated at 65536-TET (`exactInterval`: the Carlos scales'
+  // stretched octaves, which no whole unit holds).
+  const period = preset.exactInterval ?? (preset.interval === 0x195c ? 4096 * LOG2_3 : preset.interval);
   return Array.from({ length: n }, (_, i) => (i * period) / n);
 }
 
@@ -189,9 +200,9 @@ export function finePreset(preset) {
   if (v) return v;
   const exact = preset.exact ?? (preset.custom ? null : exactOffsets(preset));
   const table = exact ? exact.map(quantiseNote) : preset.table.slice();
-  // A built-in's period is a whole unit at both resolutions (the octave; the
-  // tritave, 4096·log2 3 = 6491.99, quantises to 0x195C either way); a custom
-  // notation stated at 65536-TET may carry a fraction of its own.
+  // Most built-ins' period is a whole unit at both resolutions (the octave; the
+  // tritave, 4096·log2 3 = 6491.99, quantises to 0x195C either way); one
+  // stated at 65536-TET carries `exactInterval`, as a custom notation may.
   const interval = preset.exactInterval !== undefined ? quantiseNote(preset.exactInterval) : preset.interval;
   v = { ...preset, table, interval, fine: true, legacy: preset };
   fineCache.set(preset, v);

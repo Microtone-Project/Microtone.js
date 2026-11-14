@@ -115,7 +115,18 @@ function presetFor(def, opts, many) {
     base: p.base,
     t: opts.t ?? p.t,
     sym: p.sym,
+    exact: p.exact,
+    exactInterval: p.exactInterval,
   };
+}
+
+const fineHex = (v) => `${hex(Math.round(v * 16))} / 16`;
+
+/** True when `exact` is just the equal division of the period that
+ *  pitchtables.js `exactOffsets` assumes for a built-in, so it need not be written. */
+function equalDivision(p) {
+  const n = p.exact.length, period = p.exactInterval ?? p.interval;
+  return p.exact.every((v, i) => v === Math.round((i * period * 16) / n) / 16);
 }
 
 /** One line of pitchTablePresets, keyed and ordered as the hand-written entries are. */
@@ -126,7 +137,12 @@ export function presetLine(p) {
     if (p.base) fields.push(`base: ${hex(p.base)}`);
     fields.push(`t: ${jsString(p.t)}`, `table: [${p.table.map(hex).join(", ")}]`);
   } else {
-    fields.push(`table: [${p.table.map(hex).join(", ")}]`, `interval: ${hex(p.interval)}`, `t: ${jsString(p.t)}`);
+    fields.push(`table: [${p.table.map(hex).join(", ")}]`, `interval: ${hex(p.interval)}`);
+    // A definition stated at 65536-TET keeps its fraction for finePreset():
+    // the period when it has one, and the degrees unless they are its equal division.
+    if (p.exactInterval !== undefined) fields.push(`exactInterval: ${fineHex(p.exactInterval)}`);
+    if (p.exact && !equalDivision(p)) fields.push(`exact: [${p.exact.map(fineHex).join(", ")}]`);
+    fields.push(`t: ${jsString(p.t)}`);
   }
   fields.push(`sym: [${p.sym.map((s) => jsString(s)).join(", ")}]`);
   return `  ${p.index}: { ${fields.join(", ")} },`;
