@@ -23,6 +23,39 @@ static void apply_s_effect(TaudEngine *e, TaudVoice *voice, int vi, int arg);
 static void apply_sample_mod_effect(TaudEngine *e, TaudVoice *voice, int vi, int rawArg, bool invert, int ext, bool hasExt);
 static void apply_filter_param_effect(TaudEngine *e, TaudVoice *voice, int vi, int rawArg, bool isResonance);
 
+/* What the last tick pass laid over a note that was `was` — vibrato,
+ * auto-vibrato, the pitch envelope — without a fine slide's lag, so a row
+ * that moves the note keeps them (§8.8). An arpeggio or a glissando makes the
+ * pitch step on purpose, so a row move under one starts from the bare note. */
+static double held_pitch_mods(const TaudVoice *voice, double was)
+{
+    if (voice->arpActive || voice->glissandoOn || !(voice->renderPitch > 0)) return 0.0;
+    return voice->renderPitch - was - voice->fineSlideLag;
+}
+
+/* A fine slide moved the note on the row's first tick, from `was` (§8.8, "A
+ * slide is motion, not an event"). The note moves at once; what SOUNDS hears
+ * the step across the row: the lag holds what is still to come, each of the
+ * row's ticks takes its share and glides it over the tick, as a coarse
+ * slide's step is glided, so a row of fine slides is one line and not a
+ * staircase. A note struck on this row, a single-tick row, an arpeggio or a
+ * glissando: the step is heard at once, as before. */
+static void fine_slide_retarget(TaudEngine *e, TaudVoice *voice, double was)
+{
+    double mods = held_pitch_mods(voice, was);
+    int ticks = e->tickRate + e->finePatternDelayExtra;
+    bool stepped = voice->snapPlaybackRate || voice->arpActive || voice->glissandoOn;
+    if (stepped || ticks <= 1) {
+        voice->fineSlideLag = 0.0;
+    } else {
+        voice->fineSlideLag -= voice->noteVal - was;
+        voice->fineSlideLag -= voice->fineSlideLag / ticks;
+    }
+    voice->pitchGlideWhole = !stepped;
+    voice->playbackRate = te_compute_playback_rate(e, voice,
+        dclamp(voice->noteVal + mods + voice->fineSlideLag, 0x20, 0xffff), e->tuningRatio);
+}
+
 void te_apply_effect_row(TaudEngine *e, TaudVoice *voice, int vi, int op, int rawArg, int ext, bool hasExt)
 {
     switch (op) {
@@ -111,11 +144,12 @@ void te_apply_effect_row(TaudEngine *e, TaudVoice *voice, int vi, int op, int ra
             if (e->toneMode == 1) nv = te_amiga_slide_once(voice->noteVal, delta);
             else if (e->toneMode == 2) nv = te_linear_freq_slide_once(voice->noteVal, delta);
             else nv = voice->noteVal + delta;
+            double was = voice->noteVal;
             voice->noteVal = dclamp(nv, 0x20, 0xffff);
             voice->basePitch = voice->noteVal;
             voice->amigaPeriod = -1.0;
             voice->linearFreq = -1.0;
-            voice->playbackRate = te_compute_playback_rate(e, voice, voice->noteVal, e->tuningRatio);
+            fine_slide_retarget(e, voice, was);
         } else {
             voice->slideMode = up ? 2 : 1;
             voice->slideArg = up ? arg : -arg;
@@ -349,13 +383,15 @@ static void apply_s_effect(TaudEngine *e, TaudVoice *voice, int vi, int arg)
         if (e->interpolationMode == INTERP_A500 || e->interpolationMode == INTERP_A1200) e->ledFilterOn = x == 0;
         break;
     case 0x1: voice->glissandoOn = x != 0; break;
-    case 0x2:
+    case 0x2: {
+        double was = voice->noteVal;
         voice->noteVal = dclamp(voice->noteVal + FINETUNE_OFFSET[x], 0x20, 0xffff);
         voice->basePitch = voice->noteVal;
         voice->amigaPeriod = -1.0;
         voice->linearFreq = -1.0;
-        voice->playbackRate = te_compute_playback_rate(e, voice, voice->noteVal, e->tuningRatio);
+        voice->playbackRate = te_compute_playback_rate(e, voice, voice->noteVal + held_pitch_mods(voice, was), e->tuningRatio);
         break;
+    }
     case 0x3: voice->vibratoWave = x & 3; voice->vibratoRetrig = (x & 4) == 0; break;
     case 0x4: voice->tremoloWave = x & 3; voice->tremoloRetrig = (x & 4) == 0; break;
     case 0x5: voice->panbrelloWave = x & 3; voice->panbrelloRetrig = (x & 4) == 0; break;

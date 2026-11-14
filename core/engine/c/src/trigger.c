@@ -548,6 +548,7 @@ static void trigger_note_seed(TaudEngine *e, TaudVoice *voice, double noteVal, i
     if (formantChip != NULL) voice->activeSamplingRate = te_formant_chip_rate(formantChip);
     voice->tonePortaTarget = -1;
     voice->portaUnderway = false;
+    voice->fineSlideLag = 0.0;
     voice->samplePos = voice->activeSamplePlayStart;
     voice->forward = true;
     voice->active = true;

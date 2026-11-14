@@ -12,6 +12,13 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 - Fixed: the Timeline's grey ghosts for a slide used the song's starting speed when the speed was set on another lane, so a fade could look several times larger than it sounded; they now follow the speed and the pattern delays set on any lane.
 - Songs with `K` or `L` volume slides sound different where those slides run; other songs are unchanged.
 
+**Fine pitch slides glide instead of stepping row by row**: a slow bend or a vibrato written as a row of fine slides — the way imported SOP songs carry their pitch bends — now sounds as one smooth line, which is most audible on a sung lyric voice at a fast tempo.
+
+- Fixed: a row of fine slides (`E $Fxxx`, `F $Fxxx`) juddered at the row rate; each row's whole step landed on its first tick and then held still. The step is now heard across the row and arrives by its end, while the effects that read the pitch still see it move at once.
+- Fixed: on every row with a fine slide or a finetune (`S $2x`), the instrument's auto-vibrato, a vibrato and the pitch envelope dropped out for the row's first tick, which was heard as a small jerk.
+- A fine slide on the row that strikes its note, on a one-tick row, or under an arpeggio or glissando is still heard at once.
+- Songs with fine pitch slides sound slightly different as a result; other songs are unchanged.
+
 **Enter and Space belong to the pane you are working in**: a button or control you clicked earlier no longer catches them when the view area is split.
 
 - Fixed: splitting the view area with its button, then pressing Space, closed the pane again; the button kept the keyboard focus after its icon changed.

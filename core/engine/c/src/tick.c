@@ -450,7 +450,7 @@ void te_apply_tracker_tick(TaudEngine *e)
         TaudVoice *voice = &e->voices[vi];
         double pitchToMixer, finalPitch;
         int autoVibDelta;
-        bool slid, portaJump;
+        bool slid, portaJump, lagged;
         if (!voice->active && voice->noteDelayTick < 0 && voice->noteActionTick < 0) continue;
 
         if (!voice->active) {
@@ -564,6 +564,17 @@ void te_apply_tracker_tick(TaudEngine *e)
             voice->vibratoLfoPos = te_advance_lfo_phase(voice->vibratoLfoPos, voice->mem.huSpeed);
         }
 
+        /* A fine slide's step still to be heard (§8.8): this tick's share of
+         * it, so the row's last tick lands on the note (effects.c
+         * fine_slide_retarget took the row's first share). */
+        lagged = voice->fineSlideLag != 0.0;
+        if (lagged) {
+            int left = e->tickRate + e->finePatternDelayExtra - 1 - e->tickInRow;
+            if (left <= 1 || voice->arpActive || voice->glissandoOn) voice->fineSlideLag = 0.0;
+            else voice->fineSlideLag -= voice->fineSlideLag / left;
+            pitchToMixer = dclamp(pitchToMixer + voice->fineSlideLag, 0x20, 0xffff);
+        }
+
         /* Glissando (S $1x). */
         if (voice->glissandoOn) {
             int semis = (int)trunc((pitchToMixer * 12 + 2048) / 4096);
@@ -619,7 +630,7 @@ void te_apply_tracker_tick(TaudEngine *e)
         voice->renderPitch = finalPitch;
         /* A slide's step glides over the whole tick whatever its size; an
          * arpeggio or glissando on top makes the pitch STEP, so not then. */
-        voice->pitchGlideWhole = slid && !portaJump && !voice->arpActive && !voice->glissandoOn;
+        voice->pitchGlideWhole = (lagged || (slid && !portaJump)) && !voice->arpActive && !voice->glissandoOn;
 
         update_filter_cutoff(voice);
         te_refresh_voice_filter(e, voice);

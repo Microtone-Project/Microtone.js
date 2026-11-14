@@ -405,6 +405,7 @@ void te_reset_params(TaudEngine *e)
         it->noteVal = 0x0000; it->basePitch = 0x4000;
         it->amigaPeriod = -1.0; it->linearFreq = -1.0;
         it->tonePortaTarget = -1; it->tonePortaSpeed = 0; it->portaUnderway = false;
+        it->fineSlideLag = 0.0;
         it->filterY1 = 0.0; it->filterY2 = 0.0; it->filterX1 = 0.0; it->filterX2 = 0.0;
         it->filterCutoffCached = -1; it->filterResonanceCached = -1;
         it->sfCents = NAN; it->sfCentsLeft = 0; it->sfQLeft = 0;

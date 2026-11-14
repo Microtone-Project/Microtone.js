@@ -453,6 +453,60 @@ for (const [name, op, note] of [["G $0400 (tone portamento)", 0x10, 0x8000], ["F
   });
 }
 
+/** Rows 1…rows of lane 0 carry `op $arg` after a C4 on row 0; returns the
+ *  voice, an engine at 137 BPM, speed 6 (ticks of 583/584 samples). */
+function fineSlideSong(eng, op, arg, rows) {
+  const pat = new Uint8Array(512);
+  for (let r = 0; r < 64; r++) { pat[r * 8 + 3] = 0xc0; pat[r * 8 + 4] = 0xc0; }
+  pat[0] = 0x00; pat[1] = 0x50; pat[2] = 1;
+  for (let r = 1; r <= rows; r++) { pat[r * 8 + 5] = op; pat[r * 8 + 6] = arg & 0xff; pat[r * 8 + 7] = arg >> 8; }
+  eng.uploadPattern(0, pat);
+  const cue = new Uint8Array(64);
+  for (let ch = 0; ch < 32; ch++) { cue[ch * 2] = 0xff; cue[ch * 2 + 1] = 0x7f; }
+  cue[0] = 0x00; cue[1] = 0x00;
+  eng.uploadCue(0, cue);
+  eng.setBPM(0, 137); eng.setTickRate(0, 6); eng.setMasterVolume(0, 255);
+  eng.setCuePosition(0, 0); eng.play(0);
+  return eng.playheads[0].trackerState.voices[0];
+}
+
+test("a row of fine slides is heard across the row; it does not step (item 338)", () => {
+  const eng = makeTestEngine();
+  const v = fineSlideSong(eng, 0x0f, 0xf100, 8);   // F $F100: 75 cents a row
+  const out = new Uint8Array(TRACKER_CHUNK * 2);
+  const cents = [];
+  // A row is 3504 samples: 12 rows' worth of probes, the last four without a slide.
+  for (let i = 0; i < 330; i++) { eng.renderChunk(0, out); cents.push(1200 * Math.log2(v.currentPlaybackRate)); }
+  const climb = cents[cents.length - 1] - cents[0];
+  assert.ok(Math.abs(climb - 8 * 75) < 0.01, `the slides climbed ${climb.toFixed(3)} cents, not 600`);
+  // Spread over the row's six ticks, 75 cents is under 3 cents a 128-sample
+  // probe; heard on the first tick alone (the old way), the budget lands it
+  // in 195 samples — 50 cents inside one probe.
+  let jump = 0;
+  for (let i = 1; i < cents.length; i++) jump = Math.max(jump, cents[i] - cents[i - 1]);
+  assert.ok(jump < 8, `${jump.toFixed(1)} cents between two probes — the fine slides step`);
+});
+
+test("a fine slide keeps the auto-vibrato on its row's first tick (item 338)", () => {
+  const eng = makeTestEngine();
+  // makeTestEngine's instrument with an auto-vibrato: speed 32 (a cycle every 32 ticks), depth 255 (±1 semitone).
+  const base = new Uint8Array(256);
+  const w16 = (o, x) => { base[o] = x & 0xff; base[o + 1] = (x >> 8) & 0xff; };
+  w16(4, 1000); w16(6, 32000); w16(12, 1000);
+  base[14] = 1; base[21] = 0x3f; base[171] = 255; base[196] = 255;
+  base[175] = 32; base[187] = 255;
+  eng.uploadInstrument(1, base);
+  const v = fineSlideSong(eng, 0x0f, 0xf001, 30);  // F $F001: a sixteenth of a cent
+  const out = new Uint8Array(TRACKER_CHUNK * 2);
+  const target = [];
+  for (let i = 0; i < 800; i++) { eng.renderChunk(0, out); target.push(1200 * Math.log2(v.playbackRate)); }
+  // A tick of this vibrato moves at most 2π/32 of its 100 cents: ~20. A row
+  // that dropped it for its first tick would jump by up to the whole 100.
+  let jump = 0;
+  for (let i = 1; i < target.length; i++) jump = Math.max(jump, Math.abs(target[i] - target[i - 1]));
+  assert.ok(jump < 25, `the pitch jumped ${jump.toFixed(1)} cents at once — the vibrato was dropped`);
+});
+
 test("a glide whose target moves before it ends glides on from where it stands (item 333)", () => {
   const P = engineParts();
   const v = P.voice();

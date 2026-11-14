@@ -260,7 +260,7 @@ Because Amiga period units (and Monotone Hz/tick) fit in a single byte (PT/ST3 m
 Coarse and fine modes are distinguished by the high nibble of the argument:
 
 - `E $0001..$EFFF` — coarse slide: subtracts the full argument from pitch each tick after tick 0. A slide of $0155 drops pitch by one semitone per tick.
-- `E $F000..$FFFF` — fine slide: on tick 0 only, subtracts `arg & $0FFF` from pitch.
+- `E $F000..$FFFF` — fine slide: on tick 0 only, subtracts `arg & $0FFF` from pitch. Every effect that reads the pitch sees it moved at once, but what you hear glides there across the row, so a row of fine slides sounds as one smooth bend rather than a staircase; on the row that strikes a note, on a one-tick row and under an arpeggio or glissando it is heard at once ([Engine Spec §8.8](TAUD_ENGINE_SPEC.md#8-8-the-pitch-glide)).
 - `E $0000` — recalls the last E-or-F argument and applies it as a down-slide, preserving the original form (coarse or fine).
 
 **Compatibility.** Taud's storage depends on the song-table mode flag:

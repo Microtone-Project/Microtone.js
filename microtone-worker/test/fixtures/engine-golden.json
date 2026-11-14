@@ -6,8 +6,8 @@
     "4THSYM": {
       "file": "test/corpus/4THSYM.taud",
       "frames": 960000,
-      "u8": "e99da6686ec93703ac5f0a05a9d23c29ac42c8e01feb8764b5f272447c2d1d59",
-      "f32": "c2b512f5790e20eb9788acc4dea4cf046c150f2832bea7e836c7852a8a86556f"
+      "u8": "b1554104270f5895b9b5c7e0d201feeb2745d8d4bea8e7de3f91439c3ed36f1a",
+      "f32": "891e8494fb88223be477b916c9f8c2dd6f1716e5420c540083aa2d2195e0091f"
     },
     "changing_waves": {
       "file": "test/corpus/changing_waves.taud",
@@ -60,8 +60,8 @@
     "WHEN": {
       "file": "test/corpus/WHEN.taud",
       "frames": 960000,
-      "u8": "7da183f1596ff21175a0f8ec1bc41beb70f07c0652e69f60aefa74df461c97c3",
-      "f32": "0b019f3d950e931fde643a40f9f984627cc76e31744cf2e2883360b7c0b7e3cc"
+      "u8": "f8a38c4b0b0bd0d0024f1353b8803026624628120ad79831bf74d05d48cb69ba",
+      "f32": "bab108825c329295eea4d8169960bf8ede7a2f60388e104ae9fec698aa749ab4"
     },
     "16uba_baion": {
       "file": "assets/demo_projects/16uba_baion.taud",
@@ -78,15 +78,15 @@
     "WHEN_AMBI": {
       "file": "assets/demo_projects/WHEN_AMBI.taud",
       "frames": 960000,
-      "u8": "312a90e243be45068a75e5547075face2bac698bffeece83e131e9d55ad1bfa8",
-      "f32": "825e17b0430b2431073cf0a55b18b67f2df8add42ea7d06e1509274e3d8c1a1e"
+      "u8": "8aa70c995d65162c4e0db44a5d4c997685658f1667d91a0f49348eca9322f94e",
+      "f32": "3a2d137cc4b8e3a6edc18433d68f705f9c80ee9d36a3db922ba91c95325746fb"
     },
     "WHEN_AMBI@binaural": {
       "file": "assets/demo_projects/WHEN_AMBI.taud",
       "monitor": 1,
       "frames": 960000,
-      "u8": "904824ec6454a15cc97cee27caf64048a413e8a3240734eb23eed808f0e91ac1",
-      "f32": "7fb5110c91f1d39afb7d94cc50bada5c462a69df8f26127265c2621f4ca6dedf"
+      "u8": "6ea0b720d3890f20b317780200a04d561895ece4e4ddc499f424027e95ecc823",
+      "f32": "b4c0aefd47122864c031b0373ba5c6c8749f3ffc9b63bc099f0d01383749f267"
     },
     "Huygens_clock": {
       "file": "assets/demo_projects/Huygens_clock.taud",
@@ -105,8 +105,8 @@
       "file": "assets/demo_projects/WHEN_AMBI.taud",
       "imix": true,
       "frames": 960000,
-      "u8": "0c0d28bbcd0607e7fd31dc505ed7065bf1c90efeb61f7b16a09a34a29552c407",
-      "f32": "3e6b3557e8f056e7147c789ed7a25927b011e22c6d1566ec34095e01aaaedb0c"
+      "u8": "ba0bcf7fa2adf69e9c384e2d1a24e9de82930b617e3f169a8ff650e9f9829858",
+      "f32": "8fdab6a2e45189c3f915d79e6079551762de7e65b1cccefdf113febb5311bb17"
     },
     "Huygens_clock@imixbus": {
       "file": "assets/demo_projects/Huygens_clock.taud",
