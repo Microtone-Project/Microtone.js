@@ -4,6 +4,14 @@ Every entry below is one version of Microtone, newest first, with the date it wa
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone-project/Microtone.js).
 
+## Version 5.0.1 (2026-11-14)
+
+**The audio badge opens the audio profiler in the desktop app on Linux and macOS**: clicking it now shows the panel there too, as it already did in the browser.
+
+- Fixed: in the desktop app on Linux and macOS, clicking the audio badge did nothing; every click anywhere rewrote the badge's text, and those webviews drop a click when the text under the pointer is replaced between pressing and releasing.
+- The same happened in Safari, which reads the page the same way.
+- The badge's text now changes only when what it says does, so a click no longer makes it redraw for nothing.
+
 ## Version 5.0.0 (2026-11-14)
 
 **Microtone has a new engine: the same one, rewritten in C and run as WebAssembly, and faster in every browser.** Everything that makes sound goes through it: playback, jamming, every preview, audio export, stems and surround, Pattern to Sample and Motif builds.
