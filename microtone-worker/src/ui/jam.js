@@ -106,10 +106,11 @@ export class JamKeyboard {
    * wins, and only the release of the LAST held key stops the voice. It sounds
    * on the jam bank rather than the edited lane (item 140), so entering into
    * a muted lane is still audible and never cuts what the song is playing
-   * there.
+   * there. `mine` says the key is this keyboard's to track — by default when
+   * the active layout has it; a preview of another layout (the Keymap Maker)
+   * passes true, and releases with up(code, true).
    */
-  hold(code, note) {
-    const mine = keymapHas(this.keymap, code);
+  hold(code, note, mine = keymapHas(this.keymap, code)) {
     let voice = this.held.get(code);
     if (voice === undefined) {
       voice = this._takeVoice();
@@ -119,8 +120,8 @@ export class JamKeyboard {
     this.store.audio?.jamNote(0, voice, note, this.currentInst);
   }
 
-  up(code) {
-    if (!keymapHas(this.keymap, code)) return false;
+  up(code, mine = keymapHas(this.keymap, code)) {
+    if (!mine) return false;
     if (!this.held.has(code)) {
       // Not ours to release (a jam issued by some other path): keep the old
       // safety net so its voice can never be left sounding. Only the BANK is

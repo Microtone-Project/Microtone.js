@@ -2326,7 +2326,7 @@ test("s3m2taud: ^^^ keys an AdLib channel off, and still cuts a sample", () => {
 });
 
 test("every converter writes format 3, its instruments' volume envelopes 8-bit", () => {
-  // TAUD_FILE_FORMAT §5.5 and §7.2: the wide cell, and byte 14 bit 6 on every
+  // TAUD_FILE_FORMAT §5.1 and §7.2: the wide cell, and byte 14 bit 6 on every
   // instrument with an envelope — what the editor would otherwise have to
   // convert on opening.
   const files = {

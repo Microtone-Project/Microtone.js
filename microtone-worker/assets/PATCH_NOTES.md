@@ -53,6 +53,20 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 - A row without a note shows its effect in the same five places, its letter narrowed to sit where a raw pitch's first digit does, so effects and raw pitches line up down the lane.
 - The instrument is shown beside the note or the effect on every row. A row with an instrument and an effect but no note now shows the effect, where it used to show an empty note.
 
+**The audio profiler is in the app: click the audio badge in the top bar.** It used to need a special address; now it opens and closes from the badge, in the browser and the desktop app alike, and measures only while it is open.
+
+- It says where the engine runs (on the audio thread, or in a thread of its own that keeps a queue of audio ready), how much of real time the engine takes, the most voices it carried, how busy the audio thread is and how many dropouts there were.
+- Its verdict tells a song too heavy for the computer from work held up by something else, and says what to do about each.
+- With the engine in its own thread, the engine itself is now measured too; before, the profiler could only say whether the queue ran dry.
+
+**The Keymap Maker plays from the keyboard.** While the dialog is open, the computer keyboard plays the layout in the picture, so you can try a scale before making it; typing a name or a number is left alone.
+
+- Fixed: clicking a key in the Keymap Maker's picture that the layout in use does not have could leave its note sounding; the release went unheard.
+
+**A new demo song: *Eighth Baffling Incongruity Theorem*, in eight-tone equal temperament.** Eight notes to the octave, in 8/8 over an eight-beat groove, played only on FM instruments whose overtones sit on the tuning's own steps, so chords that grind on an ordinary instrument hold still; the song plays some of them on a plain instrument too, to compare.
+
+- Like the other Motif demos, it carries the program that composed it: open the Motif view to read it, change it and build it again.
+
 ## Version 4.10.0 (2026-11-13)
 
 **Every project is now in format 3, and every note can be tuned to a 65536th of an octave.** Format 3's wider pattern cell used to be for surround songs only; now it is the format every project is written in, stereo ones included, and its note column carries four more bits of pitch: sixteen times finer than before.

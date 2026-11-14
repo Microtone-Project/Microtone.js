@@ -273,7 +273,7 @@ song { title: "…", tuning: "31-TET", tempo: 120, speed: 6, bars: 64, bar_rows:
 | `title`, `composer`, `copyright` | empty | The project's name, author and copyright |
 | `message` | empty | The Project message |
 | `surround` | `"stereo"` | `"stereo"`, `"planar"` (the circle) or `"spatial"` (the sphere) |
-| `format` | 3 | The pattern cell (TAUD_FILE_FORMAT.md §5.5). 2 builds the legacy format (§5.6): volumes and pans of six bits, notes on whole note words, one effect column |
+| `format` | 3 | The pattern cell (TAUD_FILE_FORMAT.md §5.1). 2 builds the legacy format (§5.2): volumes and pans of six bits, notes on whole note words, one effect column |
 | `global_volume`, `mixing_volume` | 128, 128 | The song's two volumes, 0–255 |
 | `seed` | 1 | The seed every random choice is keyed to (§10) |
 | `soundfont` | the bundled GeneralUser GS | The soundfont the instruments come from: a file name, which the app asks for when it is first needed and the command line finds next to the `.tml` |

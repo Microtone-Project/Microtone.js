@@ -38,7 +38,7 @@ The pattern blob begins immediately after the header, at offset 32, and runs to 
 
 ### 1.1 Compression
 
-The pattern blob is compressed exactly as a Taud payload is ([Taud File Format §1](TAUD_FILE_FORMAT.md#compression)): a self-contained gzip (`1F 8B 08`) or Zstandard (`28 B5 2F FD`) stream, identified by its own leading magic.
+The pattern blob is compressed exactly as a Taud payload is ([Taud File Format §1.2](TAUD_FILE_FORMAT.md#1-2-compression)): a self-contained gzip (`1F 8B 08`) or Zstandard (`28 B5 2F FD`) stream, identified by its own leading magic.
 
 - An encoder **MAY** use either codec, at any level.
 - A decoder **MUST** support both, and **MUST** sniff the magic rather than assume one.
@@ -53,9 +53,9 @@ Fixed 32 bytes, always at file offset 0 — the same size as a Taud header, thou
 |---|---|---|
 | 0 | `Byte[8]` | Magic — `1F 4D 54 73 6B 65 63 68` (`\x1FMTskech`) |
 | 8 | `U8` | Format version — 1 |
-| 9 | `U8` | Song flags ([below](#song-flags-byte-9)) |
-| 10 | `U8` | Feature flags ([below](#feature-flags-byte-10)) |
-| 11 | `U8` | BPM, low 8 bits ([Tempo](#tempo)) |
+| 9 | `U8` | Song flags ([below](#2-1-song-flags-byte-9)) |
+| 10 | `U8` | Feature flags ([below](#2-2-feature-flags-byte-10)) |
+| 11 | `U8` | BPM, low 8 bits ([Tempo](#2-3-tempo)) |
 | 12 | `U16` | Notation index, as in a Taud `sMet` entry ([Taud File Format §9.6](TAUD_FILE_FORMAT.md#9-6-smet-song-metadata-table)) |
 | 14 | `U32` | Absolute offset to Project Data; 0 when absent |
 | 18 | `Byte[14]` | Encoder signature, space-padded |
@@ -84,11 +84,11 @@ The count is stored rather than inferred from the patterns, so a section that is
 
 | Bits | Field | Values |
 |---|---|---|
-| `pp` (0…1) | Tempo | Bits 8 and 9 of the stored BPM ([Tempo](#tempo)) |
+| `pp` (0…1) | Tempo | Bits 8 and 9 of the stored BPM ([Tempo](#2-3-tempo)) |
 | `tt` (2…3) | Tuning | 0 = A4 (`$5C00`) @ 440 Hz, 1 = C4 (`$5000`) @ 262 Hz, 2 = C4 (`$5000`) @ 311 Hz, 3 = the `tune` block ([§4.3](#4-3-tune-tuning-declaration)) |
 | 4…7 | — | **RESERVED** |
 
-The three named declarations are concert pitch, the modern Chinese *a-ak* convention and the Korean *hyang-ak* standard — the same pairs the Taud File Format lists under [Tuning](TAUD_FILE_FORMAT.md#tuning), and between them every tuning Microtone Touch offers. Code 3 with no `tune` block in the Project Data is **INVALID**.
+The three named declarations are concert pitch, the modern Chinese *a-ak* convention and the Korean *hyang-ak* standard — the same pairs the Taud File Format lists under [Tuning](TAUD_FILE_FORMAT.md#4-3-tuning), and between them every tuning Microtone Touch offers. Code 3 with no `tune` block in the Project Data is **INVALID**.
 
 ### 2.3 Tempo
 
@@ -102,7 +102,7 @@ Fourteen bytes naming the encoder, used for diagnostics only and otherwise **IGN
 
 ## 3. Pattern blob
 
-The blob decompresses to exactly **65 536 bytes**, whatever the sketch holds. Any other length is **INVALID**. It is 128 pattern images of 512 bytes each — 64 rows of the 8-byte cell of the Taud legacy format ([Taud File Format §5.6](TAUD_FILE_FORMAT.md#5-6-legacy-format-the-8-byte-cell)) — back to back:
+The blob decompresses to exactly **65 536 bytes**, whatever the sketch holds. Any other length is **INVALID**. It is 128 pattern images of 512 bytes each — 64 rows of the 8-byte cell of the Taud legacy format ([Taud File Format §5.2](TAUD_FILE_FORMAT.md#5-2-legacy-format-the-8-byte-cell)) — back to back:
 
 ```
 pattern number  =  8 × section + lane
@@ -151,7 +151,7 @@ As in a `.taud` ([Taud File Format §9.7](TAUD_FILE_FORMAT.md#9-7-nota-custom-no
 | 0 | `U16` | Base note — a note word, the top sixteen bits of a 65536-TET pitch (`$5000` is C4; [Taud File Format §5](TAUD_FILE_FORMAT.md#note-words)), 1…65533 |
 | 2 | `F32` | Frequency in Hz at the base note, finite and above 0 |
 
-Read only when the header's tuning code is 3; under any other code the block is **IGNORED**. A base note or frequency outside those ranges is **INVALID**. The pair means what a Taud song table's tuning pair means: "note *N* sounds at *F* Hz" ([Taud File Format §4](TAUD_FILE_FORMAT.md#tuning)).
+Read only when the header's tuning code is 3; under any other code the block is **IGNORED**. A base note or frequency outside those ranges is **INVALID**. The pair means what a Taud song table's tuning pair means: "note *N* sounds at *F* Hz" ([Taud File Format §4.3](TAUD_FILE_FORMAT.md#4-3-tuning)).
 
 ## 5. The instrument pack
 
@@ -184,9 +184,9 @@ The song's table entry ([Taud File Format §4](TAUD_FILE_FORMAT.md#4-song-table)
 |---|---|
 | Lanes | 32 — lanes 0…7 carry the sketch, the rest stay empty |
 | Patterns | `8 × sections`: patterns 0 … `8 × sections − 1` of the blob, in blob order |
-| BPM | The header's tempo ([Tempo](#tempo)) |
+| BPM | The header's tempo ([Tempo](#2-3-tempo)) |
 | Tick rate | **6** — a sketch has a tempo, not a speed |
-| Tuning | The header's declaration ([Feature flags](#feature-flags-byte-10)) |
+| Tuning | The header's declaration ([Feature flags](#2-2-feature-flags-byte-10)) |
 | Global behaviour flags | 0 — linear slides, the default interpolation |
 | Global volume / mixing volume | `$80` / `$80` |
 | Surround model | 0 — stereo |

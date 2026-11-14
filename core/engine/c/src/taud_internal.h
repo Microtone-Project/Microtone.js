@@ -991,7 +991,7 @@ struct TaudVoice {
 /* One pattern cell, either wire layout (8-byte v1/2 or 16-byte v3). Kept
  * small: a song holds hundreds of 64-row patterns. The note is stored as it
  * arrives — the word, and a wide cell's fine nibble (byte 13's high nibble,
- * the four bits that make its pitch 65536-TET, file format §5.5) — and read
+ * the four bits that make its pitch 65536-TET, file format §5.1) — and read
  * through te_cell_note. */
 typedef struct {
     uint16_t note;

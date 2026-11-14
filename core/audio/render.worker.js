@@ -59,6 +59,42 @@ const canBlock = (() => {
 
 const now = () => (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
 
+// ── the audio profiler (CMD.SET_PROFILE; zero cost when off) ──
+// Tier 2 runs the engine HERE, so this is where its time is measured: the
+// share of real time the C engine's renderChunk takes, its slowest chunk, the
+// voices it carried, how little audio was left queued when the clock woke (the
+// margin an underrun eats — counted only once the queue has been full since
+// playback started or jumped, when it is empty by design) and the longest the
+// clock was away between ticks.
+// Reported ≈ once a second of audio rendered; nothing while nothing plays.
+let profiling = false;
+let pf = null;
+function pfReset() {
+  pf = { frames: 0, busy: 0, max: 0, count: 0, peakVoices: 0, ringLow: Infinity, lastTick: -1, wakeMax: 0, primed: false };
+}
+function emitProfile() {
+  const rate = engine.rate;
+  const audioMs = pf.frames / rate * 1000;
+  self.postMessage({
+    t: MSG.WORKER_PROFILE,
+    engineFrac: audioMs > 0 ? pf.busy / audioMs : 0,
+    renderMeanMs: pf.count ? pf.busy / pf.count : 0,
+    renderMaxMs: pf.max,
+    chunkMs: TRACKER_CHUNK / rate * 1000,
+    peakVoices: pf.peakVoices,
+    ringLowMs: Number.isFinite(pf.ringLow) ? pf.ringLow / rate * 1000 : null,
+    ringTargetMs: AR_HIGH_WATER / rate * 1000,
+    wakeMaxMs: pf.wakeMax,
+    memoryBytes: engine.memoryBytes,
+    engineRate: rate,
+    windowMs: audioMs,
+  });
+  const { lastTick, primed } = pf;
+  pfReset();
+  pf.lastTick = lastTick;
+  pf.primed = primed;
+}
+
 // Transport reset (play/seek/stop): drop the buffered tail without a counter
 // reset race — publish the current write frame as the flush mark and bump the
 // epoch; the worklet jumps its read cursor there on the next callback.
@@ -66,6 +102,7 @@ function flushRing() {
   if (!ring) return;
   Atomics.store(ring.ctrl, AR_FLUSH_POS, writeFrames);
   Atomics.store(ring.ctrl, AR_EPOCH, (Atomics.load(ring.ctrl, AR_EPOCH) + 1) | 0);
+  if (profiling) pf.primed = false;
 }
 
 function produceAudio() {
@@ -73,11 +110,25 @@ function produceAudio() {
   const ph = engine.playheads[PLAYHEAD];
   const active = ph.isPlaying || ph.jamActive;
   Atomics.store(ring.ctrl, AR_STATE, active ? 1 : 0);
-  if (!active) return;
+  if (!active) {
+    if (profiling) pf.primed = false;
+    return;
+  }
   const read = Atomics.load(ring.ctrl, AR_READ);
   let occ = (writeFrames - read) | 0;
+  if (profiling && pf.primed && occ < pf.ringLow) pf.ringLow = occ;
   while (occ < AR_HIGH_WATER && (AR_FRAMES - occ) >= TRACKER_CHUNK) {
+    const t0 = profiling ? now() : 0;
     const out = engine.renderChunk(PLAYHEAD, chunk);
+    if (profiling) {
+      const dt = now() - t0;
+      pf.busy += dt;
+      if (dt > pf.max) pf.max = dt;
+      pf.count++;
+      pf.frames += TRACKER_CHUNK;
+      const nv = ph.trackerState.soundingVoices;
+      if (nv > pf.peakVoices) pf.peakVoices = nv;
+    }
     if (out === null) {
       for (let n = 0; n < TRACKER_CHUNK; n++) { const w = (writeFrames + n) & AR_MASK; ring.L[w] = 0; ring.R[w] = 0; }
     } else {
@@ -88,6 +139,10 @@ function produceAudio() {
     writeFrames = (writeFrames + TRACKER_CHUNK) | 0;
     Atomics.store(ring.ctrl, AR_WRITE, writeFrames);
     occ = (writeFrames - read) | 0;
+  }
+  if (profiling) {
+    if (occ >= AR_HIGH_WATER) pf.primed = true;
+    if (pf.frames >= engine.rate) emitProfile();
   }
 }
 
@@ -101,6 +156,11 @@ function maybeSnapshot(force) {
 }
 
 function tick() {
+  if (profiling) {
+    const t = now();
+    if (pf.lastTick >= 0 && t - pf.lastTick > pf.wakeMax) pf.wakeMax = t - pf.lastTick;
+    pf.lastTick = t;
+  }
   produceAudio();
   maybeSnapshot(false);
 }
@@ -146,6 +206,10 @@ function handleMessage(m) {
   switch (m.t) {
     case CMD.INIT:
       if (m.snapshotIntervalMs) snapshotIntervalMs = m.snapshotIntervalMs;
+      break;
+    case CMD.SET_PROFILE:
+      profiling = !!m.on;
+      pfReset();
       break;
     case CMD.USE_SAB:
       snapF32 = new Float32Array(m.sab, 0, SNAP_FLOATS);

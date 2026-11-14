@@ -102,7 +102,7 @@ A demo is a whole project, samples and all — open it, play it, and take it
 apart. The composer's own note on the piece is usually in the project
 **Message**, in the [Project](#project-f7) view.
 
-*Huygens' Clock* was not played in at all: a [Motif](#motif-shift-f7) program composed it, instruments and mix included, and the project carries that program. Open the Motif view after loading it to read how the piece is made, change it, and build it again.
+*Huygens' Clock* was not played in at all: a [Motif](#motif-shift-f7) program composed it, instruments and mix included, and the project carries that program. Open the Motif view after loading it to read how the piece is made, change it, and build it again. *Troll Chord*, *Eighteenfold Euphonic DisOrder* and *Eighth Baffling Incongruity Theorem* are made the same way; the last, in eight-tone equal temperament, plays only FM instruments whose overtones the program put on that tuning's own steps, so its chords sound smooth where an ordinary instrument would make them grind.
 
 Demo songs are included with the permission of their composers and keep their
 own copyright; they are not covered by Microtone's licence.
@@ -126,6 +126,21 @@ Audio starts in a suspended state (browsers require a user gesture before
 sound); the first click or key press activates it — the badge in the top bar
 shows `audio @ … Hz` once running. Jamming on the piano keys works immediately,
 without pressing Play.
+
+#### The audio profiler
+
+If playback crackles or drops out, click that badge (or tab to it and press
+Enter): the **audio profiler** opens at the bottom right and measures the audio
+while it is open, at no cost the rest of the time. Drag it by its title; close
+it with its ✕ or the badge again. It says where the engine runs — on the audio
+thread itself, or in a thread of its own that keeps a queue of audio ready —
+how much of real time it takes to render the song, the most voices it carried,
+how busy the audio thread is, and how many dropouts there were. Its verdict
+below says what kind of trouble it is: a song heavier than the computer can
+render in real time (mute or simplify the heaviest lanes; FM instruments cost
+the most), work arriving in bursts because something else held the processor
+(close other tabs and programs), or time spent outside the engine converting
+to the output's sample rate (set the system's output to 48 kHz).
 
 ### The screen at a glance
 
@@ -3017,7 +3032,7 @@ A generalised keyboard puts every note of the tuning under your hands, which is 
 - **Equave** is the interval a MOS scale repeats at. It is usually the octave, but a MOS can just as well repeat at the **tritave** (3/1, the interval Bohlen–Pierce repeats at) or the **fifth** (3/2); the Xenharmonic Wiki writes these as 6L 3s⟨3/1⟩, and the layout's name as 6L 3s<3/1>. In a tuning system the equave is the nearest whole number of its degrees, and the list says how far that is from the true interval: in 12-TET the tritave is 19 degrees, 2.0 ¢ flat, while in Bohlen–Pierce it is exactly 13, and the tritave is where the dialog starts. A tuning system that repeats at some other interval also offers its own period. In any tuning system a ratio makes an equal division of the equave rather than of the octave: 6L 3s⟨3/1⟩ at 2:1 is 15-EDT, fifteen equal steps of the tritave. The rows of the layout are an equave apart, unless you set **Up a row** otherwise.
 - **Black keys** appears when the sharp and the flat in a large step are different notes. A large step is a small step plus a *chroma*, so its black key can be a chroma above the white key below (a sharp) or a chroma below the white key above (a flat). In 12-TET those are the same key; in 31-TET C♯ is two degrees above C and D♭ three, so you choose **Sharps** or **Flats**.
 - **Tonic** is the note the scale starts on, in the keyboard's current octave. For a piano the lowest white row starts on it; with **Scale only**, the A row. **Up a deck** (for a piano) or **Up a row** is how many notes of the scale each white row, or each row, starts above the one below it. The default is a whole octave, so every row starts on the tonic; set it to 10 and each row carries on where the one below ends, so no note is doubled. **Rows** picks the rows the layout uses, the bottom one included.
-- The picture shows the board as it will play, in the song's notation. Click a key to hear it. Below the picture are the scale's notes, its steps, and how many degrees the board reaches.
+- The picture shows the board as it will play, in the song's notation. Click a key to hear it, or play it on your keyboard: while the dialog is open, the keys play the layout in the picture rather than the one in use, so you can try a scale before you make it (except while you type a name or a number). Below the picture are the scale's notes, its steps, and how many degrees the board reaches.
 
 **Make layout** saves the result as a new layout of your own, named after its scale, and puts it on the keyboard. It is an ordinary layout from then on: nudge single keys, rename it, export it or embed it in the project like any other. A layout made in the song's own tuning system is named after that tuning system too, since its degrees mean something only there; you can tie it to that tuning system with **Use for**.
 

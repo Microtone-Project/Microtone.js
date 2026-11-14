@@ -905,7 +905,7 @@ const WILD = -2;
 const VOL_SWEEP = Array.from({ length: 65 }, (_, i) => i - 1);
 
 // A note is packed in SIXTEENTHS of a 4096-TET unit: a format-3 cell's pitch
-// has four bits below the word (file format §5.5), and packing the bare number
+// has four bits below the word (file format §5.1), and packing the bare number
 // let a 31-TET note's fraction spill into the volume, so a trimmed key map kept
 // the zones for the wrong volumes.
 const packPair = (note, vol) => Math.round(note * 16) * 65 + (vol + 1);

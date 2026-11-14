@@ -111,7 +111,7 @@ Per-pattern loop state — the `S $Bx` loop counters and the Pattern-Ditto arm 
 
 Pitch is counted on a grid of **65536 steps per octave**: `$50000` is C4 (middle C) and each `$10000` is an octave, so `$10000` is C0 and `$F0000` is C14. One 12-TET semitone is `65536 ÷ 12` ≈ 5461.33 steps, and one cent is `65536 ÷ 1200` ≈ 54.61 steps. Pitches are not required to land on any particular grid — that is the entire point of the format — so an engine **MUST NOT** quantise them except where a command or a tone mode says so (glissando, `S $1x`, [§3.4](#3-4-tone-modes)).
 
-A **note word** is the top sixteen bits of a pitch — the pitch ÷ 16 — and it is how the format stores a pitch in sixteen bits: `$5000` is C4, `$1000` an octave, and one unit of it is sixteen steps. A pattern cell carries the four bits below its word, the **fine nibble** (File Format §5.5), so its pitch is `word × 16 + fine`; a legacy-format cell has none, and its pitch is `word × 16` (File Format §5.6). Words `$0000`…`$001F` are sentinels ([§5.2](#5-2-note-events)) and take no fine nibble. The playable range is `$00200`…`$FFFF0` — the words `$0020`…`$FFFF` — and the engine **MUST** clamp every computed pitch into it.
+A **note word** is the top sixteen bits of a pitch — the pitch ÷ 16 — and it is how the format stores a pitch in sixteen bits: `$5000` is C4, `$1000` an octave, and one unit of it is sixteen steps. A pattern cell carries the four bits below its word, the **fine nibble** (File Format §5.1), so its pitch is `word × 16 + fine`; a legacy-format cell has none, and its pitch is `word × 16` (File Format §5.2). Words `$0000`…`$001F` are sentinels ([§5.2](#5-2-note-events)) and take no fine nibble. The playable range is `$00200`…`$FFFF0` — the words `$0020`…`$FFFF` — and the engine **MUST** clamp every computed pitch into it.
 
 The engine takes a cell's whole pitch wherever it would have taken the word — the trigger, a tone portamento's target, a delayed note, a duplicate check — and every pitch it computes from it keeps the low bits. Slides, arpeggio offsets, vibrato and every effect argument count in **note-word units**, sixteen steps each: `E $0155` lowers the pitch by `$1550` steps a tick. An instrument's pitch fields are note words, or offsets in note-word units, and the `IPit` section gives each its four low bits and four more of octave ([File Format §9.18](TAUD_FILE_FORMAT.md#9-18-ipit-pitch-extensions)).
 
@@ -1219,7 +1219,7 @@ Past-note actions (`S $70`…`S $72`) act on *all* background voices a lane sp
 
 ### 5.8 Volume and panning columns
 
-The columns are applied after the note event and before the effect column ([File Format §5.5](TAUD_FILE_FORMAT.md#volume-and-panning-columns)).
+The columns are applied after the note event and before the effect column ([File Format §5.1](TAUD_FILE_FORMAT.md#volume-and-panning-columns)).
 
 - **Volume SET** writes the note volume (and rebases the row volume onto it).
 - **Volume slide up/down** arms a per-tick slide for ticks after the first, by the value in the note volume's own units.
@@ -1230,7 +1230,7 @@ The columns are applied after the note event and before the effect column ([File
 
 Both columns write the per-note axis of their quantity and neither can reach the per-lane one (TAUD_NOTE_EFFECTS.md §3, §3a); `M` / `N` and `S $80xx` / `P` / `X` / `4` / `Z` are the commands that can.
 
-**The legacy format.** A legacy-format cell's columns are six bits ([File Format §5.6](TAUD_FILE_FORMAT.md#5-6-legacy-format-the-8-byte-cell)): a fine slide's direction is bit 5 and its magnitude bits 0…4, and a pan SET is scaled from six bits to eight as `(v << 2) | (v >> 4)`, taken as an offset from centre, and keeps its front-arc meaning in every surround model — six bits cannot express a full turn, and `S $8xxx` and `X` are the commands that can.
+**The legacy format.** A legacy-format cell's columns are six bits ([File Format §5.2](TAUD_FILE_FORMAT.md#5-2-legacy-format-the-8-byte-cell)): a fine slide's direction is bit 5 and its magnitude bits 0…4, and a pan SET is scaled from six bits to eight as `(v << 2) | (v >> 4)`, taken as an offset from centre, and keeps its front-arc meaning in every surround model — six bits cannot express a full turn, and `S $8xxx` and `X` are the commands that can.
 
 ### 5.9 Pattern Ditto
 

@@ -101,8 +101,11 @@ export class AudioSystem {
     // Item 217 Mixing-tab taps, one seat per split pane: the instrument each
     // meters (-1 = off).
     this.imixMeterSlots = new Array(SNAP_IM_SEATS).fill(-1);
-    this.profile = null;    // latest worklet profiler report (opt-in; null when off)
+    this.profile = null;    // latest profiler report (null when off): the audio thread's, with the render Worker's joined in
     this.onProfile = null;  // optional callback(profile) when a report arrives
+    this.profiling = false;
+    this.workerProfile = null; // the render Worker's latest report, and when it came
+    this.workerProfileAt = 0;
   }
 
   /** Create the context + node. Must be called once; audio starts suspended
@@ -175,6 +178,7 @@ export class AudioSystem {
         this._postWorker({ t: CMD.INIT, snapshotIntervalMs });
         this.engineTarget = this.worker; // route engine commands to the worker
         this.usingWorker = true;
+        if (profile) this._postWorker({ t: CMD.SET_PROFILE, on: true });
       } catch (e) {
         // Module Worker unavailable → keep the engine in the worklet, just with
         // SAB snapshots (the pre-Tier-2 isolated path).
@@ -186,7 +190,22 @@ export class AudioSystem {
     } else {
       this.node.port.postMessage({ t: CMD.INIT, snapshotIntervalMs });
     }
+    this.profiling = profile;
     return this;
+  }
+
+  /** Start or stop the audio profiler — at any time, and costing nothing while
+   *  off. The audio thread always measures its own callbacks; the engine is
+   *  timed wherever it runs (the worklet, or the render Worker in Tier 2), and
+   *  the Worker's report is joined onto the audio thread's (`profile`). */
+  setProfiling(on) {
+    on = !!on;
+    if (!this.node) return;
+    this.profiling = on;
+    this.profile = null;
+    this.workerProfile = null;
+    this.node.port.postMessage({ t: CMD.SET_PROFILE, on });
+    if (this.usingWorker) this._postWorker({ t: CMD.SET_PROFILE, on });
   }
 
   /** Messages from whichever thread hosts the engine (worklet port in render
@@ -213,12 +232,22 @@ export class AudioSystem {
       this.psgStates.set(m.slot, m.psg ?? null);
       this.formantStates.set(m.slot, m.formant ?? null);
       if (m.modMask) this.modMasks.set(m.slot, new Uint8Array(m.modMask));
+    } else if (m.t === MSG.WORKER_PROFILE) {
+      if (!this.profiling) return;
+      this.workerProfile = m;
+      this.workerProfileAt = performance.now();
     } else if (m.t === MSG.PROFILE) {
+      if (!this.profiling) return; // one already in flight when it was switched off
       // Enrich the worklet report with main-side facts it cannot see.
       m.usingSab = this.usingSab;
       m.usingWorker = this.usingWorker;
       m.bundleFallback = this.usedBundleFallback;
       m.contextSampleRate = this.context.sampleRate;
+      // …and with the render Worker's, while it is current: it reports only
+      // while it renders, so one more than two windows old is a song that
+      // stopped, not a reading.
+      m.worker = this.workerProfile !== null && performance.now() - this.workerProfileAt < 2500
+        ? this.workerProfile : null;
       this.profile = m;
       if (this.onProfile) this.onProfile(m);
     }

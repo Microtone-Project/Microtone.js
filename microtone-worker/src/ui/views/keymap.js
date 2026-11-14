@@ -421,8 +421,10 @@ export class KeymapView {
       rows: this.draft.rows,
       ortho: this.store.keymapOrtho === true,
       legend: (c) => this.legend(c),
-      play: (code, note) => this.jam.hold(code, note),
-      stop: (code) => this.jam.up(code),
+      // Its layout, not the active one: a key only it has must still be
+      // tracked, or its release would never stop the note.
+      play: (code, note) => this.jam.hold(code, note, true),
+      stop: (code) => this.jam.up(code, true),
     });
     if (!spec) return;
     this.draft = normaliseKeymap({ ...spec, name: this.lib.uniqueName(spec.name) });

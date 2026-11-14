@@ -30,7 +30,7 @@ export function rowVolumeFromDefault(inst, patch = null, volMax = 0x3f) {
 
 /**
  * Narrow a note volume onto the Ixmp/meta rectangle's velocity axis. That axis
- * is INSTRUMENT data and stays 6-bit in every format version (file format §5.5),
+ * is INSTRUMENT data and stays 6-bit in every format version (file format §5.1),
  * so a wide cell's 8-bit volume must be scaled down for it — 255 → 63. Every
  * resolvePatch/resolveMetaLayers call site goes through here; one that forgets
  * silently misses every patch in a v3 song (item 116).

@@ -1,4 +1,4 @@
-// Format version 3 — the 16-byte pattern cell (file format §5.5): 8-bit
+// Format version 3 — the 16-byte pattern cell (file format §5.1): 8-bit
 // volume, a panning column that carries a whole spherical position, and a
 // second effect.
 //

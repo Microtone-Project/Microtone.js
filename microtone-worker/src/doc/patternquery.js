@@ -51,7 +51,7 @@ import {
 } from "./patterntools.js";
 
 /** The selector value that means "one-shot fine delta"; with a zero argument
- *  it is the blank-column sentinel (file format §5.5). */
+ *  it is the blank-column sentinel (file format §5.1). */
 const SEL_FINE = 3;
 const SEL_SET = 0;
 

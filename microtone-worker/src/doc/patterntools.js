@@ -1,6 +1,6 @@
 // Pure byte-level pattern transforms. Every one of them works on a whole
 // pattern IMAGE and therefore has to know which cell layout that image is in
-// (file format §5.5): 64 rows × 8-byte cells (512 bytes) in format version 2,
+// (file format §5.1): 64 rows × 8-byte cells (512 bytes) in format version 2,
 // 64 rows × 16-byte cells (1024 bytes) in version 3. Callers pass `wide` — the
 // document's own `wideCells` flag — and a v2 image transforms exactly as it
 // always did.
@@ -19,7 +19,7 @@ export function cellStride(wide) { return wide ? 16 : 8; }
 // is the no-op sentinel every transform below skips.
 const SEL_FINE = 3;
 
-// ── column accessors (file format §5.5) ──
+// ── column accessors (file format §5.1) ──
 // The 8-byte cell packs a 2-bit selector above a 6-bit value in one byte. The
 // 16-byte cell gives volume a whole byte and the panning column a NINE-bit
 // azimuth (low byte at +4, bit 8 in the top bit of the shared selector byte
@@ -84,7 +84,7 @@ export function writeElev(b, o, wide, value) {
 export function emptyPatternBytes(wide = false) {
   // "Empty" is FINE-by-zero in both columns, whatever the cell's width — in the
   // 8-byte cell that is 0xC0 in each column byte, in the wide cell it is 0x33
-  // in the shared selector byte (file format §5.5).
+  // in the shared selector byte (file format §5.1).
   if (wide) {
     const bytes = new Uint8Array(PATTERN_SIZE_WIDE);
     for (let r = 0; r < 64; r++) bytes[r * 16 + 8] = 0x33;

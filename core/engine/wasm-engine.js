@@ -297,6 +297,10 @@ export class WasmTaudEngine {
     this.playheads = [this._makePlayhead()];
   }
 
+  /** Bytes of WebAssembly memory this engine's instance holds (it only grows) —
+   *  a profiler's reading. */
+  get memoryBytes() { return this._x.memory.buffer.byteLength; }
+
   /** The playhead object (a subclass that can see inside the engine makes a
    *  fuller one: core/engine/engine.js). */
   _makePlayhead() { return new WasmPlayhead(this); }

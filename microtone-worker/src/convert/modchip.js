@@ -62,7 +62,7 @@ export function referenceSlot(slot) {
 
 /**
  * The song a bounce renders: one note, held. It is a format-3 song (the wide
- * cell, file format §5.5) so the note keeps its sixteenths — a 31-TET song's
+ * cell, file format §5.1) so the note keeps its sixteenths — a 31-TET song's
  * pitches are rarely whole 4096-TET words, and a key map trimmed to the
  * pitches played answers only at the exact one — and its volume is `volume`
  * (1…63, the 6-bit step a key map or a layer split is gated on) widened the

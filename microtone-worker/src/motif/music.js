@@ -370,7 +370,7 @@ export class Score {
 
   /**
    * A volume range → [low, high] in the RECORD's units, 0…63 (instrument data
-   * is format-neutral, file format §5.5). It is written in the song's volume
+   * is format-neutral, file format §5.1). It is written in the song's volume
    * units: 0…63 in a format-2 song, 0…255 in a format-3 one, where a volume v
    * is gated as v >> 2 — so each end is the step its volume falls in, as the
    * Layers tab reads it (doc/velaxis.js).

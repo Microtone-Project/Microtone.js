@@ -3,7 +3,9 @@
 // The scales and the layout are keymapscale.js; this is the form over them and
 // a picture of the board it makes, drawn by the same painter as the tab, so
 // what is previewed is what the keyboard will play. A click on a cap of the
-// picture sounds it.
+// picture sounds it, and so does the key itself: while the dialog is open the
+// computer keyboard plays the layout in the picture, not the one in use —
+// except in the fields that take typing (the name, the row step).
 //
 // Two frames (keymapscale.js makerFrame): the song's own tuning system, in its
 // degrees — where every choice the tuning cannot play is GREYED, never hidden,
@@ -130,6 +132,7 @@ function defaultSettings(rows) {
  * @param opts.ortho    draw the board in columns (the tab's own setting)
  * @param opts.legend   (code) => the key's printed letter
  * @param opts.play     (code, note) => sound a key; opts.stop(code) releases it
+ *                      (a click on a cap, or the key itself on the keyboard)
  * @returns a keymap spec (named, not yet unique), or null on Cancel
  */
 export function showKeymapMaker({
@@ -485,10 +488,41 @@ export function showKeymapMaker({
       window.addEventListener("pointerup", release);
     });
 
+    // ── audition by jamming: the keyboard plays the picture's layout ──
+    const jammed = new Set();
+    /** keydown → true when it was a key of the layout (and is consumed). A
+     *  select keeps its arrows but loses its type-ahead, which nothing here
+     *  needs; a modifier chord is a shortcut, never a note. */
+    function jamDown(e) {
+      if (!spec || !play || e.ctrlKey || e.metaKey || e.altKey) return false;
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return false;
+      const note = keymapNote(spec, e.code, octave, preset);
+      if (note === null) return false;
+      e.preventDefault();
+      if (e.repeat || jammed.has(e.code)) return true;
+      jammed.add(e.code);
+      held.add(e.code);
+      play(e.code, note);
+      paint();
+      return true;
+    }
+    function jamUp(code) {
+      if (!jammed.delete(code)) return;
+      stop?.(code);
+      held.delete(code);
+      paint();
+    }
+    const jamAllUp = () => { for (const code of [...jammed]) jamUp(code); };
+    dlg.addEventListener("keyup", (e) => { e.stopPropagation(); jamUp(e.code); });
+    // A key let go in another window sends no keyup here.
+    window.addEventListener("blur", jamAllUp);
+
     // ── finishing ──
     const ro = new ResizeObserver(() => paint());
     const finish = (result) => {
       ro.disconnect();
+      jamAllUp();
+      window.removeEventListener("blur", jamAllUp);
       lastSettings = structuredClone(s);
       dlg.close();
       dlg.remove();
@@ -500,6 +534,7 @@ export function showKeymapMaker({
     // Enter is Proceed from a text or number field, as in every other dialog.
     dlg.addEventListener("keydown", (e) => {
       e.stopPropagation();
+      if (jamDown(e)) return;
       if (e.key === "Enter" && e.target.tagName === "INPUT") {
         e.preventDefault();
         e.target.dispatchEvent(new Event("change"));

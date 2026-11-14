@@ -57,7 +57,7 @@ export class TaudPlayData {
   constructor() {
     // 0..65535, a note word in 4096-TET units. In a wide cell it may carry a
     // fraction in sixteenths — byte 13's high nibble, the four bits that make
-    // the wide cell's pitch 65536-TET (file format §5.5) — so `note` is a
+    // the wide cell's pitch 65536-TET (file format §5.1) — so `note` is a
     // number, not a word: every pitch path takes it as it stands, and a
     // sentinel (< $20) never has one.
     this.note = 0;

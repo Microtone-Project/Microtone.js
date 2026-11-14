@@ -40,6 +40,8 @@ export const GOLDEN_SET = {
   "Temjin_speaki": { file: "assets/demo_projects/Temjin_speaki.taud" },
   "Huygens_clock": { file: "assets/demo_projects/Huygens_clock.taud" },
   "Zeta_valley": { file: "assets/demo_projects/Zeta_valley.taud" },
+  // The set's FM racks: every pitched instrument and every drum of it is one.
+  "Eighth": { file: "assets/demo_projects/Eighth.taud" },
   "WHEN_AMBI": { file: "assets/demo_projects/WHEN_AMBI.taud" },
   "WHEN_AMBI@binaural": { file: "assets/demo_projects/WHEN_AMBI.taud", monitor: MONITOR_BINAURAL },
   // Item 217: a mixing chain with every piece of equipment in it on every

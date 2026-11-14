@@ -3,6 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <title>profile smoke</title>
+  <!-- the panel is the app's, styled by its stylesheet (position: fixed) -->
+  <link rel="stylesheet" href="../../css/microtone.css" />
 </head>
 <body>
   <pre id="out">running…</pre>
@@ -10,10 +12,13 @@
        --dump-dom --timeout runs the audio in REAL time -->
   <img src="/hang" hidden>
   <script type="module">
-    // Headless smoke for the dev audio profiler (?profile=1 path):
-    //   - the worklet actually emits MSG.PROFILE under real playback,
+    // Headless smoke for the audio profiler (the audio badge / ?profile=1):
+    //   - switched on at RUN time (setProfiling), the worklet emits MSG.PROFILE
+    //     under real playback, and in Tier 2 the render Worker's timings of the
+    //     WebAssembly engine are joined onto it,
     //   - the report carries sane per-callback + renderChunk timings,
-    //   - the overlay + pure verdict classifier run without throwing.
+    //   - the panel + pure verdict classifier run without throwing, its close
+    //     button reports, and switching it off stops the reports.
     // Run (real time, COOP/COEP server):
     //   python3 tools/test-server.py &
     //   chromium --headless=new --disable-gpu --no-sandbox --timeout=60000 \
@@ -22,6 +27,7 @@
     import { parseTaud } from "../../core/format/taud-parse.js";
     import { AudioSystem } from "../../core/audio/audio-system.js";
     import { createProfileOverlay, profileVerdict } from "../../src/ui/profileoverlay.js";
+    import { t } from "../../src/ui/i18n.js";
 
     const out = [];
     const log = (line) => {
@@ -32,15 +38,17 @@
 
     try {
       const audio = new AudioSystem();
-      await audio.init({ snapshotIntervalMs: 16, profile: true });
+      await audio.init({ snapshotIntervalMs: 16 });
       log(`init ok — sampleRate=${audio.context.sampleRate} bundleFallback=${audio.usedBundleFallback}`);
       log(`snapshot path: ${audio.usingSab ? "SharedArrayBuffer" : "postMessage"} — render: ${audio.usingWorker ? "Worker (Tier 2)" : "in-worklet"}`);
 
       // Overlay is exercised too (must render + update without throwing).
-      const overlay = createProfileOverlay();
+      let closed = false;
+      const overlay = createProfileOverlay({ onClose: () => { closed = true; } });
       document.body.appendChild(overlay.el);
       let reports = 0;
       audio.onProfile = (p) => { reports++; overlay.update(p); };
+      audio.setProfiling(true);
 
       // Drag wiring: simulate a pointer drag on the title bar; the box must move.
       const title = overlay.el.firstChild;
@@ -55,15 +63,16 @@
       log(`drag: moved=${dragMoved} (${Math.round(b.left)},${Math.round(b.top)} → ${Math.round(a.left)},${Math.round(a.top)})`);
 
       await audio.resume();
-      const resp = await fetch("../corpus/WHEN.taud");
+      const resp = await fetch("../../assets/demo_projects/Eighth.taud"); // FM racks: work for the engine
       const doc = parseTaud(new Uint8Array(await resp.arrayBuffer()));
       audio.loadDocument(doc, 0);
       audio.play(0);
       log("play sent — waiting for profile reports (real time)…");
 
-      // Reports arrive ≈ once per second; wait for at least two.
+      // Reports arrive ≈ once per second; wait for at least two (and, in
+      // Tier 2, for one carrying the Worker's reading).
       const t0 = Date.now();
-      while (reports < 2 && Date.now() - t0 < 4000) {
+      while ((reports < 2 || (audio.usingWorker && !audio.profile?.worker)) && Date.now() - t0 < 6000) {
         await new Promise((r) => setTimeout(r, 100));
       }
 
@@ -75,19 +84,31 @@
       log(`renderChunk: mean=${p.renderMeanMs.toFixed(3)}ms max=${p.renderMaxMs.toFixed(3)}ms (${Math.round(p.renderFrac * 100)}% of load)`);
       log(`load=${Math.round(p.cpuFrac * 100)}% peakVoices=${p.peakVoices} procCount=${p.procCount} renderCount=${p.renderCount}`);
       if (audio.usingWorker) log(`ring underruns=${p.underruns} (worker keeping up: ${p.underruns === 0})`);
+      const w = p.worker;
+      if (w) log(`worker engine: load=${Math.round(w.engineFrac * 100)}% chunk mean=${w.renderMeanMs.toFixed(3)}ms max=${w.renderMaxMs.toFixed(3)}ms voices=${w.peakVoices} ring low=${w.ringLowMs?.toFixed(1)}/${w.ringTargetMs.toFixed(1)}ms wake max=${w.wakeMaxMs.toFixed(1)}ms memory=${(w.memoryBytes / 1048576).toFixed(1)}MB`);
       log(`resample step=${p.step.toFixed(3)} sab=${p.sab}`);
       const v = profileVerdict(p);
-      log(`verdict: ${v.label} (${v.tone})`);
+      const label = t(`profiler.verdict.${v.key}`);
+      log(`verdict: ${label} (${v.tone})`);
 
       // Tier 2 (Worker render): the worklet only copies, so renderCount≈0 — that
       // IS the proof the audio thread stopped rendering. In-worklet mode still
       // renders, so renderCount must be > 0.
       const renderOk = audio.usingWorker
-        ? (p.renderCount === 0 && p.workerRender && p.underruns === 0)
-        : (p.renderCount > 0);
+        ? (p.renderCount === 0 && p.workerRender && p.underruns === 0 &&
+           w !== null && w.engineFrac > 0 && w.renderMeanMs > 0 && w.peakVoices > 0 && w.memoryBytes > 0)
+        : (p.renderCount > 0 && p.memoryBytes > 0);
+
+      // The panel's own close button reports; switching off stops the reports.
+      overlay.el.querySelector(".profiler-close").click();
+      audio.setProfiling(false);
+      const before = reports;
+      await new Promise((r) => setTimeout(r, 2500));
+      const stopped = reports === before && audio.profile === null;
+      log(`closed=${closed} reports after switching off: ${reports - before}`);
       const sane =
         reports >= 2 &&
-        dragMoved &&
+        dragMoved && closed && stopped &&
         renderOk &&
         p.procCount > 0 &&
         p.quantumMs > 0 && p.sampleRate > 0 &&
@@ -95,8 +116,8 @@
         p.cpuFrac >= 0 && isFinite(p.cpuFrac) &&
         typeof p.hiResClock === "boolean" &&
         p.sab === audio.usingSab &&
-        typeof v.label === "string" && v.label.length > 0 &&
-        overlay.el.textContent.includes(v.label);
+        typeof label === "string" && label.length > 0 && !label.startsWith("profiler.") &&
+        overlay.el.textContent.includes(label);
 
       log(sane ? "RESULT: PASS" : "RESULT: FAIL");
       document.title = sane ? "SMOKE-PASS" : "SMOKE-FAIL";

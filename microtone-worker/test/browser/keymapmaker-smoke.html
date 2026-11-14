@@ -144,8 +144,41 @@
       .map((c) => nearestDegreeIndex(keymapNote(made, c, 4, preset), preset).index));
     ok([...degs].every((d) => [2, 4, 5, 7, 9, 11, 0].includes(d)), `every key is a note of D Dorian (${[...degs]})`);
 
-    // A tuning with no diatonic: the dialog opened against 13-TET greys the two.
+    // Jamming: while the dialog is open the keyboard plays the layout in the
+    // picture — not in a field that takes typing, not under a modifier, and a
+    // key still held when it closes is let go.
     const { showKeymapMaker } = await import("../../src/ui/popups/keymapmaker.js");
+    const played = [], stopped = [];
+    const pj = showKeymapMaker({ preset: pitchTablePresets[120], hasSong: true, octave: 4, rows: ["A"],
+      play: (code, note) => played.push([code, note]), stop: (code) => stopped.push(code) });
+    await sleep(150);
+    const dj = document.querySelector("dialog.kmaker-modal");
+    const key = (type, target, code, extra = {}) => {
+      const e = new KeyboardEvent(type, { code, key: code.slice(-1).toLowerCase(), bubbles: true, cancelable: true, ...extra });
+      target.dispatchEvent(e);
+      return e;
+    };
+    const aButton = dj.querySelector(".kmaker-form .mst-seg button");
+    aButton.focus();
+    const down = key("keydown", aButton, "KeyA");
+    ok(played.length === 1 && played[0][0] === "KeyA" && Number.isFinite(played[0][1]) && down.defaultPrevented,
+      `a key of the layout plays its note (${JSON.stringify(played[0])})`);
+    key("keydown", aButton, "KeyA", { repeat: true });
+    ok(played.length === 1, "autorepeat does not strike it again");
+    key("keyup", aButton, "KeyA");
+    ok(stopped.join() === "KeyA", "letting go stops it");
+    const nameField = dj.querySelector("input.kmaker-name");
+    const typed = key("keydown", nameField, "KeyS");
+    ok(played.length === 1 && !typed.defaultPrevented, "typing a name plays nothing");
+    key("keydown", aButton, "KeyS", { ctrlKey: true });
+    ok(played.length === 1, "a Ctrl chord is a shortcut, not a note");
+    const off = key("keydown", aButton, "KeyQ");
+    ok(played.length === 1 && !off.defaultPrevented, "a key the layout leaves off is not taken");
+    key("keydown", aButton, "KeyD");
+    dj.querySelector(".act-cancel").click();
+    ok((await pj) === null && stopped.join() === "KeyA,KeyD", `a key held at Cancel is let go (${stopped})`);
+
+    // A tuning with no diatonic: the dialog opened against 13-TET greys the two.
     const p = showKeymapMaker({ preset: pitchTablePresets[130], hasSong: true, octave: 4, rows: ["A"] });
     await sleep(150);
     const d13 = document.querySelector("dialog.kmaker-modal");

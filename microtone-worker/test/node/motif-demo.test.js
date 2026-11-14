@@ -1,6 +1,7 @@
 // Motif (item 208): the Huygens' Clock demo is BUILT from its Taud Motif
 // Language source, assets/demo_projects/Huygens_clock.tml (and Eighteenfold Euphonic DisOrder from
-// Zeta_valley.tml, which was a Motif program from the start). When Motif arrived,
+// Zeta_valley.tml and the Eighth Baffling Incongruity Theorem from Eighth.tml, which were Motif
+// programs from the start). When Motif arrived,
 // that source rebuilt the file the old JavaScript generator had made byte for
 // byte (bank, cleanup and re-tuning included — `node tools/motif.js`, which
 // needs python3 and takes a while). These tests keep the quick half of that
@@ -12,7 +13,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import { parseTaud } from "../../core/format/taud-parse.js";
-import { evaluate, MOTIF_FOURCC } from "../../src/motif/build.js";
+import { evaluate, buildProject, MOTIF_FOURCC } from "../../src/motif/build.js";
 import { compileScore } from "../../src/motif/compile.js";
 import { splitNameTable } from "../../src/doc/bankmerge.js";
 
@@ -22,16 +23,25 @@ const DIR = new URL("../../assets/demo_projects/", import.meta.url);
 const DEMOS = [
   ["Huygens' Clock", "Huygens_clock", 16, 310],
   ["Eighteenfold Euphonic DisOrder", "Zeta_valley", 44, 180],
+  ["Eighth Baffling Incongruity Theorem", "Eighth", 20, 80],
 ];
 
 for (const [name, stem, cueCount, notation] of DEMOS) {
   const source = readFileSync(new URL(`${stem}.tml`, DIR), "utf8");
   const file = parseTaud(new Uint8Array(readFileSync(new URL(`${stem}.taud`, DIR))));
-  const score = evaluate(source);
-  // The bank step marks which instruments sing lyrics (the compiler writes a
-  // lyric instrument's number only where its lyrics start); with no bank made
-  // here, mark the program's own as it would.
-  for (const i of score.instruments) i.lyric = Boolean(i.lyrics);
+  // A song of soundfont presets takes its slots in declaration order (the
+  // bank sf2bank.py builds) and needs python to make, so no bank is made here;
+  // the bank step also marks which instruments sing lyrics (the compiler
+  // writes a lyric instrument's number only where its lyrics start), so mark
+  // the program's own as it would. A song with no soundfont preset (waves and
+  // racks: Eighth) slots them as the bank imports them, which needs nothing
+  // outside Node — so its bank is made, as the build makes it.
+  let score = evaluate(source);
+  if (score.instruments.some((i) => i.kind === "sf2")) {
+    for (const i of score.instruments) i.lyric = Boolean(i.lyrics);
+  } else {
+    ({ score } = await buildProject(source, {}));
+  }
   const compiled = compileScore(score);
   const section = (f) => file.projSections.find((s) => s.fourcc === f)?.payload ?? null;
 

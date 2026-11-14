@@ -134,6 +134,12 @@
       "frames": 960000,
       "u8": "4f45d902e1f3e4a689fb00693220391f94cec58a475cb631d24f644b76648db3",
       "f32": "ec71fd0244ed9eb5a19d83361f11ed89234aeb8c791e6a10d544fc0ef314c643"
+    },
+    "Eighth": {
+      "file": "assets/demo_projects/Eighth.taud",
+      "frames": 960000,
+      "u8": "a1ca016d4640cd085084bcad90ba691f74a271c2ea5efa5beaf9187168714060",
+      "f32": "c3f9269adc5f436151fcf751af28f5d222670a4227a0e1e7b22f27d20f6de164"
     }
   }
 }

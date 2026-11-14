@@ -178,7 +178,7 @@ const PACKAGE_JSON = (version) => JSON.stringify({
 const README = (version, engineHash) => `# taudplay
 
 <p align="center"><em>You are currently looking at the JavaScript version.</em></p>
-<p align="center">JavaScript · <a href="https://github.com/Microtone-Project/taudplay-c">C99</a> · <a href="https://github.com/Microtone-Project/taudplay-java">Java</a> · <a href="https://github.com/Microtone-Project/taudplay-godot">Godot 4</a> · <a href="https://github.com/Microtone-Project/taudplay-libgdx">LibGDX</a></p>
+<p align="center">JavaScript · <a href="https://github.com/Microtone-Project/libtaudplay">C99</a> · <a href="https://github.com/Microtone-Project/taudplay-java">Java</a> · <a href="https://github.com/Microtone-Project/taudplay-godot">Godot 4</a> · <a href="https://github.com/Microtone-Project/taudplay-libgdx">LibGDX</a></p>
 
 ---
 

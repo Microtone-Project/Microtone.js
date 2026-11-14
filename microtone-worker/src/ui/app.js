@@ -86,8 +86,9 @@ store.record = true;
 store.editStep = 1;
 let audioInitPromise = null;
 
-// ?profile=1 attaches the dev audio profiler (worklet timing + on-screen
-// overlay). Off by default → zero overhead in production.
+// The audio profiler: the top bar's audio badge opens and closes it, in the
+// browser and the desktop app alike; ?profile=1 opens it at load. It measures
+// only while it is open, so it costs nothing the rest of the time.
 const PROFILE = new URLSearchParams(location.search).has("profile");
 let profileOverlay = null;
 
@@ -100,12 +101,7 @@ async function ensureAudio({ resume = true } = {}) {
   if (!audioInitPromise) {
     audioInitPromise = (async () => {
       const audio = new AudioSystem();
-      await audio.init({ profile: PROFILE });
-      if (PROFILE) {
-        profileOverlay = createProfileOverlay();
-        document.body.appendChild(profileOverlay.el);
-        audio.onProfile = (p) => profileOverlay.update(p);
-      }
+      await audio.init();
       audio.setMonitorMode(0, store.binaural ? 1 : 0); // #998.3, survives reloads
       store.audio = audio;
     })();
@@ -131,6 +127,41 @@ for (const ev of ["pointerdown", "keydown"]) {
 // forget: a headless/virtual-time boot where addModule never settles just
 // leaves audio uninitialised, which the rest of the app already tolerates.
 ensureAudio({ resume: false }).catch((e) => console.warn("APP: eager audio warmup failed", e));
+
+/** Open or close the audio profiler (default: the other of the two). The
+ *  panel opens at once, waiting for audio if there is none yet. */
+async function toggleProfiler(open = profileOverlay === null) {
+  if (open === (profileOverlay !== null)) return;
+  const badge = $("audioBadge");
+  badge.setAttribute("aria-pressed", String(open));
+  if (!open) {
+    profileOverlay.destroy();
+    profileOverlay = null;
+    if (store.audio) {
+      store.audio.onProfile = null;
+      store.audio.setProfiling(false);
+    }
+    return;
+  }
+  const overlay = createProfileOverlay({ onClose: () => toggleProfiler(false) });
+  profileOverlay = overlay;
+  document.body.appendChild(overlay.el);
+  await ensureAudio({ resume: false });
+  if (profileOverlay !== overlay) return; // closed while the audio came up
+  store.audio.onProfile = (p) => overlay.update(p);
+  store.audio.setProfiling(true);
+}
+{
+  const badge = $("audioBadge");
+  badge.addEventListener("click", () => toggleProfiler());
+  badge.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    e.preventDefault();
+    e.stopPropagation(); // Space is the transport's everywhere else
+    toggleProfiler();
+  });
+}
+if (PROFILE) toggleProfiler(true);
 
 // ── import conversion (tracker/MIDI → .taud via the vendored Python converters) ──
 
@@ -343,7 +374,7 @@ async function loadBytes(name, bytes, { sf2 = null, bank = null, saveToOpfs = fa
   }
   store.audio?.stop(0);
   store.doc = new Document(parsed);
-  // Format 3 is the only format the editor writes (file format §5.5): a
+  // Format 3 is the only format the editor writes (file format §5.1): a
   // version-1/2 project widens as it opens, its notes onto the 65536-TET grid.
   // The file itself is untouched until it is saved.
   const openedVersion = store.doc.fmtVer ?? 2;

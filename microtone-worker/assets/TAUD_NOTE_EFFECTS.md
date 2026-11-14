@@ -76,7 +76,7 @@ Internal accumulators **MAY** widen to 16 or 32 bits during mixing and effect co
 
 One octave spans **65536 pitch steps** (`$10000` exactly), and `$50000` is C4. A 12-TET semitone therefore equals **65536 ÷ 12 ≈ 5461.33 steps**, which is not an integer; this irrationality is a deliberate consequence of choosing a microtonal native grid.
 
-A pattern cell writes a pitch as its **note word** — the top sixteen bits, the pitch ÷ 16: `$5000` is C4 and `$1000` an octave — and its fine nibble the four bits below it (a legacy-format cell, File Format §5.6, has the word alone). Every argument in this document that moves a pitch counts in **note-word units**, sixteen steps each, so the arguments keep their sixteen bits and still reach every interval a song needs. Implementations **MUST** keep a lane's pitch to the step — the low four bits are part of the note — and **MUST** convert it to playback rate using
+A pattern cell writes a pitch as its **note word** — the top sixteen bits, the pitch ÷ 16: `$5000` is C4 and `$1000` an octave — and its fine nibble the four bits below it (a legacy-format cell, File Format §5.2, has the word alone). Every argument in this document that moves a pitch counts in **note-word units**, sixteen steps each, so the arguments keep their sixteen bits and still reach every interval a song needs. Implementations **MUST** keep a lane's pitch to the step — the low four bits are part of the note — and **MUST** convert it to playback rate using
 
 ```
 playback_rate = reference_rate × 2 ^ (pitch_steps / 65536)
@@ -118,7 +118,7 @@ The engine carries a third per-tick value, `row_vol`, which is the mixer-facing 
 
 The volume column and `M` write a whole level in those units. The effect column's volume slides keep their nibble-sized arguments — `D`, `K`, `L`, `N`, the `Q` retrigger modifiers and the `R` tremolo — and the engine multiplies each step they take by **`VOL_STEP` = 4**, so `D $0100` lowers the volume by 4 of 255 a tick, the pace a tracker's 1 of 64 had.
 
-**The legacy format.** A song in the legacy format ([File Format §5.6](TAUD_FILE_FORMAT.md#5-6-legacy-format-the-8-byte-cell)) has six-bit volumes: there `VOL_MAX` is `$3F` and `VOL_STEP` is 1, so every command below moves by its argument as written and clips at `$3F`.
+**The legacy format.** A song in the legacy format ([File Format §5.2](TAUD_FILE_FORMAT.md#5-2-legacy-format-the-8-byte-cell)) has six-bit volumes: there `VOL_MAX` is `$3F` and `VOL_STEP` is 1, so every command below moves by its argument as written and clips at `$3F`.
 
 Because the two axes are independent, an `M $FF00` (set lane volume to full) issued after a `0.$08` (vol-col SET = 8) leaves the per-note volume untouched at 8 — the lane keeps playing quietly. Conversely, an `N` slide can fade out a lane's overall level while a vol-col SET on a fresh trigger sets the per-note baseline at full.
 
@@ -1126,7 +1126,7 @@ Effect dispatch sees the synthesised effect, never the literal `7` opcode of the
 **Plain.** `:` is not a command of its own — it is a 16-bit number that some OTHER part of its row reads. It has two readers, and the row's note column decides which one applies:
 
 - On a row whose note column holds an **interrupt marker** (`Int0`…`IntF`, note words `$0010`…`$001F` — [File Format](TAUD_FILE_FORMAT.md#note-words), [Engine Spec §14](TAUD_ENGINE_SPEC.md#14-interrupts-and-the-host-interface)), `:` is **the interrupt's argument**: the 0…65535 the song hands to whatever program is playing it. This reading works in every format version.
-- On any other row, `:` **extends** the argument of the effect sharing its row. That needs a row able to carry two effects at once, as [a pattern cell](TAUD_FILE_FORMAT.md#5-5-the-pattern-cell) can — so in a legacy-format cell, which has one effect slot, or alone in a cell with nothing in the other slot, it is a well-formed but **inert** command, and a conforming engine **MUST** treat it as a no-op there, the same as an unrecognised opcode. `:` in **both** slots of such a row is likewise inert: there is nothing left for it to extend.
+- On any other row, `:` **extends** the argument of the effect sharing its row. That needs a row able to carry two effects at once, as [a pattern cell](TAUD_FILE_FORMAT.md#5-1-the-pattern-cell) can — so in a legacy-format cell, which has one effect slot, or alone in a cell with nothing in the other slot, it is a well-formed but **inert** command, and a conforming engine **MUST** treat it as a no-op there, the same as an unrecognised opcode. `:` in **both** slots of such a row is likewise inert: there is nothing left for it to extend.
 
 The two readings do not compete. `:` on an interrupt row that also sits beside a `J`, `O`, `2` or `3` is read by **both** — once as the interrupt's argument, once as that command's extension — because reading it does not consume it.
 
@@ -1579,7 +1579,7 @@ If both are zero:
 
 **Compatibility.** ST3 `SDx` maps directly. ProTracker `EDx` also maps directly. FastTracker `Kxx` maps to `S D00xx`. OpenMPT `:xy` maps to `S Dx1y`. `S D0**` plays the note normally on tick 0. If `$x ≥ speed`, the note **MUST NOT** play on this row and **MUST NOT** carry over to the next row. Some trackers allow playback of "malformed" note delays (`$x` greater than current tick speed); Taud **MUST** discard those notes. If such note events have been encountered during conversion, they **MUST** be corrected by the converter. The `$x` delay applies to every note-column event, the sentinels and the interrupt markers included — see the [`:` section](#xxxx-interrupt-argument-and-argument-extension) for what a delayed `Int` means.
 
-**Effect slots.** Unlike every other `S` sub-command, the note delay has to be resolved BEFORE the row's note event is processed — which is before either effect slot is dispatched — so an engine cannot simply let it arrive through the ordinary per-slot dispatch. In a row of [the pattern cell](TAUD_FILE_FORMAT.md#5-5-the-pattern-cell) it **MUST** therefore be looked for in **both** effect slots: `S $Dxny` means the same thing in either one, exactly as it would if the row had only one slot to put it in. Where a row names it **twice**, a conforming engine **MUST** take the FIRST slot's argument and **MUST** discard the second's entirely — both the `$x` delay and the `$n`/`$y` follow-up come from the winning slot, and the losing one contributes nothing. An `S` in the first slot that is some other sub-command (`S $80xx`, say) has not named a delay and does not win one: the second slot's `S $Dxny` then applies normally.
+**Effect slots.** Unlike every other `S` sub-command, the note delay has to be resolved BEFORE the row's note event is processed — which is before either effect slot is dispatched — so an engine cannot simply let it arrive through the ordinary per-slot dispatch. In a row of [the pattern cell](TAUD_FILE_FORMAT.md#5-1-the-pattern-cell) it **MUST** therefore be looked for in **both** effect slots: `S $Dxny` means the same thing in either one, exactly as it would if the row had only one slot to put it in. Where a row names it **twice**, a conforming engine **MUST** take the FIRST slot's argument and **MUST** discard the second's entirely — both the `$x` delay and the `$n`/`$y` follow-up come from the winning slot, and the losing one contributes nothing. An `S` in the first slot that is some other sub-command (`S $80xx`, say) has not named a delay and does not win one: the second slot's `S $Dxny` then applies normally.
 
 **Implementation.** On row parse, the engine **MUST** defer the note-trigger event (including sample selection, volume, offset, and any volume-column effect) until tick `$x`. On tick `$x`, the engine **MUST** execute the deferred trigger. When combined with pattern delay (S $Ex00), the deferred trigger **MUST** re-fire at the start of each row repetition — matching ST3's `kRowDelayWithNoteDelay` behaviour. If `$x` is greater than the current tick speed, the note **MUST** be discarded (see compatibility notes above). If `$x + $y` is greater than the current tick speed, the action `$n` will be discarded.
 
@@ -1786,7 +1786,7 @@ The slide is armed per row like every other tracker slide: it steps on each NON-
 
 ## Volume column effects
 
-Each cell's volume column is a selector and a whole-byte value, in `note_vol`'s own 0…$FF units ([File Format §5.5](TAUD_FILE_FORMAT.md#volume-column)). **All four selectors target `note_vol`** — the per-note volume axis (§3, analog of IT's `chan->volume`). The per-lane axis (`channel_vol`) is reachable only via the M / N effects in the main effect column. The four selectors are:
+Each cell's volume column is a selector and a whole-byte value, in `note_vol`'s own 0…$FF units ([File Format §5.1](TAUD_FILE_FORMAT.md#volume-column)). **All four selectors target `note_vol`** — the per-note volume axis (§3, analog of IT's `chan->volume`). The per-lane axis (`channel_vol`) is reachable only via the M / N effects in the main effect column. The four selectors are:
 
 - **`0.$xx` — Set note_vol** to `$xx` ($00..$FF). Equivalent in effect to seeding the note with a different default volume; persists across rows until the next re-trigger.
 - **`1.$xx` — note_vol slide up** by `$xx` per non-first tick. Clamps at `VOL_MAX`. The slid value persists into following rows.
@@ -1803,11 +1803,11 @@ When the converter folds an ST3 K, L, M, or N effect into the volume column, the
 
 NOTE: **`3.00` — is No-op**
 
-**The legacy format.** A legacy-format cell ([File Format §5.6](TAUD_FILE_FORMAT.md#5-6-legacy-format-the-8-byte-cell)) has a 6-bit value and a 2-bit selector: SET is $00..$3F, the slides move by the value per non-first tick, and the fine slide's direction is bit 5 with bits 0…4 the magnitude. Its ceiling is 63, and a legacy converter clamped a source's $40 to $3F rather than rescaling.
+**The legacy format.** A legacy-format cell ([File Format §5.2](TAUD_FILE_FORMAT.md#5-2-legacy-format-the-8-byte-cell)) has a 6-bit value and a 2-bit selector: SET is $00..$3F, the slides move by the value per non-first tick, and the fine slide's direction is bit 5 with bits 0…4 the magnitude. Its ceiling is 63, and a legacy converter clamped a source's $40 to $3F rather than rescaling.
 
 ## Panning column effects
 
-Each cell's panning column is a selector and a direction: a nine-bit **azimuth** in `S $8xxx`'s units (0 = left, 128 = front, 256 = right, 384 = behind) and a signed **elevation** in `X`'s ([File Format §5.5](TAUD_FILE_FORMAT.md#panning-column)). **All four selectors target `note_pan`** — the per-note panning axis (§3a), the exact counterpart of the volume column owning `note_vol`. The per-lane axis (`channel_pan`) is reachable only via S $80xx / P / X / 4 / Z in the main effect column.
+Each cell's panning column is a selector and a direction: a nine-bit **azimuth** in `S $8xxx`'s units (0 = left, 128 = front, 256 = right, 384 = behind) and a signed **elevation** in `X`'s ([File Format §5.1](TAUD_FILE_FORMAT.md#panning-column)). **All four selectors target `note_pan`** — the per-note panning axis (§3a), the exact counterpart of the volume column owning `note_vol`. The per-lane axis (`channel_pan`) is reachable only via S $80xx / P / X / 4 / Z in the main effect column.
 
 - **`0.` — Set note_pan**: offset the note by (azimuth, elevation) from the lane's direction. It **replaces** whatever the instrument seeded, so it is the way to pan one note of a zone-panned Ixmp instrument by hand. A planar song forces the elevation to zero; a stereo song folds the azimuth as it folds every other one.
 - **`1.` — note_pan slide right** by the azimuth's low byte per non-first tick, wrapping in a surround song and clamping in a stereo one.
@@ -1816,7 +1816,7 @@ Each cell's panning column is a selector and a direction: a nine-bit **azimuth**
 
 The elevation is **RESERVED** for selectors 1…3 and **MUST** be zero there.
 
-Because the column writes the per-note axis, an `S $80xx` on the same or a following row moves the per-lane axis independently and the two add at the mixer (§3a) — there is no precedence between them, and an engine **MUST NOT** suppress either when both appear on one row. The column is applied AFTER the row's note trigger, so a SET sharing a row with a note wins over that note's instrument seed. A `Z` slide on the same row turns a SET into the slide's TARGET instead ([File Format §5.5](TAUD_FILE_FORMAT.md#panning-column)).
+Because the column writes the per-note axis, an `S $80xx` on the same or a following row moves the per-lane axis independently and the two add at the mixer (§3a) — there is no precedence between them, and an engine **MUST NOT** suppress either when both appear on one row. The column is applied AFTER the row's note trigger, so a SET sharing a row with a note wins over that note's instrument seed. A `Z` slide on the same row turns a SET into the slide's TARGET instead ([File Format §5.1](TAUD_FILE_FORMAT.md#panning-column)).
 
 NOTE: **`3.00` — is No-op**
 

@@ -60,6 +60,7 @@ export const CMD = Object.freeze({
   SNAPSHOT_RETURN: "snapshotReturn",               // {buffer: ArrayBuffer} (recycle)
   USE_SAB: "useSab",                               // {sab: SharedArrayBuffer} — switch to shared-memory snapshots
   USE_AUDIO_SAB: "useAudioSab",                    // {sab: SharedArrayBuffer} — Tier 2 audio ring (worklet consumes; worker produces)
+  SET_PROFILE: "setProfile",                       // {on} — the audio profiler; sent to the worklet AND the render Worker
 });
 
 export const MSG = Object.freeze({
@@ -68,7 +69,8 @@ export const MSG = Object.freeze({
   // the instrument's notefx 2/3 region geometry (engine getInstrumentSampleMod).
   INVERT_MASK: "invertMask",
   READY: "ready",
-  PROFILE: "profile",   // {cpuFrac, renderFrac, ...} — dev profiler, ~1/s (opt-in)
+  PROFILE: "profile",   // {cpuFrac, renderFrac, ...} — the audio thread's profile, ~1/s while it is on
+  WORKER_PROFILE: "workerProfile", // {engineFrac, renderMeanMs, ringLowMs, ...} — the render Worker's, ~1/s
 });
 
 // ── Snapshot layout (Float32Array; integers are exact in f32 up to 2^24) ──

@@ -72,7 +72,7 @@ TAUD_MAGIC       = bytes([0x1F,0x54,0x53,0x56,0x4D,0x61,0x75,0x64])
 #       cues with sign-bit instructions; song-table reserved[0:2] carries the cue
 #       count. See terranmon.txt §"Cue sheet". Loaders branch on this to pick the
 #       cue-image layout; a v1 file must be re-converted for full 32-channel range.
-TAUD_VERSION     = 3        # format 3, the wide cell (TAUD_FILE_FORMAT.md §5.5): every
+TAUD_VERSION     = 3        # format 3, the wide cell (TAUD_FILE_FORMAT.md §5.1): every
                             # converter writes it — 16-byte cells, 0…255 volumes, 65536-TET
                             # pitches, a whole spherical position, a second effect
 TAUD_HEADER_SIZE = 32       # magic(8)+ver(1)+numSongs(1)+compSize(4)+projOff(4)+sig(14)
@@ -206,7 +206,7 @@ SEL_DOWN = 2     # per-tick slide down / left
 SEL_FINE = 3     # a one-shot delta on tick 0; FINE by 0 is the empty column
 
 
-# ── The wide cell (TAUD_FILE_FORMAT.md §5.5) ─────────────────────────────────
+# ── The wide cell (TAUD_FILE_FORMAT.md §5.1) ─────────────────────────────────
 #
 #   0  U16  note word        8  U8  0b A vvv pppp — A = azimuth bit 8, the
 #   2  U8   instrument               volume selector, the panning selector

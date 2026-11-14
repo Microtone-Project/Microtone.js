@@ -36,7 +36,7 @@ export const NUM_SUBS = 8;
 // "♯C-4 01 v3F p20 A0F00": note glyphs 0-3, inst 5-6, vol 8-10, pan 12-14,
 // fx 16-20 → 21 characters: the 8-byte cell of format versions 1–2.
 //
-// Format 3's wide cell (file format §5.5) — every project the editor holds —
+// Format 3's wide cell (file format §5.1) — every project the editor holds —
 // changes three things:
 //   · the note column opens with a PITCH PREFIX three quarters of a character
 //     wide, which holds the octave digit of the 65536-TET pitch when the column
@@ -301,7 +301,7 @@ export function charToSub(charX, wide = false, fx2 = false, surround = MODEL_DEF
 const SEL_FINE = 3, FINE_DIR = 0x20, FINE_MAG = 0x1f;
 
 /**
- * What one column can hold, per format (file format §5.5). The narrow cell's
+ * What one column can hold, per format (file format §5.1). The narrow cell's
  * six bits become a whole byte for volume and a NINE-bit azimuth for panning,
  * and FINE's direction flag rides the top bit of whichever field it is — so
  * every rule below is the same rule, read off this spec.

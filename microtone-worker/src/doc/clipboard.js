@@ -17,7 +17,7 @@ export function cellSize(wide) { return wide ? 16 : 8; }
 export function emptyCellBytes(wide = false) {
   const b = new Uint8Array(cellSize(wide));
   if (wide) {
-    b[8] = 0x33; // both selectors FINE, values zero (file format §5.5)
+    b[8] = 0x33; // both selectors FINE, values zero (file format §5.1)
   } else {
     b[3] = 0xc0;
     b[4] = 0xc0;

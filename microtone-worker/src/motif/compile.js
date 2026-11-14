@@ -35,7 +35,7 @@ function cell16(c, trim, jit) {
   b[8] = 0x33; // FINE / FINE: the empty columns
   if (!c) return b;
   // A wide cell's pitch is 20 bits: the word at bytes 0–1 and four more bits,
-  // sixteenths of a unit, in byte 13's high nibble (file format §5.5).
+  // sixteenths of a unit, in byte 13's high nibble (file format §5.1).
   const note = c.note ?? 0;
   const word = wideNoteWord(note);
   b[0] = word & 0xff; b[1] = word >>> 8;

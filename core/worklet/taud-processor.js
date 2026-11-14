@@ -75,11 +75,14 @@ class TaudProcessor extends AudioWorkletProcessor {
     this.sabF32 = null;
     this.sabI32 = null;
 
-    // ── dev profiler (opt-in via processorOptions.profile; zero cost when off) ──
+    // ── the audio profiler (processorOptions.profile, or CMD.SET_PROFILE at
+    // any time; zero cost when off) ──
     // Times the whole process() callback (the true xrun predictor) AND the
-    // engine.renderChunk DSP alone. In CONSUME mode renderChunk is never called,
-    // so renderCount≈0 — which is exactly the point: the audio thread stops
-    // rendering. Reports rolling stats to the main thread ≈ once per second.
+    // engine.renderChunk DSP alone — the C engine's WebAssembly, called through
+    // wasm-engine.js. In CONSUME mode renderChunk is never called here (the
+    // render Worker times it), so renderCount≈0 — which is exactly the point:
+    // the audio thread stops rendering. Reports rolling stats to the main
+    // thread ≈ once per second.
     this.profiling = !!opts.profile;
     // AudioWorkletGlobalScope does not reliably expose performance.now on older
     // iPad Safari — feature-detect and fall back to the 1 ms-resolution
@@ -104,6 +107,12 @@ class TaudProcessor extends AudioWorkletProcessor {
   }
 
   onCommand(m) {
+    // The profiler is the audio thread's own, whichever thread renders.
+    if (m.t === CMD.SET_PROFILE) {
+      this.profiling = !!m.on;
+      this.pfReset();
+      return;
+    }
     // Enter CONSUME mode: the worker owns the engine now; free ours (~8 MB).
     if (m.t === CMD.USE_AUDIO_SAB) {
       this.audioRing = audioRingViews(m.sab);
@@ -363,6 +372,7 @@ class TaudProcessor extends AudioWorkletProcessor {
       procCount: this.pfProcCount,
       renderCount: this.pfRenderCount,
       peakVoices: this.pfPeakVoices,
+      memoryBytes: this.engine !== null ? this.engine.memoryBytes : 0,
       windowMs: audioMs,
       sampleRate,
       step: this.step,

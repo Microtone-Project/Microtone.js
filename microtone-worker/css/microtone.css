@@ -2035,6 +2035,42 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .banner p { margin: 0; overflow-wrap: anywhere; }
 .banner-actions { display: flex; justify-content: flex-end; gap: 0.4rem; margin-top: 0.6rem; }
 .banner-actions .banner-go { border-color: var(--accent); }
+/* The audio profiler (src/ui/profileoverlay.js), opened from the top bar's
+   audio badge: a floating panel, dragged by its title, never modal. */
+.profiler {
+  position: fixed; right: 1rem; bottom: 2.6rem; z-index: 950;
+  width: min(23rem, calc(100vw / var(--ui-zoom, 1) - 2rem));
+  padding: 0.55rem 0.75rem 0.7rem;
+  background: var(--panel);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.45);
+  font-size: 0.82rem;
+  user-select: text;
+}
+.profiler-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+  margin-bottom: 0.4rem;
+  cursor: move; user-select: none; touch-action: none;
+}
+.profiler-title { font-weight: var(--weight-button); }
+.profiler-rows {
+  display: grid; grid-template-columns: max-content 1fr; gap: 0.15rem 0.75rem;
+  margin: 0;
+}
+.profiler-rows dt { color: var(--dim); }
+.profiler-rows dd { margin: 0; font-family: var(--mono-font); overflow-wrap: anywhere; }
+.profiler-rows dd[data-tone="warn"], .profiler-verdict[data-tone="warn"] { color: var(--accent); }
+.profiler-rows dd[data-tone="bad"], .profiler-verdict[data-tone="bad"] { color: var(--err-fg); }
+.profiler-verdict[data-tone="ok"] { color: var(--ok-fg); }
+.profiler-verdict {
+  margin-top: 0.5rem; padding-top: 0.45rem; border-top: 1px solid var(--border);
+  font-weight: var(--weight-button);
+}
+.profiler-detail { margin: 0.25rem 0 0; line-height: 1.4; }
+#audioBadge[role="button"] { cursor: pointer; }
+#audioBadge[aria-pressed="true"] { outline: 1px solid var(--accent); outline-offset: 1px; }
 .ctx-grid { display: flex; flex-direction: column; gap: 0.3rem; }
 /* One row per group; the second one (the column tools) is ruled off from the
    first so the two read as "what to do with the block" and "what to do with

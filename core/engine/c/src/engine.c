@@ -414,7 +414,7 @@ static void decode_pattern(const TaudEngine *e, TaudCell *pat, const uint8_t *by
 }
 
 /* The no-op cell's bytes: both column selectors FINE by zero, everything else
- * zero (file format §5.5). */
+ * zero (file format §5.1). */
 static bool is_blank_pattern_bytes(const uint8_t *bytes, size_t len, bool wide)
 {
     int size = wide ? CELL_BYTES_WIDE : CELL_BYTES;

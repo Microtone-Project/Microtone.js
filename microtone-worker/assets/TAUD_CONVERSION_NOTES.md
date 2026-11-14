@@ -57,7 +57,7 @@ Every source pitch becomes a 65536-TET pitch anchored at C4 = `$50000`, rounded 
 | Semitone index *n* relative to C4 | `round($50000 + n × 65536 ÷ 12)` |
 | Frequency *f* Hz | `round($50000 + 65536 × log2(f ÷ 261.6255653))` |
 
-The cell holds the pitch's note word (the pitch ÷ 16, its top sixteen bits) and its fine nibble (the four bits below), [File Format §5.5](TAUD_FILE_FORMAT.md#note-words).
+The cell holds the pitch's note word (the pitch ÷ 16, its top sixteen bits) and its fine nibble (the four bits below), [File Format §5.1](TAUD_FILE_FORMAT.md#note-words).
 
 Per-sample tuning offsets — XM's `relative note` and `finetune`, IT's C5 speed, SoundFont's `originalPitch` and `pitchCorrection` — are baked into the instrument's **sampling rate at C4** field, or into its signed **sample detune** field, rather than being pushed into every note. That keeps the pattern readable and lets a retune operate on musical pitches.
 
@@ -96,7 +96,7 @@ The same goes for anything else a walk decides from what came before: `it2taud` 
 
 ### 1.7 Volume and pan columns
 
-Every converter writes the pattern cell of [File Format §5.5](TAUD_FILE_FORMAT.md#5-5-the-pattern-cell), never the legacy one: pitches to the 65536-TET step, a volume column of a selector and a whole byte, a panning column of a selector and a nine-bit azimuth, and a second effect. FINE with value 0 is the canonical **no-op** in both columns (selector byte `$33`). Two conventions follow:
+Every converter writes the pattern cell of [File Format §5.1](TAUD_FILE_FORMAT.md#5-1-the-pattern-cell), never the legacy one: pitches to the 65536-TET step, a volume column of a selector and a whole byte, a panning column of a selector and a nine-bit azimuth, and a second effect. FINE with value 0 is the canonical **no-op** in both columns (selector byte `$33`). Two conventions follow:
 
 - On a row that triggers a note but carries no explicit source volume, emit a **SET** with the instrument's default volume. Otherwise the lane's prior volume persists into the fresh note, which is almost never what the source meant.
 - On every other row, emit the FINE-0 no-op so the column does not disturb running state.

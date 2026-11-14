@@ -62,3 +62,20 @@ The note on how the piece is built travels with it, in the project's Message
 
 The note on how the piece is built travels with it, in the project's Message
 (`PMsg`) — open the Project tab after loading it.
+
+## Eighth.taud — "Eighth Baffling Incongruity Theorem"
+
+- **Built by Motif:** every note, every instrument, the mix and the mastering
+  chain are computed by the Taud Motif Language program `Eighth.tml` beside
+  it, written by Claude in 2026: 8-TET in 8/8 over an eight-beat groove, on
+  FM instruments whose partials sit on the 8-TET grid. This file is the
+  program's output, and carries the program in its `PMtf` section: rebuild it
+  with `make` in this directory, or with Build in the Motif view. It is a
+  generated artefact: change the program and rebuild rather than editing the
+  file by hand.
+- **Instruments:** none from a soundfont — every sound is an FM instrument of
+  sine, square and noise operators declared in the program.
+- **Copyright line in the project:** (c) 2026 CuriousTorvald.
+
+The note on how the piece is built travels with it, in the project's Message
+(`PMsg`) — open the Project tab after loading it.

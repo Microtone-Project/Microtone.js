@@ -1,4 +1,4 @@
-// Format version 2 → 3: widening a project's pattern cells (file format §5.5).
+// Format version 2 → 3: widening a project's pattern cells (file format §5.1).
 //
 // The wide cell exists to serve surround songs, so this runs when a project
 // first declares one. It is a ONE-WAY door — the wide cell can say things the
