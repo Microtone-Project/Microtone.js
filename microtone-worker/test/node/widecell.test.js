@@ -200,6 +200,27 @@ test("a nibble volume slide moves at the rate it always did", () => {
   assert.equal(moved, 5 * 4, `slid ${moved} units, expected 5 ticks × 4`);
 });
 
+test("K and L's volume nibbles step four units too, like D's", () => {
+  // K $xy00 / L $xy00 are ProTracker's 6xy / 5xy: their nibbles are 1-of-64
+  // steps, so a wide cell takes VOL_STEP of its own units for each, or a
+  // converted fade-in under a portamento rises a quarter as far as it did.
+  for (const [op, arg, sign] of [
+    [EffectOp.OP_L, 0x1000, +1], [EffectOp.OP_L, 0x0100, -1],
+    [EffectOp.OP_K, 0x2000, +2], [EffectOp.OP_K, 0x0200, -2],
+  ]) {
+    const eng = makeWideEngine();
+    loadWideSong(eng, [
+      { row: 0, note: 0x5000, inst: 1, vol: 128, volEff: 0 },
+      { row: 1, effect: op, arg },
+    ]);
+    render(eng, 6);
+    const start = voice0(eng).noteVolume;
+    render(eng, 6);
+    assert.equal(voice0(eng).noteVolume - start, sign * 5 * 4,
+      `${op === EffectOp.OP_L ? "L" : "K"} $${arg.toString(16)}: five non-first ticks × ${sign} × 4`);
+  }
+});
+
 test("the volume column's own slide keeps its full 8-bit precision", () => {
   const eng = makeWideEngine();
   loadWideSong(eng, [

@@ -171,8 +171,10 @@ void te_apply_effect_row(TaudEngine *e, TaudVoice *voice, int vi, int op, int ra
         int hi = (arg >> 4) & 0xf, lo = arg & 0xf;
         voice->vibratoActive = true;
         voice->vibratoFineShift = 6;
-        if (lo != 0) voice->volColSlideDown = lo;
-        else if (hi != 0) voice->volColSlideUp = hi;
+        /* The nibbles are a tracker's 1-of-64 steps: × VOL_STEP, like D and N
+         * (effects §3) — the volume column's slides are whole units already. */
+        if (lo != 0) voice->volColSlideDown = lo * e->volStep;
+        else if (hi != 0) voice->volColSlideUp = hi * e->volStep;
         break;
     }
     case OP_L: {
@@ -180,8 +182,8 @@ void te_apply_effect_row(TaudEngine *e, TaudVoice *voice, int vi, int op, int ra
         int arg = raw != 0 ? (voice->mem.l = raw) : voice->mem.l;
         int hi = (arg >> 4) & 0xf, lo = arg & 0xf;
         voice->tonePortaSpeed = voice->mem.g;
-        if (lo != 0) voice->volColSlideDown = lo;
-        else if (hi != 0) voice->volColSlideUp = hi;
+        if (lo != 0) voice->volColSlideDown = lo * e->volStep;
+        else if (hi != 0) voice->volColSlideUp = hi * e->volStep;
         break;
     }
     case OP_M:

@@ -21,7 +21,7 @@ import { setCellOp, setCellsBytesOp, setCellsEachOp, setCuesOp } from "../../doc
 import { dittoGhosts } from "../../doc/ditto.js";
 import { planNewPatternNumbers } from "../../doc/cleanup.js";
 import { instrumentBefore } from "../../doc/instcontext.js";
-import { createBendSim, bendContext } from "../../doc/bendghosts.js";
+import { createBendSim, createRowClock, bendContext } from "../../doc/bendghosts.js";
 import {
   makeBlock, blockCell, cellToBytes, emptyCellBytes, overlayCols, filledCols,
   fxPasteRemap, remapFxBytes,
@@ -100,6 +100,10 @@ export class TimelineView {
     // extended as far down the song as the view needs and thrown away when
     // anything the simulation reads changes (dropBends).
     this._bends = new Map();
+    // …and the ROW CLOCK they all run on (clockFor): how long each row is,
+    // which the engine decides from every lane's A / S $6x / S $Ex at once.
+    // One for the song, built down the cue list the same way.
+    this._clock = null;
     // Absolute-pitch plots (item 198.5), one per lane, indexed by ABSOLUTE
     // song row. Unlike the bend chains these need no incremental machinery —
     // a plot reads notes and nothing else, so a lane's whole series is one
@@ -1363,7 +1367,46 @@ export class TimelineView {
   /** Forget every bend chain — anything that changes a pattern, the cue list
    *  or the song invalidates the lot, since a chain is the song read in
    *  order. Cheap: they rebuild lazily, and only as far as the view looks. */
-  dropBends() { this._bends.clear(); this._plots.clear(); }
+  dropBends() { this._bends.clear(); this._plots.clear(); this._clock = null; }
+
+  /**
+   * The row clock for cue `cue` (bendghosts.js createRowClock): ticks per row
+   * and pattern-delay passes as the WHOLE song makes them, so a lane whose
+   * speed is set on another lane slides at the speed it plays at. Extended
+   * down the cue list as far as asked, like a bend chain. Not gated on the
+   * Ghosts switch: the pitch plot runs on it too.
+   */
+  clockFor(cue) {
+    const entries = this.getMap()?.entries;
+    if (!entries || cue < 0 || cue >= entries.length) return null;
+    const { store } = this;
+    let c = this._clock;
+    if (c === null) {
+      const { speed, wide } = bendContext(store.doc, store.song);
+      c = this._clock = { clock: createRowClock({ speed, wide }), maps: [], next: 0, ditto: new Map(), wide };
+    }
+    const chans = store.doc?.channelCount ?? 0;
+    for (; c.next <= cue; c.next++) {
+      const e = entries[c.next];
+      const lanes = [];
+      if (e.info) {
+        for (let ch = 0; ch < chans; ch++) {
+          const patNum = store.song.cues[e.cue][ch] & 0x7fff;
+          if (patNum === PATTERN_EMPTY) continue; // row.c skips the lane whole
+          const pattern = this.patternFor(patNum);
+          const key = patNum * 0x10000 + e.rowLimit;
+          let ditto = c.ditto.get(key);
+          if (ditto === undefined) {
+            ditto = pattern ? dittoGhosts(pattern, e.rowLimit, c.wide) : null;
+            c.ditto.set(key, ditto);
+          }
+          lanes.push({ pattern, ditto });
+        }
+      }
+      c.maps[c.next] = c.clock.run(lanes, e.rowLimit);
+    }
+    return c.maps[cue];
+  }
 
   /**
    * One lane's absolute-pitch plot for the WHOLE song, indexed by absolute
@@ -1398,7 +1441,7 @@ export class TimelineView {
       const pat = this.patternFor(patNum);
       const ditto = dittoGhosts(pat, e.rowLimit, this.wide());
       const pitches = [];
-      const bend = sim.run(pat, { rowLimit: e.rowLimit, ditto, pitches });
+      const bend = sim.run(pat, { rowLimit: e.rowLimit, ditto, pitches, clock: this.clockFor(e.cue) });
       for (let r = 0; r < e.rowLimit; r++) {
         const cell = pat[r];
         const g = ditto[r] ?? null;
@@ -1453,6 +1496,7 @@ export class TimelineView {
         : chain.sim.run(this.patternFor(patNum), {
           rowLimit: e.rowLimit,
           ditto: this.ghostsFor(patNum, e.rowLimit),
+          clock: this.clockFor(chain.next),
         });
     }
     return chain.maps[cue] ?? EMPTY_GHOSTS;

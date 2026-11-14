@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { bendGhosts, createBendSim } from "../../src/doc/bendghosts.js";
+import { bendGhosts, createBendSim, createRowClock } from "../../src/doc/bendghosts.js";
 import { dittoGhosts } from "../../src/doc/ditto.js";
 import { TaudPlayData } from "../../core/engine/state.js";
 import { TaudEngine } from "../../core/engine/engine.js";
@@ -247,6 +247,46 @@ test("S $6x lengthens the row, S $Ex replays it — both stretch the bend", () =
   delay[1].effect = EffectOp.OP_S; delay[1].effectArg = 0xe100;  // row runs twice
   delay[1].effect2 = EffectOp.OP_F; delay[1].effectArg2 = 0x0100;
   assert.equal(bendGhosts(delay, { ...OPTS, wide: true })[2].note, 0x5000 + 10 * 0x100);
+});
+
+test("a speed set on ANOTHER lane is the speed this lane slides at (row clock)", () => {
+  // The engine reads every lane's A / S $6x / S $Ex before the row's ticks
+  // run; a lane's own column cannot say how long its rows are.
+  const lead = blankPattern();
+  lead[0].note = 0x5000; lead[0].instrment = 1;
+  fx(lead[1], EffectOp.OP_F, 0x0100);
+  const conductor = blankPattern();
+  fx(conductor[0], EffectOp.OP_A, 0x0300);  // speed 3, from lane 2
+  conductor[1].effect = EffectOp.OP_S; conductor[1].effectArg = 0x6100; // +1 tick
+
+  const clock = createRowClock({ speed: 6 }).run(
+    [{ pattern: lead, ditto: null }, { pattern: conductor, ditto: null }], 64);
+  assert.deepEqual(clock.slice(0, 3), [
+    { ticks: 3, repeats: 0 }, { ticks: 4, repeats: 0 }, { ticks: 3, repeats: 0 }]);
+  const g = createBendSim(OPTS).run(lead, { rowLimit: 64, clock });
+  assert.equal(g[2].note, 0x5000 + 3 * 0x100, "three slide ticks in a 4-tick row");
+  assert.equal(bendGhosts(lead, OPTS)[2].note, 0x5500, "without a clock: its own speed 6");
+
+  // The first S $Ex of a row wins, and the speed carries into the next cue.
+  const d1 = blankPattern(); d1[5].effect = EffectOp.OP_S; d1[5].effectArg = 0xe200;
+  const d2 = blankPattern(); d2[5].effect = EffectOp.OP_S; d2[5].effectArg = 0xe300;
+  const clk = createRowClock({ speed: 6 });
+  clk.run([{ pattern: conductor, ditto: null }], 64);
+  const next = clk.run([{ pattern: d1, ditto: null }, { pattern: d2, ditto: null }], 64);
+  assert.equal(next[0].ticks, 3, "speed carries on into the next cue");
+  assert.equal(next[5].repeats, 2, "the first lane's pattern delay wins");
+});
+
+test("K and L slide a wide cell's volume by four units a nibble, as the engine does", () => {
+  const p = blankPattern();
+  p[0].note = 0x5000; p[0].instrment = 1; p[0].volume = 0x80; p[0].volumeEff = 0;
+  fx(p[1], EffectOp.OP_L, 0x1000);
+  fx(p[3], EffectOp.OP_K, 0x0200);
+  const g = bendGhosts(p, { ...OPTS, wide: true });
+  assert.equal(g[2].vol, 0x80 + 5 * 4, "L $1000: up 1 × VOL_STEP a tick");
+  assert.equal(g[4].vol, 0x80 + 5 * 4 - 5 * 8, "K $0200: down 2 × VOL_STEP a tick");
+  p[0].volume = 0x20;                        // a legacy cell is out of $3F…
+  assert.equal(bendGhosts(p, OPTS)[2].vol, 0x20 + 5, "…and steps by 1: VOL_STEP is 1");
 });
 
 // ── the ghost rule, and the row limit ──────────────────────────────────────

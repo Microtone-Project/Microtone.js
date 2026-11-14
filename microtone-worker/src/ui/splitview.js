@@ -247,7 +247,20 @@ export class SplitView {
       }
       pane.btn.title = t(split ? "pane.closeTitle" : "pane.splitTitle");
     }
+    this._dropStrayFocus();
     this._layout();
+  }
+
+  /** The keyboard is the focused pane's, so DOM focus may not stay behind in
+   *  the other one: a button, select or checkbox left focused there would take
+   *  Enter and Space (and the arrows) from the pane you are working in — the
+   *  split button you just pressed in pane 0 closed it again on the next
+   *  Space, once the new pane had the keyboard (item 337). */
+  _dropStrayFocus() {
+    const el = document.activeElement;
+    if (!el || el === document.body) return;
+    const at = this.panes.findIndex((p) => p.el.contains(el));
+    if (at >= 0 && at !== this.focus) el.blur();
   }
 
   _layout() {

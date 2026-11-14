@@ -4,6 +4,20 @@ Every entry below is one version of Microtone, newest first, with the date it wa
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone-project/Microtone.js).
 
+## Version 5.0.4 (2026-11-15)
+
+**`K` and `L` volume slides move as far as the original song's did**: a fade under a vibrato or a portamento rises and falls at its proper pace again, and the grey volume ghosts in the Timeline show what you hear.
+
+- Fixed: `K` and `L` (vibrato or tone portamento plus a volume slide) moved the volume only a quarter as far as `D` does with the same digit, so a fade-in under a portamento in an imported MOD, S3M, IT or XM barely rose; their step was not scaled to the 0…255 volume range.
+- Fixed: the Timeline's grey ghosts for a slide used the song's starting speed when the speed was set on another lane, so a fade could look several times larger than it sounded; they now follow the speed and the pattern delays set on any lane.
+- Songs with `K` or `L` volume slides sound different where those slides run; other songs are unchanged.
+
+**Enter and Space belong to the pane you are working in**: a button or control you clicked earlier no longer catches them when the view area is split.
+
+- Fixed: splitting the view area with its button, then pressing Space, closed the pane again; the button kept the keyboard focus after its icon changed.
+- Moving the keyboard to one pane now lets go of anything still focused in the other.
+- Space no longer presses a focused button as well as stopping playback or toggling record, as Enter already did not.
+
 ## Version 5.0.3 (2026-11-14)
 
 **Wide pitch slides bend smoothly instead of stepping**: a fast `G` portamento or `E`/`F` slide now glides through every tick, so a string bend sounds like a bend and not like a run of quick notes.

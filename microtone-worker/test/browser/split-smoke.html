@@ -274,6 +274,54 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
   key("F8");
   await sleep(250);
   check(!split.isSplit, "F8 again closes the pane it is in", store.views.join());
+  // ── 8b. Enter / Space never reach a control left behind (item 337) ───────
+  // A pointer click: the browser's mousedown focuses the button, then the
+  // click lands on the icon INSIDE it — which the pane button's own handler
+  // replaces, so the event's target is detached by the time the app's
+  // focus-return handler sees it.
+  const pressPaneBtn = (i) => {
+    const b = paneBtn(i);
+    b.focus();
+    b.querySelector("svg").dispatchEvent(new win.MouseEvent("click", { bubbles: true, detail: 1 }));
+  };
+  pressPaneBtn(0); // split: the NEW pane takes the keyboard
+  await sleep(250);
+  check(split.isSplit && split.focus === 1 && doc.activeElement !== paneBtn(0),
+    "splitting with the mouse leaves pane 0's button unfocused",
+    `${doc.activeElement?.tagName}.${doc.activeElement?.className}`);
+  split.setFocus(0);
+  pressPaneBtn(0); // close the pane the keyboard is in: the button stays in pane 0
+  await sleep(250);
+  check(!split.isSplit && doc.activeElement !== paneBtn(0),
+    "…and so does closing a pane with it, though its icon changed under the click",
+    `${doc.activeElement?.tagName}.${doc.activeElement?.className}`);
+  // A control focused in one pane loses the focus when the keyboard goes to
+  // the other — by Shift+F8 here, by a press in the other pane in use.
+  key("F8");
+  await sleep(250);
+  tab(1, "project").click();
+  await sleep(250);
+  const ctl = [...hostOf(1, "project").querySelectorAll("select, button, input[type=checkbox]")]
+    .find((b) => !b.disabled && rect(b).width > 0);
+  ctl.focus();
+  check(doc.activeElement === ctl, "a control in pane 1 has the focus");
+  split.setFocus(0);
+  check(doc.activeElement !== ctl, "…until the keyboard moves to pane 0",
+    `${doc.activeElement?.tagName}.${doc.activeElement?.className}`);
+  // And Space is claimed like Enter, so a button that DOES hold the focus
+  // (tabbed to) is not pressed by it as well.
+  const recWas = store.record;
+  tab(0, "timeline").focus();
+  const sp = new win.KeyboardEvent("keydown", { code: "Space", key: " ", bubbles: true, cancelable: true });
+  tab(0, "timeline").dispatchEvent(sp);
+  check(sp.defaultPrevented && store.record !== recWas,
+    "Space toggles record and does not press the focused button too",
+    `prevented ${sp.defaultPrevented}, record ${recWas} → ${store.record}`);
+  if (store.record !== recWas) $("recBtn").click();
+  doc.activeElement?.blur();
+  key("F8"); // close pane 0, the one with the keyboard
+  await sleep(250);
+
   // Back to a single Timeline pane: the shell is where it started.
   tab(0, "timeline").click();
   await sleep(200);

@@ -1782,9 +1782,15 @@ function selView() {
 // keeps tab-through navigation usable. Dialogs are left alone — inside a modal,
 // activating the focused button IS what Enter should do, and contextmenu.js
 // walks its cells with the same focus.
+//
+// The button is found on the event's PATH, not from its target: a button whose
+// own click handler swaps its contents (the split / close-pane button changes
+// its icon) leaves the target detached by the time this runs, and closest()
+// from a detached node finds nothing — so the pane button kept the focus and
+// the next Space closed the pane again (item 337).
 document.addEventListener("click", (e) => {
   if (e.detail === 0) return;
-  const btn = e.target.closest?.("button, a");
+  const btn = e.composedPath().find((el) => el.matches?.("button, a"));
   if (btn && !btn.closest("dialog")) btn.blur();
 });
 
@@ -2007,14 +2013,16 @@ window.addEventListener("keydown", (e) => {
       return;
     }
     /* double action: stop playing, or toggle record mode (not both) */
+    // Claimed like Enter: a focused button (tabbed to, or left in the other
+    // pane) must not ALSO be pressed by it on the release (item 337).
     case "Space": {
+      e.preventDefault();
       if (store.audio?.isPlaying())
         store.audio.stop(0);
       else if (store.view === "cues" && viewNamed("cues").cmdEditable()) {
         // Space on a Cmd column opens the command popup — over a command block
         // it fills every word in it. The record toggle is meaningless on the
         // command words, which hold no digits to type.
-        e.preventDefault();
         viewNamed("cues").openCmdEditor();
       } else
         setRecord(!store.record);

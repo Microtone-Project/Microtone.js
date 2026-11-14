@@ -33,11 +33,13 @@
 //     view can honestly do, since a pattern there belongs to no cue in
 //     particular. Flow control (B / C / S $Bx) is followed by neither: the
 //     cue list is read straight through, 0, 1, 2, …
-//  2. THIS LANE'S OWN COLUMN. Speed (A), pattern delay (S $Ex) and fine
-//     pattern delay (S $6x) are read from the pattern being drawn, though the
-//     engine resolves all three across every lane at once. A song that
-//     drives its speed from another lane bends at a different rate than
-//     the trail shows.
+//  2. THE ROW'S LENGTH. Speed (A), pattern delay (S $Ex) and fine pattern
+//     delay (S $6x) are resolved by the engine across every lane at once, so
+//     a lane's own column cannot say how many ticks a row has: a song that
+//     sets its speed on lane 1 slides every other lane at that speed. The
+//     Timeline passes a ROW CLOCK (`createRowClock`, read from every lane of
+//     the cue) to `run`; without one — the one-shot, the Patterns view — the
+//     sim reads the three from the pattern being drawn.
 //  3. WHAT IS NOT MODELLED MAKES ITS AXIS UNKNOWN rather than wrong. `Q`'s
 //     retrigger volume modifier and a metainstrument's per-layer volume and
 //     placement are not simulated, so they switch that axis' ghosts off until
@@ -214,8 +216,9 @@ function applyBendEffect(ts, st, v, op, rawArg) {
       const arg = raw !== 0 ? (v.mem.k = raw) : v.mem.k;
       const hi = (arg >>> 4) & 0xf;
       const lo = arg & 0xf;
-      if (lo !== 0) v.volColSlideDown = lo;
-      else if (hi !== 0) v.volColSlideUp = hi;
+      // The nibbles step × VOL_STEP, like D's (effects §3).
+      if (lo !== 0) v.volColSlideDown = lo * ts.volStep;
+      else if (hi !== 0) v.volColSlideUp = hi * ts.volStep;
       break;
     }
     case EffectOp.OP_L: {
@@ -225,8 +228,8 @@ function applyBendEffect(ts, st, v, op, rawArg) {
       const hi = (arg >>> 4) & 0xf;
       const lo = arg & 0xf;
       v.tonePortaSpeed = v.mem.g;
-      if (lo !== 0) v.volColSlideDown = lo;
-      else if (hi !== 0) v.volColSlideUp = hi;
+      if (lo !== 0) v.volColSlideDown = lo * ts.volStep;
+      else if (hi !== 0) v.volColSlideUp = hi * ts.volStep;
       break;
     }
     case EffectOp.OP_P: {
@@ -676,10 +679,13 @@ export function createBendSim(opts = {}) {
      *   ghosts leave out. A note under `G` is a target, not a pitch, and
      *   `E $Fxxx` or `S $2x` move one before anyone hears it; the pitch plot
      *   reads this to draw the note the row plays rather than the one typed.
+     *   `clock`: the cue's row clock (`createRowClock().run`), what every
+     *   lane's A / S $6x / S $Ex make of each row; without one the sim reads
+     *   them from this pattern alone.
      */
     run(pattern, runOpts = {}) {
       if (!pattern) return [];
-      const { rowLimit = pattern.length, ditto = null, pitches = null } = runOpts;
+      const { rowLimit = pattern.length, ditto = null, pitches = null, clock = null } = runOpts;
       const out = new Array(pattern.length).fill(null);
       const n = Math.min(rowLimit, pattern.length);
 
@@ -718,15 +724,80 @@ export function createBendSim(opts = {}) {
         // …and the rest of the row's ticks, which is where a coarse slide
         // moves. A pattern delay replays the whole row, tick-0 events and all
         // (row.c advanceRow), so the trail sees every repetition.
+        // With a row clock the row's length is the whole song's, and this
+        // lane's own A / S $6x / S $Ex (already counted in it) are left alone.
+        const tick = clock?.[r] ?? null;
+        let passes = tick !== null ? tick.repeats : 0;
         for (;;) {
-          const ticks = Math.max(st.speed + st.extraTicks, 1);
+          const ticks = tick !== null ? tick.ticks : Math.max(st.speed + st.extraTicks, 1);
           for (let t = 1; t < ticks; t++) bendTick(ts, v);
-          if (st.delayRepeats <= 0) break;
-          st.delayRepeats--;
+          if (tick !== null) {
+            if (passes <= 0) break;
+            passes--;
+          } else {
+            if (st.delayRepeats <= 0) break;
+            st.delayRepeats--;
+          }
           st.patternDelayActive = true;
           applyBendRow(ts, st, v, row, instruments);
         }
         st.patternDelayActive = false;
+      }
+      return out;
+    },
+  };
+}
+
+/**
+ * The song's ROW CLOCK: how many ticks each row runs and how many times a
+ * pattern delay plays it — what the engine makes of every lane's speed and
+ * delay commands together (row.c te_apply_tracker_row, effects.c OP_A and
+ * apply_s_effect $6 / $E). The lanes are read in order at tick 0 before the
+ * row's ticks run, so the LAST `A` on a row sets its speed, every `S $6x` adds
+ * its ticks, and the FIRST `S $Ex` wins the delay (sexWinningChannel). Speed
+ * carries on from row to row and from cue to cue, so, like the bend sim, the
+ * clock is run down the cue list in order.
+ *
+ * @param {object} opts  `speed` (the song's starting tick rate) and `wide`.
+ */
+export function createRowClock(opts = {}) {
+  const { speed = 6, wide = false } = opts;
+  let tickRate = speed > 0 ? speed : 6;
+  const ts = { wideCells: wide }; // all effectiveRow reads of it
+  const slot = (op, arg, row) => {
+    if (op === EffectOp.OP_A) {
+      const tr = (arg >>> 8) & 0xff;
+      if (tr !== 0) tickRate = tr;
+    } else if (op === EffectOp.OP_S) {
+      const sub = (arg >>> 12) & 0xf;
+      const x = (arg >>> 8) & 0xf;
+      if (sub === 0x6) row.extra += x;
+      else if (sub === 0xe && row.repeats < 0) row.repeats = x;
+    }
+  };
+  return {
+    /**
+     * One cue's rows.
+     *
+     * @param {Array<{pattern, ditto}>} lanes  the cue's lanes in lane order,
+     *   each a pattern (TaudPlayData rows, or null for an unmaterialised gap)
+     *   and its dittoGhosts map; an empty cue slot is left out (row.c skips it)
+     * @param {number} rowLimit  rows the cue plays
+     * @returns {Array<{ticks, repeats}>} per row: ticks in one pass, and the
+     *   extra passes a pattern delay adds
+     */
+    run(lanes, rowLimit) {
+      const out = new Array(rowLimit);
+      const row = { extra: 0, repeats: -1 };
+      for (let r = 0; r < rowLimit; r++) {
+        row.extra = 0; row.repeats = -1;
+        for (const { pattern, ditto } of lanes) {
+          if (!pattern || r >= pattern.length) continue;
+          const cell = effectiveRow(ts, pattern, r, ditto?.[r] ?? null);
+          slot(cell.effect, cell.effectArg, row);
+          if (wide && cell.effect2 !== 0) slot(cell.effect2, cell.effectArg2, row);
+        }
+        out[r] = { ticks: Math.max(tickRate + row.extra, 1), repeats: Math.max(row.repeats, 0) };
       }
       return out;
     },
