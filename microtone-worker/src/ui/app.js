@@ -114,11 +114,24 @@ async function ensureAudio({ resume = true } = {}) {
     // mutes toggled before the first audio gesture only exist in the store
     store.voiceMutes.forEach((m, ch) => { if (m) store.audio.setVoiceMute(0, ch, true); });
   }
-  const badge = $("audioBadge");
   if (store.audio.running) {
-    badge.textContent = `audio @ ${store.audio.context.sampleRate} Hz`;
+    const badge = $("audioBadge");
+    setBadgeText(badge, `audio @ ${store.audio.context.sampleRate} Hz`);
     badge.classList.add("on");
   }
+}
+
+/** Every pointerdown comes through ensureAudio, between the press and the
+ *  release of a click on the badge itself. WebKit (the Linux and macOS desktop
+ *  webviews, Safari) drops a click whose pressed node left the document, and
+ *  `textContent =` replaces the text node under the pointer — so the badge
+ *  would never open the profiler there. Write only a change, and into the text
+ *  node already there. */
+function setBadgeText(badge, text) {
+  if (badge.textContent === text) return;
+  const node = badge.firstChild;
+  if (node?.nodeType === Node.TEXT_NODE && !node.nextSibling) node.data = text;
+  else badge.textContent = text;
 }
 for (const ev of ["pointerdown", "keydown"]) {
   window.addEventListener(ev, () => ensureAudio(), { capture: true });
