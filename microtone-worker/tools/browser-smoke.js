@@ -53,7 +53,10 @@ async function cdpTarget() {
 
 const chrome = await findChrome();
 const profile = await mkdtemp(join(tmpdir(), "taud-browser-"));
-const server = spawn("python3", [join(root, "tools/test-server.py"), String(PORT)], { cwd: root, stdio: "ignore" });
+// SMOKE_PLAIN=1 serves without COOP/COEP: the page is not cross-origin
+// isolated, as in the desktop apps' webviews (no SharedArrayBuffer).
+const PLAIN = process.env.SMOKE_PLAIN ? ["--plain"] : [];
+const server = spawn("python3", [join(root, "tools/test-server.py"), ...PLAIN, String(PORT)], { cwd: root, stdio: "ignore" });
 await sleep(800);
 
 const browser = spawn(chrome, [

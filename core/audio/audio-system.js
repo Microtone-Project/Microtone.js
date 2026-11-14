@@ -61,6 +61,10 @@ const WORKLET_BUNDLE = new URL("../worklet/taud-processor.bundle.js", import.met
 
 const RENDER_WORKER = new URL("./render.worker.js", import.meta.url);
 
+// How long a render Worker may take to load on a page without shared memory
+// before the engine stays in the worklet instead (_startPortWorker).
+const WORKER_START_MS = 15000;
+
 export class AudioSystem {
   constructor() {
     this.context = null;
@@ -78,6 +82,7 @@ export class AudioSystem {
     this.sabI32 = null;     // Int32Array view over the SAB interrupt latch
     this.worker = null;         // Tier 2 render Worker (isolated hosts); null in render mode
     this.usingWorker = false;   // engine renders off the audio thread (Tier 2)
+    this.usingPort = false;     // …and posts its audio to the worklet, having no shared memory
     this.workerDoorbell = null; // Int32Array over the audio ring's control words —
                                 // AR_DOORBELL there wakes the worker (_postWorker)
     this._cueHighWater = 0;     // highest cue index+1 ever uploaded to the engine
@@ -112,9 +117,12 @@ export class AudioSystem {
    *  until resume() is called from a user gesture.
    *  Test knobs: forceBundle loads the single-file worklet concat; sampleRate
    *  overrides the context rate (exercises the engine→context resampler —
-   *  at the default 48 kHz the engine's rate IS the context rate). */
+   *  at the default 48 kHz the engine's rate IS the context rate);
+   *  offThread: false keeps the engine in the worklet (RENDER mode) wherever
+   *  a render Worker would otherwise host it. */
   async init({
     snapshotIntervalMs = 16, forceBundle = false, sampleRate = 48000, profile = false,
+    offThread = true,
   } = {}) {
     // The page builds engines of its own later (an export, a pattern rendered
     // to a sample): have the module compiled off the main thread by then, so
@@ -149,7 +157,7 @@ export class AudioSystem {
       outputChannelCount: [2],
       processorOptions: { snapshotIntervalMs, profile },
     });
-    this.node.port.onmessage = (e) => this._onEngineMessage(e.data);
+    this.node.port.onmessage = (e) => this._onEngineMessage(e.data, null);
     this.node.connect(ctx.destination);
     this.engineTarget = this.node.port; // render mode: engine lives in the worklet
 
@@ -157,8 +165,11 @@ export class AudioSystem {
     //   1. snapshots live in shared memory (no message traffic), and
     //   2. Tier 2 — a render Worker hosts the engine and streams audio into a
     //      SAB ring, leaving the AudioWorklet to only resample+copy (it can
-    //      never overrun, whatever the lane/voice load). Non-isolated hosts
-    //      keep the engine in the worklet (render mode) with postMessage snapshots.
+    //      never overrun, whatever the lane/voice load).
+    // Elsewhere — the desktop apps' webviews, which never isolate their pages —
+    // the same Worker posts its audio to the worklet over a MessagePort, and
+    // its snapshots to this thread. Only where no Worker starts does the
+    // engine stay in the worklet (RENDER mode) with postMessage snapshots.
     if (globalThis.crossOriginIsolated && typeof SharedArrayBuffer !== "undefined") {
       const snapSab = new SharedArrayBuffer(SNAP_SAB_BYTES);
       const view = new Float32Array(snapSab, 0, SNAP_FLOATS);
@@ -166,32 +177,85 @@ export class AudioSystem {
       this.snapshot = view;
       this.sabI32 = new Int32Array(snapSab, SNAP_FLOATS * 4, SNAP_SAB_I32_CELLS);
       this.usingSab = true;
-
-      try {
-        const audioSab = new SharedArrayBuffer(AR_SAB_BYTES);
-        this.workerDoorbell = new Int32Array(audioSab, 0, AR_CTRL_LEN);
-        this.worker = new Worker(RENDER_WORKER, { type: "module" });
-        this.worker.onmessage = (e) => this._onEngineMessage(e.data);
-        this.node.port.postMessage({ t: CMD.USE_AUDIO_SAB, sab: audioSab }); // worklet → consume
-        this._postWorker({ t: CMD.USE_SAB, sab: snapSab });           // worker fills snapshots
-        this._postWorker({ t: CMD.USE_AUDIO_SAB, sab: audioSab });    // worker produces into the ring
-        this._postWorker({ t: CMD.INIT, snapshotIntervalMs });
-        this.engineTarget = this.worker; // route engine commands to the worker
-        this.usingWorker = true;
-        if (profile) this._postWorker({ t: CMD.SET_PROFILE, on: true });
-      } catch (e) {
+      if (!(offThread && this._startSabWorker(snapSab, snapshotIntervalMs, profile))) {
         // Module Worker unavailable → keep the engine in the worklet, just with
         // SAB snapshots (the pre-Tier-2 isolated path).
-        this.worker = null;
-        this.workerDoorbell = null;
         this.node.port.postMessage({ t: CMD.USE_SAB, sab: snapSab });
         this.node.port.postMessage({ t: CMD.INIT, snapshotIntervalMs });
       }
-    } else {
+    } else if (!(offThread && await this._startPortWorker(snapshotIntervalMs, profile))) {
       this.node.port.postMessage({ t: CMD.INIT, snapshotIntervalMs });
     }
     this.profiling = profile;
     return this;
+  }
+
+  /** Tier 2 over shared memory: the snapshots in `snapSab`, the audio in a
+   *  ring of its own. False (nothing changed) when no module Worker starts. */
+  _startSabWorker(snapSab, snapshotIntervalMs, profile) {
+    try {
+      const audioSab = new SharedArrayBuffer(AR_SAB_BYTES);
+      this.workerDoorbell = new Int32Array(audioSab, 0, AR_CTRL_LEN);
+      this.worker = new Worker(RENDER_WORKER, { type: "module" });
+      this.worker.onmessage = (e) => this._onEngineMessage(e.data, this.worker);
+      this.node.port.postMessage({ t: CMD.USE_AUDIO_SAB, sab: audioSab }); // worklet → consume
+      this._postWorker({ t: CMD.USE_SAB, sab: snapSab });           // worker fills snapshots
+      this._postWorker({ t: CMD.USE_AUDIO_SAB, sab: audioSab });    // worker produces into the ring
+      this._postWorker({ t: CMD.INIT, snapshotIntervalMs });
+      this.engineTarget = this.worker; // route engine commands to the worker
+      this.usingWorker = true;
+      if (profile) this._postWorker({ t: CMD.SET_PROFILE, on: true });
+      return true;
+    } catch {
+      this.worker = null;
+      this.workerDoorbell = null;
+      return false;
+    }
+  }
+
+  /** Tier 2 without shared memory: a MessageChannel between the worklet and
+   *  the Worker carries the audio (protocol.js AUDIO_PORT_MSG), and the
+   *  snapshots are posted here. The Worker must have LOADED before it is given
+   *  the engine: on the shared-memory path a page that isolates itself is a
+   *  browser that runs module Workers, but here the host may be any webview,
+   *  and a Worker that fails to start would take the sound with it, where the
+   *  in-worklet engine still plays. False (nothing changed) if it does not
+   *  load. */
+  async _startPortWorker(snapshotIntervalMs, profile) {
+    let worker;
+    try {
+      worker = new Worker(RENDER_WORKER, { type: "module" });
+    } catch {
+      return false;
+    }
+    const loaded = await new Promise((resolve) => {
+      const done = (ok) => {
+        clearTimeout(timer);
+        worker.removeEventListener("message", onMessage);
+        worker.removeEventListener("error", onError);
+        resolve(ok);
+      };
+      const onMessage = (e) => { if (e.data?.t === MSG.READY) done(true); };
+      const onError = () => done(false);
+      const timer = setTimeout(() => done(false), WORKER_START_MS);
+      worker.addEventListener("message", onMessage);
+      worker.addEventListener("error", onError);
+    });
+    if (!loaded) {
+      worker.terminate();
+      return false;
+    }
+    const { port1, port2 } = new MessageChannel();
+    this.worker = worker;
+    worker.onmessage = (e) => this._onEngineMessage(e.data, worker);
+    this.node.port.postMessage({ t: CMD.USE_AUDIO_PORT, port: port1 }, [port1]); // worklet → stream
+    this._postWorker({ t: CMD.USE_AUDIO_PORT, port: port2 }, [port2]);           // worker posts blocks
+    this._postWorker({ t: CMD.INIT, snapshotIntervalMs });
+    this.engineTarget = worker;
+    this.usingWorker = true;
+    this.usingPort = true;
+    if (profile) this._postWorker({ t: CMD.SET_PROFILE, on: true });
+    return true;
   }
 
   /** Start or stop the audio profiler — at any time, and costing nothing while
@@ -209,9 +273,10 @@ export class AudioSystem {
   }
 
   /** Messages from whichever thread hosts the engine (worklet port in render
-   *  mode, the Worker in Tier 2). Snapshots only arrive via postMessage in
-   *  render mode without SAB. */
-  _onEngineMessage(m) {
+   *  mode, the Worker in Tier 2): `from` is the Worker, or null for the
+   *  worklet. Snapshots arrive by postMessage only without SAB — from the
+   *  worklet in render mode, from the Worker over the audio port. */
+  _onEngineMessage(m, from) {
     if (m.t === MSG.SNAPSHOT) {
       const f = new Float32Array(m.buffer);
       // A snapshot posted before a USE_SAB switch landed must not clobber the
@@ -225,7 +290,9 @@ export class AudioSystem {
         this.snapshot.set(f);
         if (this.onSnapshot) this.onSnapshot(this.snapshot);
       }
-      this.node.port.postMessage({ t: CMD.SNAPSHOT_RETURN, buffer: m.buffer }, [m.buffer]);
+      const back = { t: CMD.SNAPSHOT_RETURN, buffer: m.buffer };
+      if (from !== null && from === this.worker) this._postWorker(back, [m.buffer]);
+      else this.node.port.postMessage(back, [m.buffer]);
     } else if (m.t === MSG.INVERT_MASK) {
       this.invertMasks.set(m.slot, new Uint8Array(m.mask));
       if (m.mod) this.sampleMods.set(m.slot, m.mod);
@@ -241,6 +308,7 @@ export class AudioSystem {
       // Enrich the worklet report with main-side facts it cannot see.
       m.usingSab = this.usingSab;
       m.usingWorker = this.usingWorker;
+      m.usingPort = this.usingPort;
       m.bundleFallback = this.usedBundleFallback;
       m.contextSampleRate = this.context.sampleRate;
       // …and with the render Worker's, while it is current: it reports only
@@ -276,6 +344,7 @@ export class AudioSystem {
    *  wakes to look for it. */
   _postWorker(msg, transfer) {
     this.worker.postMessage(msg, transfer ?? []);
+    if (this.workerDoorbell === null) return; // the audio port: no clock asleep to wake
     Atomics.add(this.workerDoorbell, AR_DOORBELL, 1);
     Atomics.notify(this.workerDoorbell, AR_DOORBELL);
   }

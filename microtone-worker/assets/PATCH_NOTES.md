@@ -4,6 +4,14 @@ Every entry below is one version of Microtone, newest first, with the date it wa
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone-project/Microtone.js).
 
+## Version 5.0.2 (2026-11-14)
+
+**The desktop app plays its audio from a thread of its own, as the website does**: the engine no longer renders on the audio thread itself, so a heavy song or a busy computer is far less likely to make it crackle.
+
+- The audio thread now only copies out sound the engine has already made; on Linux, a demo song took 13 % of it before and next to nothing now.
+- The audio profiler (the audio badge) says where the engine renders: "its own thread (a render Worker), its audio sent as messages" in the desktop app.
+- In a browser nothing changes: microtone.cc already rendered off the audio thread.
+
 ## Version 5.0.1 (2026-11-14)
 
 **The audio badge opens the audio profiler in the desktop app on Linux and macOS**: clicking it now shows the panel there too, as it already did in the browser.

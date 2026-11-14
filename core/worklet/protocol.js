@@ -60,7 +60,26 @@ export const CMD = Object.freeze({
   SNAPSHOT_RETURN: "snapshotReturn",               // {buffer: ArrayBuffer} (recycle)
   USE_SAB: "useSab",                               // {sab: SharedArrayBuffer} — switch to shared-memory snapshots
   USE_AUDIO_SAB: "useAudioSab",                    // {sab: SharedArrayBuffer} — Tier 2 audio ring (worklet consumes; worker produces)
+  USE_AUDIO_PORT: "useAudioPort",                  // {port: MessagePort} — Tier 2 WITHOUT shared memory: one end of a
+                                                   //   MessageChannel each to the worklet and the worker (AP below)
   SET_PROFILE: "setProfile",                       // {on} — the audio profiler; sent to the worklet AND the render Worker
+});
+
+// The audio port (CMD.USE_AUDIO_PORT, AUDIO_PORT_MSG): a non-isolated page has no
+// SharedArrayBuffer, so the render Worker posts its audio to the worklet in
+// blocks instead of writing a shared ring, and the worklet says how far it has
+// read. One port carries both directions, and a port keeps its order, so a
+// FLUSH drops exactly the blocks posted before it.
+// (A long name: the worklet bundles are one scope.)
+export const AUDIO_PORT_MSG = Object.freeze({
+  // worker → worklet
+  BLOCK: "block", // {buffer: ArrayBuffer, frames} — Float32 L then R, AP_BLOCK_FRAMES each (audio-ring.js),
+                  //   the first `frames` of each filled; engine-rate audio
+  FLUSH: "flush", // {} — a transport reset: drop every frame received before this message
+  IDLE: "idle",   // {} — the producer stopped (nothing plays), so running dry now is not a dropout
+  // worklet → worker
+  READ: "read",   // {read, buffers: ArrayBuffer[]} — frames consumed (Int32-wrapping, counted in the
+                  //   frames the worker sent, the flushed ones included) + emptied blocks for reuse
 });
 
 export const MSG = Object.freeze({

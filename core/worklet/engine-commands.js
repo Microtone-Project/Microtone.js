@@ -12,8 +12,9 @@ import {
 
 /**
  * Apply an engine-mutating command to `eng`. Returns true if handled here.
- * Transport/reply commands (INIT, USE_SAB, USE_AUDIO_SAB, SNAPSHOT_RETURN,
- * QUERY_INVERT_MASK) return false — each host handles those itself.
+ * Transport/reply commands (INIT, USE_SAB, USE_AUDIO_SAB, USE_AUDIO_PORT,
+ * SNAPSHOT_RETURN, QUERY_INVERT_MASK) return false — each host handles those
+ * itself.
  */
 export function applyAudioCommand(eng, m) {
   switch (m.t) {

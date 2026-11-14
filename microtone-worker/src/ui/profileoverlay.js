@@ -5,9 +5,10 @@
 // AudioSystem.setProfiling() starts and stops the measuring itself.
 //
 // The engine is the C one, compiled to WebAssembly, and it runs in one of two
-// places: in the audio thread itself (a page that is not cross-origin isolated,
-// the Linux desktop app), or in a render Worker that keeps a queue of audio
-// full while the audio thread only copies it out (Tier 2). The panel says
+// places: in a render Worker that keeps a queue of audio full while the audio
+// thread only copies it out (Tier 2: through shared memory on a cross-origin
+// isolated page, as messages elsewhere — the desktop apps), or, where no Worker
+// starts, in the audio thread itself. The panel says
 // which, times the engine where it runs, and reads the dropouts that matter
 // there: the audio thread's overruns, or the queue running dry.
 //
@@ -84,7 +85,8 @@ export function profileRows(p) {
   const memory = w?.memoryBytes ?? p.memoryBytes ?? 0;
   const rows = [
     [t("profiler.engine"), memory > 0 ? t("profiler.engineWasm", { mb: mb(memory) }) : t("profiler.engineWasmIdle")],
-    [t("profiler.where"), t(p.workerRender ? "profiler.whereWorker" : "profiler.whereWorklet")],
+    [t("profiler.where"), t(!p.workerRender ? "profiler.whereWorklet"
+      : p.usingPort ? "profiler.whereWorkerPort" : "profiler.whereWorker")],
     [t("profiler.output"), converted
       ? t("profiler.outputConverted", { rate: ctxRate, engine: engineRate })
       : t("profiler.outputNative", { rate: ctxRate })],

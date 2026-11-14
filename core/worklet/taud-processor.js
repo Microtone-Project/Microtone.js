@@ -1,4 +1,4 @@
-// TaudProcessor — AudioWorkletProcessor with two modes:
+// TaudProcessor — AudioWorkletProcessor with three modes:
 //
 //   RENDER mode (non-isolated fallback): hosts the TaudEngine and renders
 //     engine-rate U8/float chunks into a local FIFO ring, reading them back
@@ -8,6 +8,14 @@
 //     render Worker that fills a SharedArrayBuffer audio ring; process() only
 //     resamples + copies from that ring, so it can never overrun. Entered on
 //     CMD.USE_AUDIO_SAB; no engine commands are routed here in this mode.
+//
+//   STREAM mode (Tier 2 without shared memory: a page that is not
+//     cross-origin isolated, the desktop apps' webviews among them): the
+//     render Worker posts blocks of audio over a MessagePort
+//     (CMD.USE_AUDIO_PORT, protocol.js AUDIO_PORT_MSG); they go into the same
+//     local ring RENDER mode fills, read out the same way, and every
+//     AP_REPORT_FRAMES read are reported back — the worker's clock. Nothing is
+//     rendered here either.
 //
 // The engine renders at SAMPLING_RATE — 48 kHz since item 108, which is the
 // rate audio-system.js asks the AudioContext for, so the common case reads the
@@ -23,13 +31,14 @@
 
 import { WasmTaudEngine } from "../engine/wasm-engine.js";
 import { SAMPLING_RATE, TRACKER_CHUNK } from "../engine/constants.js";
-import { CMD, MSG, SNAP_FLOATS, SNAP_SAB_I32_CELLS } from "./protocol.js";
+import { CMD, MSG, AUDIO_PORT_MSG, SNAP_FLOATS, SNAP_SAB_I32_CELLS } from "./protocol.js";
 import {
   applyAudioCommand, isTransportReset, invertMaskBuffer, modMaskBuffer, fillSnapshotInto,
   drainInterruptsInto,
 } from "./engine-commands.js";
 import {
   audioRingViews, AR_MASK, AR_WRITE, AR_READ, AR_STATE, AR_EPOCH, AR_FLUSH_POS,
+  AP_BLOCK_FRAMES, AP_REPORT_FRAMES,
 } from "../audio/audio-ring.js";
 import { kaiserKernel } from "../audio/resampler.js";
 
@@ -61,6 +70,14 @@ class TaudProcessor extends AudioWorkletProcessor {
     this.arReadBase = 0;     // Int32-wrapping integer read frame
     this.arReadFrac = 0.0;   // 0..1 fractional accumulator
     this.arFloor = 0;        // ditto, on the SAB ring's wrapping counter
+
+    // STREAM mode (Tier 2 over a MessagePort): the local ring above, filled
+    // by the worker's blocks.
+    this.audioPort = null;
+    this.portBase = 0;       // ringWrite when the port came: frame 0 of the worker's count
+    this.portActive = false; // the producer is running (so running dry is a dropout)
+    this.portReported = 0;   // whole frames read at the last READ
+    this.portBuffers = [];   // emptied blocks to hand back with the next READ
 
     const opts = options?.processorOptions ?? {};
     this.snapshotIntervalFrames =
@@ -119,7 +136,16 @@ class TaudProcessor extends AudioWorkletProcessor {
       this.engine = null;
       return;
     }
-    if (this.audioRing) return; // consume mode: no engine commands routed here
+    // Enter STREAM mode: the same, with the audio arriving as messages.
+    if (m.t === CMD.USE_AUDIO_PORT) {
+      this.audioPort = m.port;
+      this.audioPort.onmessage = (e) => this.onAudioPort(e.data);
+      this.portBase = this.ringWrite;
+      this.portReported = this.ringWrite;
+      this.engine = null;
+      return;
+    }
+    if (this.audioRing || this.audioPort) return; // no engine here: commands go to the worker
 
     if (this.engine === null) this.engine = new WasmTaudEngine();
     const eng = this.engine;
@@ -171,6 +197,51 @@ class TaudProcessor extends AudioWorkletProcessor {
     // those frames are the discarded tail, and half a kernel of it would be
     // mixed into the first frames of the new playback.
     this.ringFloor = this.ringWrite;
+  }
+
+  /** STREAM mode: the worker's messages on the audio port. */
+  onAudioPort(m) {
+    switch (m.t) {
+      case AUDIO_PORT_MSG.BLOCK: {
+        const n = m.frames;
+        const L = new Float32Array(m.buffer, 0, n);
+        const R = new Float32Array(m.buffer, AP_BLOCK_FRAMES * 4, n);
+        const mask = RING_FRAMES - 1;
+        for (let i = 0; i < n; i++) {
+          const w = (this.ringWrite + i) & mask;
+          this.ringL[w] = L[i];
+          this.ringR[w] = R[i];
+        }
+        this.ringWrite += n;
+        // The worker keeps a fraction of the ring queued, so this only guards
+        // against one that does not: the oldest frames go, with room left for
+        // the kernel's history behind the cursor.
+        const over = this.ringWrite - this.ringReadPos - (RING_FRAMES - 256);
+        if (over > 0) this.ringReadPos += over;
+        this.portActive = true;
+        this.portBuffers.push(m.buffer);
+        break;
+      }
+      case AUDIO_PORT_MSG.FLUSH:
+        this.flushRing();
+        break;
+      case AUDIO_PORT_MSG.IDLE:
+        this.portActive = false;
+        break;
+    }
+  }
+
+  /** STREAM mode: tell the worker how far this has read (in its own count,
+   *  flushed frames included) once AP_REPORT_FRAMES have gone, or whenever
+   *  the queue is nearly dry — and hand back the emptied blocks. */
+  reportRead(nearlyDry) {
+    const read = Math.floor(this.ringReadPos);
+    const since = read - this.portReported;
+    if (since <= 0 || (since < AP_REPORT_FRAMES && !nearlyDry)) return;
+    this.portReported = read;
+    const buffers = this.portBuffers;
+    this.portBuffers = [];
+    this.audioPort.postMessage({ t: AUDIO_PORT_MSG.READ, read: (read - this.portBase) | 0, buffers }, buffers);
   }
 
   renderIntoRing() {
@@ -246,38 +317,7 @@ class TaudProcessor extends AudioWorkletProcessor {
           this.ringWrite += 1;
         }
       }
-      if (rs === null) {
-        const i0 = this.ringReadPos;
-        for (let n = 0; n < frames; n++) {
-          const a = (i0 + n) & mask;
-          outL[n] = this.ringL[a];
-          outR[n] = this.ringR[a];
-        }
-        this.ringReadPos = i0 + frames;
-      } else {
-        const { rows, deltas, phases, history, nTaps } = rs;
-        const floor = this.ringFloor;
-        for (let n = 0; n < frames; n++) {
-          const pos = this.ringReadPos;
-          const i0 = Math.floor(pos);
-          const fp = (pos - i0) * phases;
-          const p = fp | 0;
-          const g = fp - p;
-          const row = rows[p], dRow = deltas[p];
-          const base = i0 - history;
-          let l = 0.0, r = 0.0;
-          for (let t = 0; t < nTaps; t++) {
-            const src = base + t;
-            const a = (src < floor ? floor : src) & mask;
-            const w = row[t] + dRow[t] * g;
-            l += this.ringL[a] * w;
-            r += this.ringR[a] * w;
-          }
-          outL[n] = l;
-          outR[n] = r;
-          this.ringReadPos = pos + this.step;
-        }
-      }
+      this.readRing(outL, outR, frames);
     } else {
       outL.fill(0);
       if (outR !== outL) outR.fill(0);
@@ -288,6 +328,76 @@ class TaudProcessor extends AudioWorkletProcessor {
       this.framesSinceSnapshot = 0;
       this.assembleSnapshot();
     }
+  }
+
+  /** Read `frames` out of the local ring (RENDER and STREAM modes), through
+   *  the sinc kernel when the context runs at another rate. */
+  readRing(outL, outR, frames) {
+    const mask = RING_FRAMES - 1;
+    const rs = this.rs;
+    if (rs === null) {
+      const i0 = this.ringReadPos;
+      for (let n = 0; n < frames; n++) {
+        const a = (i0 + n) & mask;
+        outL[n] = this.ringL[a];
+        outR[n] = this.ringR[a];
+      }
+      this.ringReadPos = i0 + frames;
+    } else {
+      const { rows, deltas, phases, history, nTaps } = rs;
+      const floor = this.ringFloor;
+      for (let n = 0; n < frames; n++) {
+        const pos = this.ringReadPos;
+        const i0 = Math.floor(pos);
+        const fp = (pos - i0) * phases;
+        const p = fp | 0;
+        const g = fp - p;
+        const row = rows[p], dRow = deltas[p];
+        const base = i0 - history;
+        let l = 0.0, r = 0.0;
+        for (let t = 0; t < nTaps; t++) {
+          const src = base + t;
+          const a = (src < floor ? floor : src) & mask;
+          const w = row[t] + dRow[t] * g;
+          l += this.ringL[a] * w;
+          r += this.ringR[a] * w;
+        }
+        outL[n] = l;
+        outR[n] = r;
+        this.ringReadPos = pos + this.step;
+      }
+    }
+  }
+
+  // STREAM mode: play the worker's blocks out of the local ring.
+  streamFromRing(outL, outR, frames) {
+    const rs = this.rs;
+    // As in RENDER mode: the last output frame's newest tap sits `lead` past its cursor.
+    const need = frames * this.step + (rs === null ? 0 : rs.lead) + 2;
+    const avail = this.ringWrite - this.ringReadPos;
+    if (avail >= need) {
+      this.readRing(outL, outR, frames);
+    } else if (this.portActive || avail <= 0) {
+      // Silence, and hold the cursor. With the producer running this is a
+      // dropout: the worker's blocks are late.
+      if (this.portActive && this.profiling) this.pfUnderruns++;
+      outL.fill(0);
+      if (outR !== outL) outR.fill(0);
+    } else {
+      // The producer has stopped, and this is the last of what it sent: play
+      // it out against silence. Frames past the last one read as zeros, and
+      // the cursor stops at the last one — the worker's next block starts there.
+      const mask = RING_FRAMES - 1;
+      const pad = Math.ceil(need - avail) + 1;
+      for (let n = 0; n < pad; n++) {
+        const w = (this.ringWrite + n) & mask;
+        this.ringL[w] = 0;
+        this.ringR[w] = 0;
+      }
+      this.readRing(outL, outR, frames);
+      if (this.ringReadPos > this.ringWrite) this.ringReadPos = this.ringWrite;
+    }
+    this.reportRead(this.ringWrite - this.ringReadPos < need + AP_REPORT_FRAMES);
   }
 
   // CONSUME mode: read the worker's SAB ring resampled to the context rate.
@@ -377,7 +487,8 @@ class TaudProcessor extends AudioWorkletProcessor {
       sampleRate,
       step: this.step,
       sab: this.sabF32 !== null || this.audioRing !== null,
-      workerRender: this.audioRing !== null,
+      workerRender: this.audioRing !== null || this.audioPort !== null,
+      audioPort: this.audioPort !== null,
       hiResClock: this.hiResClock,
       clockResMs: this.clockResMs,
     });
@@ -392,6 +503,8 @@ class TaudProcessor extends AudioWorkletProcessor {
 
     if (this.audioRing) {
       this.consumeFromRing(outL, outR, frames);
+    } else if (this.audioPort) {
+      this.streamFromRing(outL, outR, frames);
     } else {
       this.renderAndPlay(outL, outR, frames);
     }

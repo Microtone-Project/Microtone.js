@@ -404,6 +404,7 @@ export default {
   "profiler.engineWasmIdle": "C, as WebAssembly",
   "profiler.where": "Renders in",
   "profiler.whereWorker": "its own thread (a render Worker)",
+  "profiler.whereWorkerPort": "its own thread (a render Worker), its audio sent as messages",
   "profiler.whereWorklet": "the audio thread",
   "profiler.output": "Output",
   "profiler.outputConverted": "{rate} Hz, converted from {engine} Hz",

@@ -133,8 +133,10 @@ Two things not to do, each learnt the hard way:
 - The desktop app's projects are its own: it does not share storage with a
   browser. Moving work between the two is **Export** in one and **Open…** in
   the other, or the online projects, which both reach.
-- The Linux webview is not cross-origin isolated, so the audio engine runs in
-  the AudioWorklet (the app's non-isolated path) rather than in a render worker.
+- The webviews do not isolate the page (WebKit never does for a custom scheme
+  such as `tauri://`), so there is no SharedArrayBuffer. The audio engine
+  still runs in a render worker, off the audio thread: it posts its audio to
+  the AudioWorklet as messages, where an isolated browser page shares memory.
 - The fonts come from Google Fonts; offline, the app falls back to system fonts.
 - The Windows and macOS builds are not code-signed: Windows SmartScreen and
   macOS Gatekeeper warn the first time.

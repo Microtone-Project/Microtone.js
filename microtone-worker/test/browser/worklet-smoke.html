@@ -32,9 +32,10 @@
         snapshotIntervalMs: 16,
         forceBundle: params.has("bundle"),
         sampleRate: params.has("rate") ? parseInt(params.get("rate"), 10) : 48000,
+        offThread: !params.has("inworklet"), // ?inworklet: the engine on the audio thread (RENDER mode)
       });
       log(`init ok — sampleRate=${audio.context.sampleRate} bundleFallback=${audio.usedBundleFallback}`);
-      log(`snapshot path: ${audio.usingSab ? "SharedArrayBuffer" : "postMessage"} (crossOriginIsolated=${globalThis.crossOriginIsolated})`);
+      log(`snapshot path: ${audio.usingSab ? "SharedArrayBuffer" : "postMessage"} (crossOriginIsolated=${globalThis.crossOriginIsolated}) — render: ${audio.usingWorker ? (audio.usingPort ? "Worker over the audio port" : "Worker over shared memory") : "in-worklet"}`);
       await audio.resume();
       log(`context state=${audio.context.state}`);
 

@@ -1,11 +1,25 @@
 // Tier 2 render Worker — hosts the TaudEngine OFF the audio thread and streams
 // engine-rate float frames into a SharedArrayBuffer ring the AudioWorklet reads.
 // The audio callback then only resamples + copies, so it can never overrun
-// regardless of lane count / voice load (the whole point of Tier 2). Only
-// used when crossOriginIsolated (SAB available); the non-isolated fallback keeps
-// the engine in the worklet (see taud-processor.js render mode).
+// regardless of lane count / voice load (the whole point of Tier 2).
 //
-// Self-clocked: every ~5 ms a tick tops the ring up to AR_HIGH_WATER and
+// Two ways out to the worklet. A cross-origin-isolated page has
+// SharedArrayBuffer: the audio goes into the shared ring (audio-ring.js) and
+// the snapshots into shared memory, on the clock described below. A page that
+// is not isolated — the desktop apps' webviews, whose custom schemes WebKit
+// never isolates and whose WebKit hides SharedArrayBuffer even when isolated —
+// gets the AUDIO PORT instead (CMD.USE_AUDIO_PORT): the worker posts blocks of
+// audio to the worklet over a MessagePort and posts its snapshots to the main
+// thread, and the worklet's READ reports are its clock — each one wakes the
+// worker, which tops the queue back up to AR_HIGH_WATER. Nothing plays, no
+// report comes and the worker sleeps; a command that starts something renders
+// at once. (That clock lets the event queue drain, which arms Firefox's idle GC
+// described below; only a non-isolated Firefox page takes this path, and the
+// engine is WebAssembly now, which that GC leaves compiled.) Only where no
+// module Worker starts does the engine stay in the worklet (taud-processor.js
+// render mode).
+//
+// The shared ring is self-clocked: every ~5 ms a tick tops the ring up to AR_HIGH_WATER and
 // refreshes the snapshot on a ~16 ms wall cadence. Commands arrive by
 // postMessage and are applied between ticks (single-threaded, so no lock vs the
 // producer).
@@ -25,7 +39,7 @@
 
 import { WasmTaudEngine } from "../engine/wasm-engine.js";
 import { TRACKER_CHUNK } from "../engine/constants.js";
-import { CMD, MSG, SNAP_FLOATS, SNAP_SAB_I32_CELLS } from "../worklet/protocol.js";
+import { CMD, MSG, AUDIO_PORT_MSG, SNAP_FLOATS, SNAP_SAB_I32_CELLS } from "../worklet/protocol.js";
 import {
   applyAudioCommand, isTransportReset, invertMaskBuffer, modMaskBuffer, fillSnapshotInto,
   drainInterruptsInto,
@@ -33,6 +47,7 @@ import {
 import {
   audioRingViews, AR_FRAMES, AR_MASK,
   AR_WRITE, AR_READ, AR_STATE, AR_EPOCH, AR_FLUSH_POS, AR_DOORBELL, AR_HIGH_WATER,
+  AP_BLOCK_FRAMES,
 } from "./audio-ring.js";
 
 const PLAYHEAD = 0;
@@ -48,6 +63,16 @@ let snapshotIntervalMs = 16;
 let lastSnapshotMs = -1e9;
 let timer = null;           // setInterval fallback — only where this agent may not block
 let handled = 0;            // messages received; AR_DOORBELL counts the same ones as posted
+
+// ── the audio port (pages without SharedArrayBuffer) ──
+let audioPort = null;       // MessagePort to the worklet
+let sentFrames = 0;         // frames posted to the worklet (Int32-wrapping)
+let readFrames = 0;         // the worklet's latest READ, counted in the same frames
+let flushMark = 0;          // sentFrames at the last flush: the worklet drops all before it
+let portActive = false;     // the worklet was last told the producer is running
+const freeBlocks = [];      // emptied blocks the worklet gave back, for reuse
+let snapPool = null;        // the two recycled snapshot buffers posted to the main thread
+let snapOwed = false;       // a snapshot was due while both were out: send on the next return
 
 // Atomics.wait throws, before it compares anything, in an agent that may not
 // suspend. Every dedicated worker may, but an embedding that says otherwise
@@ -98,15 +123,43 @@ function emitProfile() {
 // Transport reset (play/seek/stop): drop the buffered tail without a counter
 // reset race — publish the current write frame as the flush mark and bump the
 // epoch; the worklet jumps its read cursor there on the next callback.
+// The audio port's flush: the port keeps its order, so the worklet drops
+// exactly what was posted before this; those frames count as read from now on.
 function flushRing() {
-  if (!ring) return;
-  Atomics.store(ring.ctrl, AR_FLUSH_POS, writeFrames);
-  Atomics.store(ring.ctrl, AR_EPOCH, (Atomics.load(ring.ctrl, AR_EPOCH) + 1) | 0);
+  if (ring !== null) {
+    Atomics.store(ring.ctrl, AR_FLUSH_POS, writeFrames);
+    Atomics.store(ring.ctrl, AR_EPOCH, (Atomics.load(ring.ctrl, AR_EPOCH) + 1) | 0);
+  } else if (audioPort !== null) {
+    audioPort.postMessage({ t: AUDIO_PORT_MSG.FLUSH });
+    flushMark = sentFrames;
+  } else return;
   if (profiling) pf.primed = false;
 }
 
+/** One chunk from the engine, timed when profiling: the playhead's tracker
+ *  state (its mix bus holds the chunk), or null for a chunk of silence. */
+function renderOne(ph) {
+  const t0 = profiling ? now() : 0;
+  const out = engine.renderChunk(PLAYHEAD, chunk);
+  if (profiling) {
+    const dt = now() - t0;
+    pf.busy += dt;
+    if (dt > pf.max) pf.max = dt;
+    pf.count++;
+    pf.frames += TRACKER_CHUNK;
+    const nv = ph.trackerState.soundingVoices;
+    if (nv > pf.peakVoices) pf.peakVoices = nv;
+  }
+  return out === null ? null : ph.trackerState;
+}
+
 function produceAudio() {
-  if (!ring || engine === null) return;
+  if (engine === null) return;
+  if (ring !== null) produceIntoRing();
+  else if (audioPort !== null) produceIntoPort();
+}
+
+function produceIntoRing() {
   const ph = engine.playheads[PLAYHEAD];
   const active = ph.isPlaying || ph.jamActive;
   Atomics.store(ring.ctrl, AR_STATE, active ? 1 : 0);
@@ -118,21 +171,10 @@ function produceAudio() {
   let occ = (writeFrames - read) | 0;
   if (profiling && pf.primed && occ < pf.ringLow) pf.ringLow = occ;
   while (occ < AR_HIGH_WATER && (AR_FRAMES - occ) >= TRACKER_CHUNK) {
-    const t0 = profiling ? now() : 0;
-    const out = engine.renderChunk(PLAYHEAD, chunk);
-    if (profiling) {
-      const dt = now() - t0;
-      pf.busy += dt;
-      if (dt > pf.max) pf.max = dt;
-      pf.count++;
-      pf.frames += TRACKER_CHUNK;
-      const nv = ph.trackerState.soundingVoices;
-      if (nv > pf.peakVoices) pf.peakVoices = nv;
-    }
-    if (out === null) {
+    const ts = renderOne(ph);
+    if (ts === null) {
       for (let n = 0; n < TRACKER_CHUNK; n++) { const w = (writeFrames + n) & AR_MASK; ring.L[w] = 0; ring.R[w] = 0; }
     } else {
-      const ts = ph.trackerState;
       const mL = ts.mixLeft, mR = ts.mixRight;
       for (let n = 0; n < TRACKER_CHUNK; n++) { const w = (writeFrames + n) & AR_MASK; ring.L[w] = mL[n]; ring.R[w] = mR[n]; }
     }
@@ -146,13 +188,86 @@ function produceAudio() {
   }
 }
 
+/** What the worker believes the worklet still has queued: the frames posted
+ *  since the later of its last READ and the last flush. */
+function portQueued() {
+  const read = ((readFrames - flushMark) | 0) > 0 ? readFrames : flushMark;
+  return (sentFrames - read) | 0;
+}
+
+/** Top the worklet's queue up to AR_HIGH_WATER in ONE block. */
+function produceIntoPort() {
+  const ph = engine.playheads[PLAYHEAD];
+  if (!(ph.isPlaying || ph.jamActive)) {
+    if (portActive) {
+      // Said once, so the worklet does not count running dry as a dropout —
+      // and the snapshot that shows it stopped goes now: nothing may wake this
+      // worker again for a long time.
+      portActive = false;
+      audioPort.postMessage({ t: AUDIO_PORT_MSG.IDLE });
+      maybeSnapshot(true);
+    }
+    if (profiling) { pf.primed = false; pf.lastTick = -1; } // idle gaps are not late wakes
+    return;
+  }
+  portActive = true;
+  let occ = portQueued();
+  if (profiling && pf.primed && occ < pf.ringLow) pf.ringLow = occ;
+  if (occ < AR_HIGH_WATER) {
+    const buffer = freeBlocks.pop() ?? new ArrayBuffer(AP_BLOCK_FRAMES * 8);
+    const L = new Float32Array(buffer, 0, AP_BLOCK_FRAMES);
+    const R = new Float32Array(buffer, AP_BLOCK_FRAMES * 4, AP_BLOCK_FRAMES);
+    let frames = 0;
+    while (occ < AR_HIGH_WATER && frames + TRACKER_CHUNK <= AP_BLOCK_FRAMES) {
+      const ts = renderOne(ph);
+      if (ts === null) {
+        L.fill(0, frames, frames + TRACKER_CHUNK);
+        R.fill(0, frames, frames + TRACKER_CHUNK);
+      } else {
+        const mL = ts.mixLeft, mR = ts.mixRight;
+        for (let n = 0; n < TRACKER_CHUNK; n++) { L[frames + n] = mL[n]; R[frames + n] = mR[n]; }
+      }
+      frames += TRACKER_CHUNK;
+      occ += TRACKER_CHUNK;
+    }
+    sentFrames = (sentFrames + frames) | 0;
+    audioPort.postMessage({ t: AUDIO_PORT_MSG.BLOCK, buffer, frames }, [buffer]);
+  }
+  if (profiling) {
+    if (occ >= AR_HIGH_WATER) pf.primed = true;
+    if (pf.frames >= engine.rate) emitProfile();
+  }
+}
+
+/** A READ from the worklet: how far it has played, and blocks to reuse. Each
+ *  one is a wake of the port's clock. */
+function onAudioPort(m) {
+  if (m.t !== AUDIO_PORT_MSG.READ) return;
+  readFrames = m.read | 0;
+  for (const b of m.buffers) if (freeBlocks.length < 4) freeBlocks.push(b);
+  tick();
+}
+
 function maybeSnapshot(force) {
-  if (!snapF32 || engine === null) return;
+  if (engine === null) return;
   const t = now();
   if (!force && t - lastSnapshotMs < snapshotIntervalMs) return;
+  if (snapF32 !== null) {
+    lastSnapshotMs = t;
+    fillSnapshotInto(engine, PLAYHEAD, snapF32);
+    drainInterruptsInto(engine, PLAYHEAD, snapF32, snapI32);
+    return;
+  }
+  if (snapPool === null) return;
+  // Posted snapshots (the audio port): two buffers, recycled by the main thread.
+  const buffer = snapPool.pop();
+  if (!buffer) { snapOwed = true; return; } // both out: send when one comes back
+  snapOwed = false;
   lastSnapshotMs = t;
-  fillSnapshotInto(engine, PLAYHEAD, snapF32);
-  drainInterruptsInto(engine, PLAYHEAD, snapF32, snapI32);
+  const f = new Float32Array(buffer);
+  fillSnapshotInto(engine, PLAYHEAD, f);
+  drainInterruptsInto(engine, PLAYHEAD, f);
+  self.postMessage({ t: MSG.SNAPSHOT, buffer }, [buffer]);
 }
 
 function tick() {
@@ -218,6 +333,21 @@ function handleMessage(m) {
     case CMD.USE_AUDIO_SAB:
       ring = audioRingViews(m.sab);
       if (!canBlock && timer === null) timer = setInterval(tick, PRODUCE_INTERVAL_MS);
+      break;
+    case CMD.USE_AUDIO_PORT:
+      audioPort = m.port;
+      audioPort.onmessage = (e) => {
+        try {
+          onAudioPort(e.data);
+        } catch (err) {
+          console.error(err);
+        }
+      };
+      snapPool = [new ArrayBuffer(SNAP_FLOATS * 4), new ArrayBuffer(SNAP_FLOATS * 4)];
+      break;
+    case CMD.SNAPSHOT_RETURN:
+      if (snapPool !== null && snapPool.length < 2) snapPool.push(m.buffer);
+      if (snapOwed) maybeSnapshot(true);
       break;
     case CMD.QUERY_INVERT_MASK: {
       const buf = invertMaskBuffer(engine, m.slot);

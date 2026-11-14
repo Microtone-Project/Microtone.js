@@ -30,6 +30,16 @@ export const AR_DOORBELL = 5;             // messages the main thread has posted
 export const AR_HIGH_WATER = 1024;
 export const AR_SAB_BYTES = AR_CTRL_LEN * 4 + AR_FRAMES * 4 * 2;
 
+// The same Tier 2 WITHOUT shared memory (a page that is not cross-origin
+// isolated, the desktop apps' webviews among them): the worker posts its audio
+// to the worklet in blocks over a MessagePort (protocol.js AUDIO_PORT_MSG),
+// keeping AR_HIGH_WATER frames queued as it believes from the worklet's READ
+// reports. A block holds at most AP_BLOCK_FRAMES (a whole top-up), and the
+// worklet reports every AP_REPORT_FRAMES it reads — the worker's clock, about
+// as often as the shared ring's 5 ms tick.
+export const AP_BLOCK_FRAMES = AR_HIGH_WATER;
+export const AP_REPORT_FRAMES = 256;
+
 /** Map Int32 control + Float32 L/R views over an audio-ring SharedArrayBuffer. */
 export function audioRingViews(sab) {
   const ctrl = new Int32Array(sab, 0, AR_CTRL_LEN);

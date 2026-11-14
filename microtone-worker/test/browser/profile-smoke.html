@@ -38,9 +38,13 @@
 
     try {
       const audio = new AudioSystem();
-      await audio.init({ snapshotIntervalMs: 16 });
+      // ?inworklet keeps the engine on the audio thread (RENDER mode); otherwise
+      // a render Worker hosts it — over shared memory on an isolated page, over
+      // the audio port on a plain one (SMOKE_PLAIN=1, the desktop apps' case).
+      const inWorklet = new URLSearchParams(location.search).has("inworklet");
+      await audio.init({ snapshotIntervalMs: 16, offThread: !inWorklet });
       log(`init ok — sampleRate=${audio.context.sampleRate} bundleFallback=${audio.usedBundleFallback}`);
-      log(`snapshot path: ${audio.usingSab ? "SharedArrayBuffer" : "postMessage"} — render: ${audio.usingWorker ? "Worker (Tier 2)" : "in-worklet"}`);
+      log(`snapshot path: ${audio.usingSab ? "SharedArrayBuffer" : "postMessage"} — render: ${audio.usingWorker ? (audio.usingPort ? "Worker (Tier 2, audio port)" : "Worker (Tier 2)") : "in-worklet"} (crossOriginIsolated=${globalThis.crossOriginIsolated})`);
 
       // Overlay is exercised too (must render + update without throwing).
       let closed = false;
@@ -62,6 +66,9 @@
       const dragMoved = Math.abs(a.left - b.left) > 5 && Math.abs(a.top - b.top) > 5;
       log(`drag: moved=${dragMoved} (${Math.round(b.left)},${Math.round(b.top)} → ${Math.round(a.left)},${Math.round(a.top)})`);
 
+      // WebKit starts audio only from a gesture: a real click (XTest, when
+      // WebKitGTK runs this headless) resumes it too.
+      addEventListener("pointerdown", () => audio.resume());
       await audio.resume();
       const resp = await fetch("../../assets/demo_projects/Eighth.taud"); // FM racks: work for the engine
       const doc = parseTaud(new Uint8Array(await resp.arrayBuffer()));
@@ -95,7 +102,8 @@
       // IS the proof the audio thread stopped rendering. In-worklet mode still
       // renders, so renderCount must be > 0.
       const renderOk = audio.usingWorker
-        ? (p.renderCount === 0 && p.workerRender && p.underruns === 0 &&
+        ? (p.renderCount === 0 && p.workerRender && p.underruns === 0 && p.usingPort === audio.usingPort &&
+           audio.usingPort === !globalThis.crossOriginIsolated &&
            w !== null && w.engineFrac > 0 && w.renderMeanMs > 0 && w.peakVoices > 0 && w.memoryBytes > 0)
         : (p.renderCount > 0 && p.memoryBytes > 0);
 
@@ -107,7 +115,7 @@
       const stopped = reports === before && audio.profile === null;
       log(`closed=${closed} reports after switching off: ${reports - before}`);
       const sane =
-        reports >= 2 &&
+        reports >= 2 && audio.usingWorker === !inWorklet &&
         dragMoved && closed && stopped &&
         renderOk &&
         p.procCount > 0 &&

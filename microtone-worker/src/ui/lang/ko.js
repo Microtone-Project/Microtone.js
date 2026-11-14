@@ -388,6 +388,7 @@ export default {
   "profiler.engineWasmIdle": "C, WebAssembly로",
   "profiler.where": "렌더하는 곳",
   "profiler.whereWorker": "전용 스레드 (렌더 워커)",
+  "profiler.whereWorkerPort": "전용 스레드 (렌더 워커), 오디오는 메시지로 전달",
   "profiler.whereWorklet": "오디오 스레드",
   "profiler.output": "출력",
   "profiler.outputConverted": "{rate} Hz, {engine} Hz에서 변환",

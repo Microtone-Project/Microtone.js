@@ -137,6 +137,12 @@ test("rows: the engine's load comes from the thread that renders", () => {
   assert.match(tier2["Engine load"][0], /^30% of real time/);
   assert.match(tier2.Queue[0], /^20\.1 ms left/);
   assert.deepEqual(tier2.Dropouts, ["2: the queue ran dry", "bad"]);
+  assert.match(tier2["Renders in"][0], /render Worker\)$/);
+  // Without shared memory (the desktop apps) the same Worker posts its audio.
+  const port = Object.fromEntries(profileRows({ workerRender: true, usingPort: true, sampleRate: 48000, step: 1,
+    usingSab: false, hiResClock: true, underruns: 0, worker }).map(([l, v, tone]) => [l, [v, tone]]));
+  assert.match(port["Renders in"][0], /render Worker\), its audio sent as messages$/);
+  assert.match(port.Queue[0], /^20\.1 ms left/);
   const worklet = Object.fromEntries(profileRows({ workerRender: false, sampleRate: 48000, step: 1, hiResClock: false,
     clockResMs: 1, cpuFrac: 0.5, renderFrac: 0.4, renderCount: 375, renderMeanMs: 1, renderMaxMs: 2,
     procMeanMs: 1.3, procMaxMs: 2.2, quantumMs: 2.67, xruns: 0, peakVoices: 3, memoryBytes: 1 << 23 })
@@ -146,4 +152,5 @@ test("rows: the engine's load comes from the thread that renders", () => {
   assert.equal(worklet.Clock[1], "warn", "a coarse clock is flagged");
   assert.deepEqual(worklet.Dropouts, ["none", null]);
   assert.equal(worklet.Queue, undefined, "no queue without a render Worker");
+  assert.equal(worklet["Renders in"][0], "the audio thread");
 });
