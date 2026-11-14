@@ -20,12 +20,11 @@ import { TaudEngine } from "../../core/engine/engine.js";
 import { TRACKER_CHUNK, SAMPLING_RATE } from "../../core/engine/constants.js";
 import {
   LoudnessIntegrator, FRAME_SEC, TAP_PRE, TAP_POST, SPEC_FRAMES,
-  makeMasterMeterReadout, bitUsage, crestDb, dbfs,
-  DEFAULT_BIT_DEPTH, HIST_BUCKETS,
+  makeMasterMeterReadout, crestDb, dbfs, DEFAULT_BIT_DEPTH,
 } from "../../core/engine/loudness.js";
 import {
   BandAnalyser, SPECTRUM_NBANDS, SPECTRUM_TILT_DB_PER_OCT,
-} from "../../core/engine/fft.js";
+} from "./fft.js";
 import { loadIntoEngine } from "../../core/audio/offline-render.js";
 
 /** One stage's growing series, in 100 ms frames. */
@@ -228,10 +227,7 @@ export async function analyseSongAsync(docLike, songIndex, maxSeconds, {
   // are taken at full resolution; only the picture is downsampled, so a
   // 16-bit pass reports an exact `used` over 65536 codes and still hands back
   // 256 buckets to draw.
-  const bits = bitUsage(tap.hist, tap.bitDepth);
-  const shift = tap.bitDepth - 8;
-  const histogram = new Float64Array(HIST_BUCKETS);
-  for (let i = 0; i < tap.hist.length; i++) histogram[i >> shift] += tap.hist[i];
+  const census = tap.census();
   return {
     seconds: frames / SAMPLING_RATE,
     hopSec: FRAME_SEC,
@@ -239,9 +235,9 @@ export async function analyseSongAsync(docLike, songIndex, maxSeconds, {
     aborted,
     pre: pre.finish(),
     post: post.finish(),
-    histogram,
-    bitDepth: tap.bitDepth,
-    bits,
+    histogram: census.buckets,
+    bitDepth: census.bitDepth,
+    bits: census.bits,
   };
 }
 

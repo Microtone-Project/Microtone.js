@@ -38,8 +38,8 @@ const outDir = process.argv[2] ??
 // ── the module graph, in dependency order (mirrors make-worklet-bundle.js) ──
 const ENGINE = [
   // The engine (item 312): the C engine built as WebAssembly and the
-  // JavaScript half that drives it — the metering taps it runs on the module's
-  // memory, the codecs its uploads are built with…
+  // JavaScript half that drives it — the meters' shapes, the quantisers the
+  // WAV encoder writes through, the codecs its uploads are built with…
   "core/engine/taud-engine.wasm.js",
   "core/engine/wasm-module.js",
   "core/engine/constants.js",
@@ -48,7 +48,6 @@ const ENGINE = [
   "core/engine/spatial.js",
   "core/engine/speakers.js",
   "core/engine/analysis.js",
-  "core/engine/dither.js",
   "core/engine/loudness.js",
   "core/engine/mastering.js",
   "core/engine/imix.js",
@@ -64,7 +63,6 @@ const ENGINE = [
   "core/engine/formant.js",
   "core/engine/inst.js",
   "core/engine/engine.js",
-  "core/engine/binaural.js",   // the monitor modes the offline renderer names
 ];
 
 /** Everything the worklet bundle concatenates, in order. */

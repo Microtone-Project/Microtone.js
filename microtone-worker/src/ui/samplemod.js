@@ -1,4 +1,8 @@
-// Sample-modification note effects (items 130, 152, 153) — notefx 2 and 3, ONE
+// Sample-modification note effects (items 130, 152, 153) — what the Samples
+// view draws them with. The effects themselves are the engine's
+// (core/engine/c/src/samplemod.c); this is their geometry and opcodes.
+//
+// notefx 2 and 3, ONE
 // command with two spellings: `3` names the region to modify, `2` names the
 // region to leave alone. Both are NON-DESTRUCTIVE views over the sample pool,
 // exactly as S $Fxxx is: the state lives on the INSTRUMENT and is applied when

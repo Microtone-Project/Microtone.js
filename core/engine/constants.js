@@ -217,3 +217,10 @@ export const NOTE_FAST_FADE = 0x0004;
 export const NOTE_INT_FIRST = 0x0010; // Int0..IntF interrupt notes
 export const NOTE_INT_LAST = 0x001f;
 export const NUM_INTERRUPTS = 16;
+
+// Monitor modes (a device setting on the playhead, not a song property): the
+// fold onto the stereo pan law, the default, or the binaural head — the
+// surround song decoded to two ears through the SADIE HRIR set
+// (core/engine/c/src/binaural.c; engine spec "Binaural monitoring").
+export const MONITOR_FOLD = 0;
+export const MONITOR_BINAURAL = 1;

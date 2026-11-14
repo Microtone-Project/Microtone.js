@@ -214,7 +214,7 @@ static void bus_channel_gains(const TaudSpatialBus *bus, double az, double el, d
 {
     if (bus->kind == RENDER_BINAURAL) te_binaural_channel_gains(bus->bin, az, el, out, off);
     else if (bus->kind == RENDER_ANALYSIS) {
-        /* analysis.js AnalysisRenderer: the scope harmonics, then the feeds. */
+        /* The master strip's analysis target: the scope harmonics, then the feeds. */
         te_encode_sn3d(az, el, 2, out + off);
         if (bus->spkCount > 0) speaker_channel_gains(bus, az, el, out, off + SCOPE_CHANNELS);
     } else if (bus->kind == RENDER_AMBISONIC) {
@@ -264,19 +264,34 @@ static void speaker_layout(TaudSpatialBus *bus, int layout)
     bus->ringSize = size;
 }
 
-void te_set_analysis_bus(TaudEngine *e, int layout)
+/* The master strip's analysis target as a bus: the nine scope harmonics, then
+ * a speaker layout's feeds (layout 1…3; 0 = the harmonics alone). */
+TaudSpatialBus *te_analysis_bus_new(int layout)
 {
     TaudSpatialBus *bus;
+    if (layout < 0 || layout > 3) return NULL;
+    bus = (TaudSpatialBus *)calloc(1, sizeof *bus);
+    if (bus == NULL) return NULL;
+    bus->kind = RENDER_ANALYSIS;
+    if (layout >= 1) speaker_layout(bus, layout);
+    bus->numChannels = SCOPE_CHANNELS + bus->spkCount;
+    return bus;
+}
+
+void te_set_analysis_bus(TaudEngine *e, int layout)
+{
     free(e->analysisBus);
     e->analysisBus = NULL;
     e->analysisGen++;
     if (layout < 0 || layout > 3) return;
-    bus = (TaudSpatialBus *)calloc(1, sizeof *bus);
-    if (bus == NULL) { e->oom = true; return; }
-    bus->kind = RENDER_ANALYSIS;
-    if (layout >= 1) speaker_layout(bus, layout);
-    bus->numChannels = SCOPE_CHANNELS + bus->spkCount;
-    e->analysisBus = bus;
+    e->analysisBus = te_analysis_bus_new(layout);
+    if (e->analysisBus == NULL) e->oom = true;
+}
+
+/* A source at (az, el)'s gain into each of a bus's channels. */
+void te_bus_channel_gains(const TaudSpatialBus *bus, double az, double el, double *out, int off)
+{
+    bus_channel_gains(bus, az, el, out, off);
 }
 
 bool te_spatial_bus_configure(TaudSpatialBus *bus, int kind, int order, bool planar, int layout)

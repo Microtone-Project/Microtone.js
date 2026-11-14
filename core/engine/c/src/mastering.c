@@ -1,8 +1,10 @@
-/* Master-bus mastering chain — port of mastering.js, the TruePeakProbe of
- * analysis.js and the `sMst` block decoder of mastering-section.js. The
+/* Master-bus mastering chain — the stereo pair's and, for a multichannel
+ * export, a bus's (te_master_chain_new_planar). Ported from mastering.js,
+ * the TruePeakProbe of analysis.js and the `sMst` block decoder of
+ * mastering-section.js; the chain's DSP is here alone now. The
  * biquad, the compressor and the limiter are exported (te_bq_*, te_comp_*,
  * te_lim_*) at any channel count up to TE_MAX_BUS_CH, for the instrument
- * chains (imix.c), as mastering.js exports them to imix.js.
+ * chains (imix.c).
  *
  *     trim → high-pass → 4-band EQ → compressor → width → limiter → gain
  *
@@ -474,6 +476,8 @@ void te_lim_step_planar(TaudLimiter *L, double *data, int n, int stride)
 
 struct TaudMasterChain {
     double rate;
+    int nch;
+    bool ambisonic;
     TaudMastering params;
     TaudBiquad hp1, hp2;
     bool hpTwo;
@@ -488,20 +492,35 @@ struct TaudMasterChain {
     double compGrDb, limGrDb;
 };
 
-TaudMasterChain *te_master_chain_new(const TaudMastering *p, int rate)
+TaudMasterChain *te_master_chain_new_planar(const TaudMastering *p, int rate, int nch, bool ambisonic)
 {
-    TaudMasterChain *c = (TaudMasterChain *)calloc(1, sizeof *c);
+    TaudMasterChain *c;
     int i;
+    if (nch < 1 || nch > TE_MAX_BUS_CH) return NULL;
+    c = (TaudMasterChain *)calloc(1, sizeof *c);
     if (c == NULL) return NULL;
     c->rate = rate;
+    c->nch = nch;
+    c->ambisonic = ambisonic && nch > 1;
     te_bq_init(&c->hp1);
     te_bq_init(&c->hp2);
     for (i = 0; i < EQ_BANDS; i++) te_bq_init(&c->eq[i]);
-    te_lim_init(&c->lim, 2);
+    te_lim_init(&c->lim, nch);
     te_mastering_default(&c->params);
     te_master_chain_set_params(c, p != NULL ? p : &c->params);
     return c;
 }
+
+TaudMasterChain *te_master_chain_new(const TaudMastering *p, int rate)
+{
+    return te_master_chain_new_planar(p, rate, 2, false);
+}
+
+int te_master_chain_channels(const TaudMasterChain *c) { return c != NULL ? c->nch : 0; }
+
+/* The latency the chain adds, in samples: the limiter's two look-ahead
+ * windows while it is on, else nothing. */
+int te_master_chain_latency(const TaudMasterChain *c) { return c->params.limOn ? 2 * c->lim.d : 0; }
 
 void te_master_chain_free(TaudMasterChain *c)
 {
@@ -610,6 +629,46 @@ void te_master_chain_process(TaudMasterChain *c, float *left, float *right, int 
         }
         left[n] = (float)(l * out);
         right[n] = (float)(r * out);
+    }
+    c->limGrDb = c->lim.grDb;
+}
+
+/* Process `frames` of a channel-major bus in place, data[ch * stride + n]
+ * (ported from mastering.js processPlanar). The bus is binary64 throughout: nothing here
+ * narrows, the file's writer does, once. */
+void te_master_chain_process_planar(TaudMasterChain *c, double *data, int frames, int stride)
+{
+    const TaudMastering *p = &c->params;
+    int nch = c->nch, n, ch, i;
+    double trim, out, w;
+    bool doHp, doEq, doComp, doWidth, doLim;
+    if (!c->engaged) return;
+    trim = c->trimGain;
+    out = c->outGain;
+    doHp = p->hpOn; doEq = p->eqOn; doComp = p->compOn; doLim = p->limOn;
+    doWidth = c->ambisonic && p->widthOn && c->width != 1;
+    w = c->width;
+    c->lim.grDb = 0;
+    c->compGrDb = 0;
+    for (n = 0; n < frames; n++) {
+        for (ch = 0; ch < nch; ch++) {
+            int k = ch * stride + n;
+            double x = data[k] * trim;
+            if (doHp) {
+                x = te_bq_run(&c->hp1, ch, x);
+                if (c->hpTwo) x = te_bq_run(&c->hp2, ch, x);
+            }
+            if (doEq) for (i = 0; i < c->eqLiveCount; i++) x = te_bq_run(&c->eq[c->eqLive[i]], ch, x);
+            data[k] = x;
+        }
+        if (doComp) {
+            double g = te_comp_step_planar(&c->comp, data, n, stride, nch);
+            for (ch = 0; ch < nch; ch++) data[ch * stride + n] *= g;
+            if (c->comp.grDb < c->compGrDb) c->compGrDb = c->comp.grDb;
+        }
+        if (doWidth) for (ch = 1; ch < nch; ch++) data[ch * stride + n] *= w;
+        if (doLim) te_lim_step_planar(&c->lim, data, n, stride);
+        if (out != 1) for (ch = 0; ch < nch; ch++) data[ch * stride + n] *= out;
     }
     c->limGrDb = c->lim.grDb;
 }

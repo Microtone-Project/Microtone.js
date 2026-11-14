@@ -47,7 +47,7 @@ import {
 import { COMP_PEAK, COMP_RMS } from "../../../core/engine/mastering.js";
 import { SAMPLING_RATE } from "../../../core/engine/constants.js";
 import { SURROUND_STEREO } from "../../../core/engine/spatial.js";
-import { Fft, hannWindow, spectrumDb, tiltDbAt } from "../../../core/engine/fft.js";
+import { Fft, hannWindow, spectrumDb, tiltDbAt } from "../../audio/fft.js";
 import {
   freqAt, colOfFreq, fmtDb, stepColumns, drawSpecGround, fillBands, strokeColumns,
   trackCursor, drawCursor, drawBarRules,

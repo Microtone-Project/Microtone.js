@@ -1,41 +1,26 @@
-// Master-bus mastering chain (item 178) — the last thing that touches the mix
-// before it narrows to 8 bits.
-//
-// It sits inside the output stage: the voices sum in binary64, the Amiga chain
-// runs, the pair narrows to binary32 — and THEN this runs, before the clamp and
-// the dither. That position is the whole point. A limiter downstream of the
-// clamp would have nothing left to do, and a chain upstream of the Amiga filter
-// would be mastering a signal the device never delivers.
-//
-// ── What it is not ──
-// It makes no judgements. Every stage is a textbook block with the parameter it
-// says on the tin, in a FIXED order, and nothing here looks at the music and
-// decides anything. That is a design constraint, not a shortcoming: the meters
-// (loudness.js) tell you what the song is doing, and you decide.
+// Master-bus mastering chain (item 178) — its PARAMETERS and the curve the
+// Mastering view draws. The chain itself is the engine's
+// (core/engine/c/src/mastering.c; TAUD_ENGINE_SPEC.md §12.1, §12.3): it runs
+// inside the output stage, after the voices sum and the pair narrows to
+// binary32 and before the clamp and the dither — or, for a multichannel
+// export, over the render target's bus (setBusMastering).
 //
 //     trim → high-pass → 4-band EQ → compressor → width → limiter → gain
 //
 // Every stage has its own on/off; the chain as a whole has one more. With
 // nothing engaged the chain is not merely transparent, it is ABSENT —
-// masteringEngaged() returns false and the mixer keeps the untouched legacy
-// path, so a song that has never been near this tab still renders bit-for-bit
-// as it did before the tab existed.
+// masteringEngaged() returns false and the engine keeps the untouched path, so
+// a song that has never been near this tab renders bit for bit as it did
+// before the tab existed. It makes no judgements: every stage is a textbook
+// block with the parameter it says on the tin, in a FIXED order.
 //
-// Not a port: the Kotlin engine has no mastering stage, so this file — like
-// spatial.js, binaural.js and analysis.js — IS the reference implementation.
-// See TAUD_ENGINE_SPEC.md §12.1 for the normative description and
-// TAUD_FILE_FORMAT.md §9.12 for the `sMst` section that carries the parameters.
-//
-// DETERMINISM: coefficients are computed in binary64 from binary32 parameters
-// (the section stores f32), and the per-sample maths is binary64 like the rest
-// of the mix bus. The narrowing to binary32 still happens exactly once, after
-// this, where it always did.
+// Here: the record (defaults, ranges, normalisation to the binary32 the `sMst`
+// section stores — TAUD_FILE_FORMAT.md §9.12), and the static stages' magnitude
+// response, from the RBJ coefficients the engine computes. A rule restated
+// here is a twin of the C one (te_mastering_default, te_mastering_engaged,
+// te_bq_*); a change to one is a change to both.
 
 import { SAMPLING_RATE } from "./constants.js";
-// The limiter's true-peak mode reads the same 4× polyphase oversampler the
-// master-strip meters do (analysis.js) — one kernel, so the ceiling the limiter
-// holds and the number the meter reports are the same measurement.
-import { TruePeakProbe } from "./analysis.js";
 
 // ── Parameter model ─────────────────────────────────────────────────────────
 
@@ -56,16 +41,6 @@ export const COMP_RMS = 1;
 /** High-pass slopes, in dB/octave. 12 is one Butterworth section, 24 is two. */
 export const HP_SLOPE_12 = 0;
 export const HP_SLOPE_24 = 1;
-
-/**
- * Look-ahead, in milliseconds, of the limiter's gain computer — and therefore
- * the chain's latency whenever the limiter is on (twice this: see LimiterStage
- * for why the delay is two windows and not one). Fixed rather than exposed:
- * it is the one number in here whose value is a trade against latency rather
- * than against sound, and 1 ms of it is enough to turn every attack into a
- * ramp at every tempo.
- */
-export const LIMITER_LOOKAHEAD_MS = 1.0;
 
 /** Parameter ranges, as the UI and the codec both clamp them. */
 export const RANGE = Object.freeze({
@@ -241,31 +216,14 @@ export function masteringEqual(a, b) {
 export const dbToGain = (db) => 10 ** (db / 20);
 export const gainToDb = (g) => (g > 0 ? 20 * Math.log10(g) : -Infinity);
 
-// ── Biquad ──────────────────────────────────────────────────────────────────
-// RBJ cookbook sections, Direct Form I, normalised to a0. Coefficients live in
-// the section and the delay line is per channel, so ONE section serves every
-// channel of the bus it is installed on — which is also the statement that
-// makes a multichannel master well defined: the same filter, coefficient for
-// coefficient, on all of them (§12.3 of the engine spec).
+// ── Biquad coefficients ─────────────────────────────────────────────────────
+// RBJ cookbook sections normalised to a0 — the coefficients the engine's
+// te_bq_* compute, for the curves the Mastering view and the Mixing tab draw
+// (biquadDb). Nothing here filters a signal.
 
 export class Biquad {
-  constructor(channels = 2) {
+  constructor() {
     this.b0 = 1; this.b1 = 0; this.b2 = 0; this.a1 = 0; this.a2 = 0;
-    this.x1 = new Float64Array(channels); this.x2 = new Float64Array(channels);
-    this.y1 = new Float64Array(channels); this.y2 = new Float64Array(channels);
-  }
-
-  reset() {
-    this.x1.fill(0); this.x2.fill(0); this.y1.fill(0); this.y2.fill(0);
-  }
-
-  /** One sample of channel `c`. */
-  run(c, x) {
-    const y = this.b0 * x + this.b1 * this.x1[c] + this.b2 * this.x2[c] -
-      this.a1 * this.y1[c] - this.a2 * this.y2[c];
-    this.x2[c] = this.x1[c]; this.x1[c] = x;
-    this.y2[c] = this.y1[c]; this.y1[c] = y;
-    return y;
   }
 
   _set(b0, b1, b2, a0, a1, a2) {
@@ -279,6 +237,13 @@ export class Biquad {
     const cw = Math.cos(w), sw = Math.sin(w);
     const alpha = sw / (2 * q);
     this._set((1 + cw) / 2, -(1 + cw), (1 + cw) / 2, 1 + alpha, -2 * cw, 1 - alpha);
+  }
+
+  lowPass(freq, q, rate) {
+    const w = (2 * Math.PI * Math.min(freq, rate * 0.49)) / rate;
+    const cw = Math.cos(w), sw = Math.sin(w);
+    const alpha = sw / (2 * q);
+    this._set((1 - cw) / 2, 1 - cw, (1 - cw) / 2, 1 + alpha, -2 * cw, 1 - alpha);
   }
 
   peaking(freq, gainDb, q, rate) {
@@ -304,40 +269,6 @@ export class Biquad {
               (A + 1) + (A - 1) * cw - tsa);
   }
 
-  /** RBJ low-pass (item 217's cut filters and crossovers). */
-  lowPass(freq, q, rate) {
-    const w = (2 * Math.PI * Math.min(freq, rate * 0.49)) / rate;
-    const cw = Math.cos(w), sw = Math.sin(w);
-    const alpha = sw / (2 * q);
-    this._set((1 - cw) / 2, 1 - cw, (1 - cw) / 2, 1 + alpha, -2 * cw, 1 - alpha);
-  }
-
-  /** RBJ band-pass, constant 0 dB peak gain (a dynamic EQ's sensor). */
-  bandPass(freq, q, rate) {
-    const w = (2 * Math.PI * Math.min(freq, rate * 0.49)) / rate;
-    const cw = Math.cos(w), sw = Math.sin(w);
-    const alpha = sw / (2 * q);
-    this._set(alpha, 0, -alpha, 1 + alpha, -2 * cw, 1 - alpha);
-  }
-
-  /** RBJ notch. */
-  notch(freq, q, rate) {
-    const w = (2 * Math.PI * Math.min(freq, rate * 0.49)) / rate;
-    const cw = Math.cos(w), sw = Math.sin(w);
-    const alpha = sw / (2 * q);
-    this._set(1, -2 * cw, 1, 1 + alpha, -2 * cw, 1 - alpha);
-  }
-
-  /** RBJ all-pass. At Q = 1/√2 it is exactly what a Linkwitz–Riley 4th-order
-   *  low-pass and high-pass at the same frequency sum to — the phase a
-   *  multiband split owes the bands that did not pass through that crossover. */
-  allPass(freq, q, rate) {
-    const w = (2 * Math.PI * Math.min(freq, rate * 0.49)) / rate;
-    const cw = Math.cos(w), sw = Math.sin(w);
-    const alpha = sw / (2 * q);
-    this._set(1 - alpha, -2 * cw, 1 + alpha, 1 + alpha, -2 * cw, 1 - alpha);
-  }
-
   highShelf(freq, gainDb, q, rate) {
     const A = 10 ** (gainDb / 40);
     const w = (2 * Math.PI * Math.min(freq, rate * 0.49)) / rate;
@@ -351,555 +282,70 @@ export class Biquad {
               2 * ((A - 1) - (A + 1) * cw),
               (A + 1) - (A - 1) * cw - tsa);
   }
-}
 
-// ── Sliding-window minimum ──────────────────────────────────────────────────
-// A monotonic deque over a fixed window, O(1) amortised. The limiter's whole
-// no-overshoot guarantee rests on this: see LimiterStage.
-
-class SlidingMin {
-  /** Rebase point for the sample counter: an Int32 index would wrap after
-   *  about twelve hours of continuous playback, and a worklet does run for
-   *  days. Every stored index is shifted down when the counter reaches this. */
-  static REBASE = 0x20000000;
-
-  constructor(width) {
-    this.width = width;
-    // The deque can hold `width` candidates at once, and head === tail means
-    // empty — so the ring needs one spare slot to tell "full" from "empty".
-    this.cap = width + 1;
-    this.val = new Float64Array(this.cap);  // ring of candidate values
-    this.at = new Int32Array(this.cap);     // …and the index each arrived at
-    this.head = 0; this.tail = 0;           // [head, tail), tail = newest end
-    this.n = 0;                             // samples pushed so far
-    this.reset();
-  }
-
-  reset(fill = 1.0) {
-    // Prime with one candidate dated far enough back that it retires as soon
-    // as the window has rolled past it — so the very first outputs read `fill`
-    // (silence needs no gain reduction) instead of an empty deque's nothing.
-    this.n = 0;
-    this.val[0] = fill; this.at[0] = 0;
-    this.head = 0; this.tail = 1;
-  }
-
-  /** Push `v`, return the minimum over the last `width` samples. */
-  push(v) {
-    const i = this.n++;
-    const cap = this.cap;
-    // Drop candidates this sample dominates: anything ≥ v can never be the
-    // minimum again while v is in the window.
-    while (this.tail !== this.head) {
-      const prev = (this.tail - 1 + cap) % cap;
-      if (this.val[prev] >= v) this.tail = prev; else break;
-    }
-    this.val[this.tail] = v; this.at[this.tail] = i;
-    this.tail = (this.tail + 1) % cap;
-    // …and retire the front once it has fallen out of the window.
-    while (this.at[this.head] <= i - this.width) this.head = (this.head + 1) % cap;
-    if (this.n >= SlidingMin.REBASE) {
-      for (let k = this.head; k !== this.tail; k = (k + 1) % cap) {
-        this.at[k] -= SlidingMin.REBASE;
-      }
-      this.n -= SlidingMin.REBASE;
-    }
-    return this.val[this.head];
+  notch(freq, q, rate) {
+    const w = (2 * Math.PI * Math.min(freq, rate * 0.49)) / rate;
+    const cw = Math.cos(w), sw = Math.sin(w);
+    const alpha = sw / (2 * q);
+    this._set(1, -2 * cw, 1, 1 + alpha, -2 * cw, 1 - alpha);
   }
 }
 
-// ── The stages ──────────────────────────────────────────────────────────────
-
-/** Two Butterworth sections' worth of high-pass; the 12 dB/oct slope uses one. */
-class HighPassStage {
-  constructor(channels = 2) {
-    this.s1 = new Biquad(channels); this.s2 = new Biquad(channels); this.two = false;
-  }
-  configure(p, rate) {
-    this.two = p.hpSlope === HP_SLOPE_24;
-    if (this.two) {
-      // Cascaded Butterworth 4th order: the two section Qs of a normalised
-      // Butterworth quartic, 1/(2 cos(π/8)) and 1/(2 cos(3π/8)).
-      this.s1.highPass(p.hpFreq, 0.5411961001461969, rate);
-      this.s2.highPass(p.hpFreq, 1.3065629648763766, rate);
-    } else {
-      this.s1.highPass(p.hpFreq, Math.SQRT1_2, rate);
-    }
-  }
-  reset() { this.s1.reset(); this.s2.reset(); }
-  run(c, x) {
-    const y = this.s1.run(c, x);
-    return this.two ? this.s2.run(c, y) : y;
-  }
-}
-
-/** Four cascaded RBJ sections; a band that is off is simply not in the list. */
-class EqStage {
-  constructor(channels = 2) {
-    this.sections = [];
-    for (let i = 0; i < EQ_BANDS; i++) this.sections.push(new Biquad(channels));
-    this.live = [];
-  }
-  configure(p, rate) {
-    this.live = [];
-    for (let i = 0; i < EQ_BANDS; i++) {
-      const b = p.eq[i];
-      if (!b.on) continue;
-      const s = this.sections[i];
-      if (b.type === EQ_LOW_SHELF) s.lowShelf(b.freq, b.gainDb, b.q, rate);
-      else if (b.type === EQ_HIGH_SHELF) s.highShelf(b.freq, b.gainDb, b.q, rate);
-      else s.peaking(b.freq, b.gainDb, b.q, rate);
-      this.live.push(s);
-    }
-  }
-  reset() { for (const s of this.sections) s.reset(); }
-  run(c, x) {
-    let y = x;
-    for (let i = 0; i < this.live.length; i++) y = this.live[i].run(c, y);
-    return y;
-  }
-}
+// ── The curve ───────────────────────────────────────────────────────────────
 
 /**
- * Feed-forward compressor with a quadratic soft knee, computed in dB and
- * smoothed in dB — the arrangement that gives a ratio the meaning the label
- * claims at every level, instead of one that drifts with the detector.
- *
- * The detector is LINKED (one envelope drives every channel), which is the only
- * arrangement that leaves the image where the mixer put it — for a pair, and
- * just as much for a speaker layout or an ambisonic scene, where a per-channel
- * envelope would pull the whole sound field about whenever one direction got
- * loud.
+ * The chain as the Mastering view draws it: its static stages (trim, the
+ * high-pass, the EQ, the output gain) configured as the engine configures
+ * them. The dynamics are deliberately absent: a compressor has no frequency
+ * response, and drawing its make-up into the curve would be a lie about what
+ * the line means.
  */
-export class CompressorStage {
-  constructor() {
-    this.grDb = 0;        // current gain reduction, dB (negative)
-    this.levelDb = -120;  // the detector's last reading, dB — for a meter only
-    this.rms = 0;         // RMS detector's mean-square state
-    this.rmsCoef = 0;
-    this.attackCoef = 0; this.releaseCoef = 0;
-    this.thresh = 0; this.ratio = 1; this.knee = 0; this.makeup = 1;
-    this.peakMode = true;
-  }
-  configure(p, rate) {
-    this.peakMode = p.compDetector !== COMP_RMS;
-    this.thresh = p.compThreshDb;
-    this.ratio = p.compRatio;
-    this.knee = p.compKneeDb;
-    this.makeup = dbToGain(p.compMakeupDb);
-    this.attackCoef = onePole(p.compAttackMs, rate);
-    this.releaseCoef = onePole(p.compReleaseMs, rate);
-    // A 10 ms window is the usual "programme level" compromise: long enough to
-    // ignore a single cycle of a bass note, short enough to follow a phrase.
-    this.rmsCoef = onePole(10, rate);
-  }
-  reset() { this.grDb = 0; this.rms = 0; this.levelDb = -120; }
-
-  /** Update the envelope from the frame's linked detector and return the
-   *  linear gain to apply (makeup folded in). */
-  step(l, r) {
-    let level;
-    if (this.peakMode) {
-      const al = l < 0 ? -l : l;
-      const ar = r < 0 ? -r : r;
-      level = al > ar ? al : ar;
-    } else {
-      const ms = (l * l + r * r) * 0.5;
-      this.rms += (ms - this.rms) * this.rmsCoef;
-      level = Math.sqrt(this.rms);
-    }
-    return this.advance(level);
-  }
-
-  /**
-   * The same detector over `nch` planar channels of a channel-major buffer:
-   * the peak over EVERY channel of the frame, or the mean square of all of
-   * them. Both reduce to `step`'s arithmetic exactly at nch = 2 (`sum / 2` and
-   * `(l² + r²) × 0.5` are the same IEEE-754 number), so a two-channel bus put
-   * through here reads the level a stereo pair reads.
-   */
-  stepPlanar(data, n, stride, nch) {
-    let level;
-    if (this.peakMode) {
-      level = 0;
-      for (let c = 0; c < nch; c++) {
-        const x = data[c * stride + n];
-        const a = x < 0 ? -x : x;
-        if (a > level) level = a;
-      }
-    } else {
-      let sum = 0;
-      for (let c = 0; c < nch; c++) { const x = data[c * stride + n]; sum += x * x; }
-      this.rms += (sum / nch - this.rms) * this.rmsCoef;
-      level = Math.sqrt(this.rms);
-    }
-    return this.advance(level);
-  }
-
-  /** Gain computer + envelope, shared by both detectors. */
-  advance(level) {
-    // −120 dBFS floor: below it the gain computer has nothing to say and the
-    // logarithm has nowhere to go.
-    const levelDb = level > 1e-6 ? 20 * Math.log10(level) : -120;
-    this.levelDb = levelDb;
-    const over = levelDb - this.thresh;
-    const half = this.knee * 0.5;
-    let targetDb;
-    if (this.knee > 0 && over > -half && over < half) {
-      const t = over + half;
-      targetDb = -((1 - 1 / this.ratio) * t * t) / (2 * this.knee);
-    } else if (over > 0) {
-      targetDb = -over * (1 - 1 / this.ratio);
-    } else {
-      targetDb = 0;
-    }
-    // More reduction is an ATTACK, less is a RELEASE.
-    const coef = targetDb < this.grDb ? this.attackCoef : this.releaseCoef;
-    this.grDb += (targetDb - this.grDb) * coef;
-    return dbToGain(this.grDb) * this.makeup;
-  }
-}
-
-/**
- * Look-ahead brickwall limiter.
- *
- * The construction is the one that CANNOT overshoot, which matters more here
- * than anywhere else in the chain: this is the stage whose only job is a
- * promise about the ceiling.
- *
- *   1. `g[n]` — the gain sample n would need to sit at the ceiling.
- *   2. A sliding MINIMUM of g over 2D+1 samples.
- *   3. A rise-rate limit (the release), which can only push the gain lower.
- *   4. A moving AVERAGE over D+1 samples, which turns every step into a ramp.
- *   5. The audio, delayed by 2D.
- *
- * Steps 2 and 4 are what buy the guarantee. Every value the average at time n
- * covers is a minimum over a window that still contains sample n−2D, so every
- * term is ≤ g[n−2D] and so is their mean — and the rise limit only ever lowers
- * it further. A moving average alone (the common shortcut) does not have that
- * property and lets transients through by a decibel or so.
- *
- * The cost is 2D of latency, which is why D is one millisecond and not ten.
- */
-export class LimiterStage {
-  constructor(channels = 2) {
-    this.nch = channels;
-    this.d = 0;
-    // Channel-major, `2D` deep per channel — one allocation whatever the
-    // channel count, and the same index arithmetic for a pair and for sixteen
-    // ambisonic channels.
-    this.delay = null; this.dstride = 0; this.dpos = 0;
-    this.min = null;
-    this.avg = null; this.avgSum = 0; this.apos = 0;
-    this.env = 1;
-    this.releaseCoef = 0;
-    this.ceiling = 1;
-    this.truePeak = false;
-    this.probes = [];
-    for (let c = 0; c < channels; c++) this.probes.push(new TruePeakProbe());
-    this.grDb = 0; // most recent reduction, dB (negative), for the meter
-  }
-
-  configure(p, rate) {
-    const d = Math.max(1, Math.round((LIMITER_LOOKAHEAD_MS / 1000) * rate));
-    const geometryChanged = d !== this.d;
-    if (geometryChanged) {
-      this.d = d;
-      this.dstride = 2 * d;
-      this.delay = new Float64Array(this.nch * this.dstride);
-      this.min = new SlidingMin(2 * d + 1);
-      this.avg = new Float64Array(d + 1);
-    }
-    this.ceiling = dbToGain(p.limCeilingDb);
-    this.truePeak = !!p.limTruePeak;
-    this.releaseCoef = onePole(p.limReleaseMs, rate);
-    // New buffers hold nothing; existing ones hold audio that is still on its
-    // way out, and dropping it mid-drag is a click for every knob turn.
-    if (geometryChanged) this.reset();
-  }
-
-  /** Total latency in samples — what the rest of the chain has to declare. */
-  get latency() { return this.d === 0 ? 0 : 2 * this.d; }
-
-  reset() {
-    if (this.d === 0) return;
-    this.delay.fill(0); this.dpos = 0;
-    this.min.reset(1.0);
-    this.avg.fill(1.0); this.avgSum = this.avg.length; this.apos = 0;
-    this.env = 1;
-    for (let c = 0; c < this.nch; c++) this.probes[c].reset();
-    this.grDb = 0;
-  }
-
-  /**
-   * Steps 1-4 for one frame: fold the frame's peak into the gain computer and
-   * hand back the gain the frame now leaving the delay line is to be given.
-   * The peak is taken across ALL channels — which is what makes the ceiling a
-   * statement about the delivered samples rather than about one of them.
-   */
-  advance(peak) {
-    const need = peak > this.ceiling ? this.ceiling / peak : 1;
-
-    const m = this.min.push(need);
-    // Rise limit = release. A fall is instantaneous; the sliding minimum has
-    // already moved it D samples early, and step 4 turns that into a ramp.
-    this.env = m < this.env ? m : this.env + (m - this.env) * this.releaseCoef;
-
-    const w = this.avg.length;
-    this.avgSum += this.env - this.avg[this.apos];
-    this.avg[this.apos] = this.env;
-    this.apos = this.apos + 1 === w ? 0 : this.apos + 1;
-    const gain = this.avgSum / w;
-
-    if (gain < 1) {
-      const db = 20 * Math.log10(gain);
-      if (db < this.grDb) this.grDb = db;
-    }
-    return gain;
-  }
-
-  /** Feed one frame, get the delayed and limited frame back in `out`. */
-  step(l, r, out) {
-    const pl = this.truePeak ? this.probes[0].push(l) : (l < 0 ? -l : l);
-    const pr = this.truePeak ? this.probes[1].push(r) : (r < 0 ? -r : r);
-    const gain = this.advance(pl > pr ? pl : pr);
-
-    const d = this.delay, s = this.dstride, i = this.dpos;
-    const dl = d[i];
-    const dr = d[s + i];
-    d[i] = l;
-    d[s + i] = r;
-    this.dpos = i + 1 === s ? 0 : i + 1;
-
-    out[0] = dl * gain;
-    out[1] = dr * gain;
-  }
-
-  /** The same, in place over `nch` planar channels of a channel-major buffer. */
-  stepPlanar(data, n, stride) {
-    const nch = this.nch;
-    let peak = 0;
-    for (let c = 0; c < nch; c++) {
-      const x = data[c * stride + n];
-      const a = this.truePeak ? this.probes[c].push(x) : (x < 0 ? -x : x);
-      if (a > peak) peak = a;
-    }
-    const gain = this.advance(peak);
-
-    const d = this.delay, s = this.dstride, i = this.dpos;
-    for (let c = 0; c < nch; c++) {
-      const j = c * s + i;
-      const k = c * stride + n;
-      const held = d[j];
-      d[j] = data[k];
-      data[k] = held * gain;
-    }
-    this.dpos = i + 1 === s ? 0 : i + 1;
-  }
-}
-
-/** One-pole smoothing coefficient for a time constant in milliseconds. */
-export function onePole(ms, rate) {
-  const n = (ms / 1000) * rate;
-  return n <= 0 ? 1 : 1 - Math.exp(-1 / n);
-}
-
-// ── The chain ───────────────────────────────────────────────────────────────
-
-/**
- * The whole thing, stateful, one instance per playhead. `process` runs over a
- * block of the mix bus in place; the block size is irrelevant to the result
- * (everything is per-sample state), which is what keeps a render at one chunk
- * size identical to a render at another.
- *
- * `channels` is how wide the bus is. Two — the output stage's pair — is the
- * default and the only width the monitor path ever uses. A wider chain is what
- * a multichannel delivery gets (item 178.1, engine spec §12.3): the same
- * parameters, the same coefficients and the same envelopes, but with every
- * channel filtered identically, ONE dynamics detector reading all of them, and
- * the width stage either generalised or skipped. A mid/side round trip has no
- * meaning on six speaker feeds, and forcing one would rotate the sound field,
- * so a speaker layout skips it. An AMBISONIC scene (`ambisonic`: channel 0 is
- * W, the rest the directional harmonics, ACN order) has a mid and a side of its
- * own: W is what every direction shares, and the width scales every other
- * channel against it — SURROUND WIDTH (item 247), which is the stereo stage
- * exactly where the scene is decoded to the coincident pair W ± Y. Use
- * `processPlanar` for these; `process` is the pair.
- */
-export class MasterChain {
-  constructor(params = null, rate = SAMPLING_RATE, channels = 2, ambisonic = false) {
+export class MasterCurve {
+  constructor(params = null, rate = SAMPLING_RATE) {
     this.rate = rate;
-    this.channels = channels;
-    this.ambisonic = ambisonic && channels > 1;
-    this.hp = new HighPassStage(channels);
-    this.eq = new EqStage(channels);
-    this.comp = new CompressorStage();
-    this.lim = new LimiterStage(channels);
-    this.params = defaultMastering();
-    this._pair = [0, 0];
-    /** Peak gain reduction over the block just processed, dB (≤ 0). Drained by
-     *  the metering tap; the UI owns the ballistics, as everywhere else. */
-    this.compGrDb = 0;
-    this.limGrDb = 0;
-    // Always, even for a null argument: `engaged` and the two gain scalars are
-    // set here and nowhere else, so a chain that skipped it would read them as
-    // undefined on its first block.
-    this.setParams(params ?? this.params);
+    this.hp1 = new Biquad(); this.hp2 = new Biquad(); this.hpTwo = false;
+    this.eq = [];
+    for (let i = 0; i < EQ_BANDS; i++) this.eq.push(new Biquad());
+    this.setParams(params ?? defaultMastering());
   }
 
-  /** Install a parameter set. Coefficients are recomputed; the DELAY LINES are
-   *  not cleared, so dragging a knob while the song plays does not click. */
   setParams(params) {
     const p = normaliseMastering(params);
     this.params = p;
-    this.trimGain = dbToGain(p.trimDb);
-    this.outGain = dbToGain(p.outGainDb);
-    this.width = p.width;
-    if (p.hpOn) this.hp.configure(p, this.rate);
-    if (p.eqOn) this.eq.configure(p, this.rate);
-    if (p.compOn) this.comp.configure(p, this.rate);
-    if (p.limOn) this.lim.configure(p, this.rate);
-    this.engaged = masteringEngaged(p);
-  }
-
-  /** Latency this chain adds, in samples (the limiter's look-ahead, or zero). */
-  get latency() { return this.params.limOn ? this.lim.latency : 0; }
-
-  /** Clear every delay line and envelope. A transport reset owes the chain
-   *  this: a compressor still holding 6 dB of reduction from before a seek, or
-   *  a look-ahead buffer still holding two milliseconds of the previous
-   *  playback, is exactly the class of lingering state §15 of the engine spec
-   *  is about. */
-  reset() {
-    this.hp.reset();
-    this.eq.reset();
-    this.comp.reset();
-    this.lim.reset();
-    this.compGrDb = 0;
-    this.limGrDb = 0;
-  }
-
-  /**
-   * Process `frames` of the mix bus in place. `left`/`right` are the binary32
-   * mix buffers; the maths runs in binary64 and the result is stored back,
-   * narrowing once, exactly as an unmastered mix narrows once.
-   */
-  process(left, right, frames) {
-    const p = this.params;
-    if (!this.engaged) return;
-    if (this.channels !== 2) throw new Error("process() is the stereo pair; use processPlanar");
-    const trim = this.trimGain;
-    const out = this.outGain;
-    const doHp = p.hpOn, doEq = p.eqOn, doComp = p.compOn;
-    const doWidth = p.widthOn && this.width !== 1;
-    const doLim = p.limOn;
-    const w = this.width;
-    const pair = this._pair;
-    let compGr = 0;
-    this.lim.grDb = 0;
-
-    for (let n = 0; n < frames; n++) {
-      let l = left[n] * trim;
-      let r = right[n] * trim;
-      if (doHp) { l = this.hp.run(0, l); r = this.hp.run(1, r); }
-      if (doEq) { l = this.eq.run(0, l); r = this.eq.run(1, r); }
-      if (doComp) {
-        const g = this.comp.step(l, r);
-        l *= g; r *= g;
-        if (this.comp.grDb < compGr) compGr = this.comp.grDb;
+    if (p.hpOn) {
+      // A 24 dB/octave slope is a Butterworth quartic: two sections at
+      // 1/(2 cos(π/8)) and 1/(2 cos(3π/8)).
+      this.hpTwo = p.hpSlope === HP_SLOPE_24;
+      if (this.hpTwo) {
+        this.hp1.highPass(p.hpFreq, 0.5411961001461969, this.rate);
+        this.hp2.highPass(p.hpFreq, 1.3065629648763766, this.rate);
+      } else {
+        this.hp1.highPass(p.hpFreq, Math.SQRT1_2, this.rate);
       }
-      if (doWidth) {
-        const m = (l + r) * 0.5;
-        const s = (l - r) * 0.5 * w;
-        l = m + s; r = m - s;
-      }
-      if (doLim) {
-        this.lim.step(l, r, pair);
-        l = pair[0]; r = pair[1];
-      }
-      left[n] = l * out;
-      right[n] = r * out;
     }
-    this.compGrDb = compGr;
-    this.limGrDb = this.lim.grDb;
-  }
-
-  /**
-   * Process `frames` of a CHANNEL-MAJOR bus in place — `data[c * stride + n]`,
-   * which is the shape of the object bus a surround or ambisonic export is
-   * written from (spatial.js `SpatialBus.data`). The chain is the one declared
-   * for the song; only two things differ from the pair, and both are forced by
-   * what a channel bus is:
-   *
-   *   * the WIDTH stage scales an ambisonic scene's directional channels and
-   *     is skipped on any other bus — see the class docstring;
-   *   * the compressor's and the limiter's detectors read every channel, so
-   *     one gain moves the whole field and nothing about its geometry changes.
-   *
-   * Everything else — trim, high-pass, EQ, output gain — is applied to each
-   * channel with the identical coefficients, which is exactly the condition
-   * under which the filtering commutes with any linear decode of the bus.
-   *
-   * There is no narrowing here: the bus is binary64 all the way (§12.2's
-   * binary32 step exists for the 8-bit device, which a multichannel file is
-   * not), and the samples narrow once, where the file is written, at whatever
-   * depth it is written in. `data` MUST therefore be a Float64Array — unlike
-   * `process`, which keeps the frame in locals, this writes each stage's result
-   * back into the buffer, so a narrower array would round at every stage
-   * boundary instead of once at the end.
-   */
-  processPlanar(data, frames, stride) {
-    const p = this.params;
-    if (!this.engaged) return;
-    const nch = this.channels;
-    const trim = this.trimGain;
-    const out = this.outGain;
-    const doHp = p.hpOn, doEq = p.eqOn, doComp = p.compOn, doLim = p.limOn;
-    const doWidth = this.ambisonic && p.widthOn && this.width !== 1;
-    const w = this.width;
-    let compGr = 0;
-    this.lim.grDb = 0;
-
-    for (let n = 0; n < frames; n++) {
-      for (let c = 0; c < nch; c++) {
-        const i = c * stride + n;
-        let x = data[i] * trim;
-        if (doHp) x = this.hp.run(c, x);
-        if (doEq) x = this.eq.run(c, x);
-        data[i] = x;
+    if (p.eqOn) {
+      for (let i = 0; i < EQ_BANDS; i++) {
+        const b = p.eq[i];
+        if (!b.on) continue;
+        const s = this.eq[i];
+        if (b.type === EQ_LOW_SHELF) s.lowShelf(b.freq, b.gainDb, b.q, this.rate);
+        else if (b.type === EQ_HIGH_SHELF) s.highShelf(b.freq, b.gainDb, b.q, this.rate);
+        else s.peaking(b.freq, b.gainDb, b.q, this.rate);
       }
-      if (doComp) {
-        const g = this.comp.stepPlanar(data, n, stride, nch);
-        for (let c = 0; c < nch; c++) data[c * stride + n] *= g;
-        if (this.comp.grDb < compGr) compGr = this.comp.grDb;
-      }
-      if (doWidth) for (let c = 1; c < nch; c++) data[c * stride + n] *= w;
-      if (doLim) this.lim.stepPlanar(data, n, stride);
-      if (out !== 1) for (let c = 0; c < nch; c++) data[c * stride + n] *= out;
     }
-    this.compGrDb = compGr;
-    this.limGrDb = this.lim.grDb;
   }
 
-  /**
-   * The chain's magnitude response at `freq`, in dB — the static stages only
-   * (trim, high-pass, EQ, output gain), which is exactly what an EQ curve is
-   * supposed to draw. The dynamics stages are deliberately absent: a
-   * compressor has no frequency response, and drawing its makeup into the
-   * curve would be a lie about what the line means.
-   */
+  /** The static stages' magnitude response at `freq`, in dB. */
   responseDb(freq) {
     const p = this.params;
     if (!p.on) return 0;
     let db = p.trimDb + p.outGainDb;
     if (p.hpOn) {
-      db += biquadDb(this.hp.s1, freq, this.rate);
-      if (this.hp.two) db += biquadDb(this.hp.s2, freq, this.rate);
+      db += biquadDb(this.hp1, freq, this.rate);
+      if (this.hpTwo) db += biquadDb(this.hp2, freq, this.rate);
     }
     if (p.eqOn) {
-      for (let i = 0; i < EQ_BANDS; i++) {
-        if (p.eq[i].on) db += biquadDb(this.eq.sections[i], freq, this.rate);
-      }
+      for (let i = 0; i < EQ_BANDS; i++) if (p.eq[i].on) db += biquadDb(this.eq[i], freq, this.rate);
     }
     return db;
   }
@@ -920,7 +366,7 @@ export function biquadDb(s, freq, rate) {
   return 10 * Math.log10(num / den);
 }
 
-/** A configured chain's response curve over `n` log-spaced points from `lo` to
+/** A configured curve's response over `n` log-spaced points from `lo` to
  *  `hi` Hz — what the EQ display plots. Returns {freq, db} Float64Arrays. */
 export function responseCurve(chain, lo = 20, hi = 20000, n = 256) {
   const freq = new Float64Array(n);

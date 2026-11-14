@@ -12,7 +12,7 @@ import { TRACKER_CHUNK, SAMPLING_RATE, setSamplingRate } from "../../core/engine
 import { EffectOp } from "../../core/engine/tables.js";
 import { buildMetaRecord, makeMetaLayer } from "../../core/engine/inst.js";
 import { minifloatFromDouble } from "../../core/engine/minifloat.js";
-import { MOD_OFF, MOD_ROL1 } from "../../core/engine/samplemod.js";
+import { MOD_OFF, MOD_ROL1 } from "../../src/ui/samplemod.js";
 
 setSamplingRate(32000);
 

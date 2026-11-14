@@ -1,4 +1,4 @@
-/* Binaural monitoring — port of binaural.js.
+/* Binaural monitoring — ported from the JavaScript engine's binaural.js.
  *
  * The bus channels ARE an ambisonic scene (SN3D/ACN); the monitor pair is that
  * scene decoded through the SADIE HRIRs, one convolution per channel, summed.

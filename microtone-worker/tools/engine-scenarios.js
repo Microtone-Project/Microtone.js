@@ -7,15 +7,16 @@
 // the page draws from, the readbacks) are digested, and the digests are the
 // golden gate's second half (test/fixtures/engine-scenarios.json, checked by
 // engine-golden.test.js). They were recorded when the C engine had been shown
-// identical, scenario for scenario, to the JavaScript engine it replaced.
+// identical, scenario for scenario, to the JavaScript engine it replaced; the
+// meter scenarios held again when the meters moved into it (meters.c).
 //
-//   node --no-use-std-math-pow tools/engine-scenarios.js [scenario …]          check
-//   node --no-use-std-math-pow tools/engine-scenarios.js --write [scenario …]  re-record
+//   node tools/engine-scenarios.js [scenario …]          check
+//   node tools/engine-scenarios.js --write [scenario …]  re-record
 //
-// The flag makes V8 compute Math.pow with its own fdlibm port — the one the C
-// engine carries — so the JavaScript meter taps a scenario records are the
-// same bits on every machine. A deliberate change to what a host hears or
-// reads re-records the scenarios it moved, in the same batch, saying which.
+// Every number recorded is the engine's own (it carries its own pow), so the
+// digests are the same bits on every machine. A deliberate change to what a
+// host hears or reads re-records the scenarios it moved, in the same batch,
+// saying which.
 
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -32,6 +33,7 @@ import { setRandomSource, makeSeededRandom } from "../core/engine/rng.js";
 import { loadIntoEngine } from "../core/audio/offline-render.js";
 import { fillSnapshotInto } from "../core/worklet/engine-commands.js";
 import { goldenImixBlocks } from "./golden-set.js";
+import { normaliseMastering } from "../core/engine/mastering.js";
 import {
   SNAP_FLOATS, SNAP_AN_METERS, SNAP_HEADER_SIZE, SNAP_METER_BASE,
   SNAP_EP_BASE, SNAP_EP_COUNT, SNAP_EP_ENTRIES, SNAP_EP_STRIDE, SNAP_INTERRUPT_ARGS, SNAP_IM_BASE,
@@ -425,6 +427,41 @@ export const SCENARIOS = {
       r.render(80);
     },
   },
+  "the Mastering view metering a chain that works hard": {
+    file: DEMO("16uba_baion"),
+    script(r) {
+      const { eng } = r;
+      r.taps = true;
+      const chain = (over) => normaliseMastering({
+        on: true, trimDb: 9, hpOn: true, hpFreq: 60, hpSlope: 1, eqOn: true,
+        eq: [
+          { on: true, type: 0, freq: 120, gainDb: 4, q: 0.7 },
+          { on: true, type: 1, freq: 500, gainDb: -3, q: 1.4 },
+          { on: false, type: 1, freq: 2500, gainDb: 6, q: 1 },
+          { on: true, type: 2, freq: 9000, gainDb: 5, q: 0.7 },
+        ],
+        compOn: true, compDetector: 1, compThreshDb: -24, compRatio: 6, compAttackMs: 3,
+        compReleaseMs: 120, compKneeDb: 8, compMakeupDb: 4,
+        widthOn: true, width: 1.6,
+        limOn: true, limTruePeak: true, limCeilingDb: -1.5, limReleaseMs: 60, outGainDb: 1,
+        ...over,
+      });
+      eng.setMastering(0, chain({}));
+      eng.setAnalysis(0, "stereo");
+      eng.setMasterMeter(0, true, true, 16, 2);
+      playFromTop(r);
+      r.render(300);
+      eng.setMasterMeter(0, true, true, 8, 2);
+      eng.setMastering(0, chain({ compDetector: 0, limTruePeak: false, hpSlope: 0, width: 0.4 }));
+      r.render(200);
+      eng.setMasterMeter(0, true, false, 16, 1);
+      eng.setMastering(0, chain({ trimDb: 18, compOn: false }));   // the limiter alone, driven
+      r.render(200);
+      eng.setMasterMeter(0, true, true, 16, 0);
+      eng.resetParams(0);
+      r.render(60);
+    },
+  },
   "the master strip metering a surround song, field and speakers": {
     file: DEMO("WHEN_AMBI"),
     script(r) {
@@ -674,10 +711,6 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
   const write = args.includes("--write");
   const names = args.filter((a) => a !== "--write");
-  if (!process.execArgv.includes("--no-use-std-math-pow")) {
-    console.error("run with node --no-use-std-math-pow: the recorded meters need V8's own pow");
-    process.exit(2);
-  }
   let fixture = { rate: RATE, scenarios: {} };
   try { fixture = JSON.parse(readFileSync(SCENARIO_FIXTURE, "utf8")); } catch { /* first run */ }
   let bad = 0;

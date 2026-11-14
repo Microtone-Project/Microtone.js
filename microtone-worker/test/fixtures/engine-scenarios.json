@@ -184,6 +184,14 @@
       "u8": "7800bf4939a0f33a82cb1c5ce3aef01ca82938ebca2baf456060a37cc1d3f369",
       "notes": "00d16ccfa4c05b697bfd40d785f06246e40fce4f69462fd5b5babbeebf9f1ee8",
       "peak": 0.693
+    },
+    "the Mastering view metering a chain that works hard": {
+      "file": "assets/demo_projects/16uba_baion.taud",
+      "chunks": 760,
+      "f32": "78a7dd8b8d96acbee79395152314032f263dfa5441a6af16970a1201d44284b3",
+      "u8": "b67f36c813dfee1d52e6c706232a71ef0aff70b0a1a5fc2c63a13f7b01a1cf5e",
+      "notes": "7364b0bc620ad22d0cfd6ec4ec453abebd5cc355d6cfe869b778040e0df5daee",
+      "peak": 0.944
     }
   }
 }

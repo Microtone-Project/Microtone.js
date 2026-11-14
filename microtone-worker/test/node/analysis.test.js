@@ -1,6 +1,7 @@
 // Master-strip analysis tap (item 98) — the maths behind the meters and the
 // vectorscopes, plus the guard that matters most: the tap is a TAP. Turning it
-// on must not move a single sample of the mix.
+// on must not move a single sample of the mix. The tap is the engine's
+// (core/engine/c/src/meters.c), driven here through its parts.
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -9,13 +10,12 @@ import { readFile } from "node:fs/promises";
 import {
   ANALYSIS_OFF, ANALYSIS_STEREO, ANALYSIS_AMBISONIC,
   ANALYSIS_MAX_METERS, SCOPE_FRAMES, SCOPE_CHANNELS, SCOPE_W, SCOPE_Y, SCOPE_Z, SCOPE_X,
-  METER_MIX, METER_FOA, METER_SPEAKERS,
-  AnalysisTap, AnalysisRenderer, TruePeakDetector,
   availableTargets, meterLabels, meterDisplay, makeAnalysisReadout,
 } from "../../core/engine/analysis.js";
 import {
-  SURROUND_STEREO, SURROUND_PLANAR, SURROUND_SPATIAL, SpatialBus,
+  SURROUND_STEREO, SURROUND_PLANAR, SURROUND_SPATIAL,
 } from "../../core/engine/spatial.js";
+import { engineParts } from "../fixtures/engine-parts.js";
 import { TRACKER_CHUNK, SAMPLING_RATE } from "../../core/engine/constants.js";
 import { TaudEngine } from "../../core/engine/engine.js";
 import { parseTaud } from "../../core/format/taud-parse.js";
@@ -34,6 +34,11 @@ import {
 } from "../../src/ui/views/masterstrip.js";
 
 const corpusDir = new URL("../corpus/", import.meta.url).pathname;
+
+/** The engine's parts, and its tap's meter sources (meters.c METER_*). */
+const P = engineParts();
+const METER_MIX = 0, METER_FOA = 1, METER_SPEAKERS = 2;
+const AnalysisTap = class { constructor(target, model) { return P.analysisTap(target, model); } };
 
 /**
  * Push `frames` samples through a tap the way the mixer does — the object bus
@@ -61,7 +66,7 @@ function planeWave(az, el, amp = 1) {
     const bus = tap.bus;
     if (gains === null) {
       gains = new Float64Array(bus.numChannels);
-      bus.renderer.channelGains(az, el, gains, 0);
+      bus.channelGains(az, el, gains, 0);
     }
     for (let i = 0; i < n; i++) {
       bus.addSource(i, amp * Math.sin((2 * Math.PI * 400 * (f0 + i)) / 32000), gains, 0, 1.0);
@@ -89,8 +94,8 @@ test("uncorrelated sources sum their energy", () => {
   const tap = new AnalysisTap(ANALYSIS_AMBISONIC, SURROUND_SPATIAL);
   const g1 = new Float64Array(tap.bus.numChannels);
   const g2 = new Float64Array(tap.bus.numChannels);
-  tap.bus.renderer.channelGains(0, 0, g1, 0);     // hard left
-  tap.bus.renderer.channelGains(256, 60, g2, 0);  // right and above
+  tap.bus.channelGains(0, 0, g1, 0);     // hard left
+  tap.bus.channelGains(256, 60, g2, 0);  // right and above
   const r = feed(tap, frames, (t, l, rr, n, f0) => {
     for (let i = 0; i < n; i++) {
       // Two different frequencies → uncorrelated over the window.
@@ -245,14 +250,14 @@ test("true peak never reads below the sample peak, and finds what sits between",
 });
 
 test("true peak of a constant is that constant (unity DC gain per branch)", () => {
-  const tp = new TruePeakDetector(1);
-  for (let i = 0; i < 64; i++) tp.push(0, 0.5);
+  const tp = P.truePeakProbe();
+  for (let i = 0; i < 64; i++) tp.push(0.5);
   // The measurement starts once the history is steady: the step from silence
   // into the constant is itself a real inter-sample overshoot (Gibbs), and a
   // true-peak meter is supposed to report that.
-  tp.clearPeaks();
-  for (let i = 0; i < 8; i++) tp.push(0, 0.5);
-  assert.ok(Math.abs(tp.peaks[0] - 0.5) < 1e-12, String(tp.peaks[0]));
+  let peak = 0;
+  for (let i = 0; i < 8; i++) peak = Math.max(peak, tp.push(0.5));
+  assert.ok(Math.abs(peak - 0.5) < 1e-12, String(peak));
 });
 
 test("clip counts samples at full scale", () => {
@@ -324,12 +329,14 @@ test("the tap can be installed and dropped mid-song", () => {
 
 test("switching the surround model rebuilds the tap for it", () => {
   const eng = new TaudEngine();
+  const ts = eng.playheads[0].trackerState;
   eng.setAnalysis(0, ANALYSIS_AMBISONIC);
-  assert.equal(eng.playheads[0].trackerState.analysis.bus, null); // stereo song
+  // A stereo song has no field to meter: the tap reads the pair, with no bus.
+  assert.equal(ts.analysis.drain(makeAnalysisReadout()).meterCount, 2);
+  assert.equal(ts.analysisBus, null);
   eng.setSurroundModel(0, SURROUND_SPATIAL);
-  const tap = eng.playheads[0].trackerState.analysis;
-  assert.ok(tap.bus !== null, "a spatial song encodes from the voices");
-  assert.equal(tap.meterCount, 4);
+  assert.ok(ts.analysisBus !== null, "a spatial song encodes from the voices");
+  assert.equal(ts.analysis.drain(makeAnalysisReadout()).meterCount, 4);
 });
 
 // ── the strip's own display maths ──────────────────────────────────────────
@@ -625,22 +632,23 @@ test("the snapshot's meter block is wide enough for every target", () => {
   }
 });
 
-test("the analysis renderer is a SpatialRenderer like any other", () => {
-  const r = new AnalysisRenderer("quad");
-  const bus = new SpatialBus(r, 8);
+test("the analysis bus is the scope harmonics, then the layout's speakers", () => {
+  const tap = new AnalysisTap("quad", SURROUND_PLANAR);
+  const bus = tap.bus;
   assert.equal(bus.numChannels, SCOPE_CHANNELS + 4);
   const g = new Float64Array(bus.numChannels);
-  r.channelGains(128, 0, g, 0);
+  bus.channelGains(128, 0, g, 0);
   assert.ok(Math.abs(g[0] - 1) < 1e-12, "W is omnidirectional");
   assert.ok(Math.abs(g[3] - 1) < 1e-12, "X points front");
-  assert.equal(r.numChannels, bus.numChannels);
-  // Its monitorStereo is the virtual stereo decode the correlation meter uses.
-  const data = new Float64Array(bus.numChannels * 8);
-  data[0] = 1;       // W
-  data[8] = 1;       // Y (hard left)
-  const out = new Float64Array(2);
-  r.monitorStereo(data, 8, 0, out);
-  assert.ok(out[0] > out[1], "left louder than right");
+  // The correlation meter reads the field's coincident cardioid decode, W ± Y:
+  // a source hard left is left of the pair.
+  const mix = new Float32Array(TRACKER_CHUNK);
+  tap.begin();
+  bus.channelGains(0, 0, g, 0);
+  for (let n = 0; n < 64; n++) bus.addSource(n, 1, g, 0, 1);
+  tap.finish(64, mix, mix);
+  const r = tap.drain(makeAnalysisReadout());
+  assert.ok(r.corrLL > r.corrRR * 100, `left ${r.corrLL} against right ${r.corrRR}`);
 });
 
 // ── item 126: is the RMS bar a TRUE RMS? ───────────────────────────────────

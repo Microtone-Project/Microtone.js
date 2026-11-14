@@ -5,8 +5,11 @@
 // It lives here rather than beside its first user because it now has three:
 // the radiation surface and the soundfield cloud (src/ui/), the Mastering
 // view's live spectrometer, and the offline spectral analysis (src/audio/).
-// Pure computation with no DOM and no engine state, so it satisfies the
-// core/engine/ rule and can be unit-tested on its own.
+// Pure computation with no DOM and no engine state, so it can be unit-tested
+// on its own. It draws pictures of what the engine measured — the engine's
+// rings, the offline analysis's columns — and measures nothing the engine
+// does (core/engine/c/src/meters.c is the metering), which is why it lives
+// with the tracker rather than in core/.
 //
 // The FFT is the one radiation.js has always used, moved verbatim — the
 // radiation surface and the cloud still import it from there, so nothing about

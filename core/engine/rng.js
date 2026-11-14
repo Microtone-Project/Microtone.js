@@ -1,23 +1,11 @@
 // Randomness seams for the Taud engine. No engine file may call Math.random
 // directly — everything routes through here so tests (the golden gate) can seed it.
 //
-// Two independent streams, mirroring AudioAdapter.kt:
-//  - xorshift32: the noise-shaped dither PRNG in pcm32fToPcm8 (deterministic,
-//    seeded constant per adapter instance — AudioAdapter.kt:1199-1214)
-//  - random(): Math.random uses — vol/pan swing at trigger (2593-2597) and the
-//    random LFO waveform 3 (1432). Musically intended nondeterminism in
-//    production; injectable for tests.
-
-export function makeXorshift32(seed = 0x9e3779b9) {
-  let x = seed >>> 0;
-  return function xorshift32() {
-    x ^= (x << 13) >>> 0;
-    x ^= x >>> 17;
-    x ^= (x << 5) >>> 0;
-    x = x >>> 0;
-    return x;
-  };
-}
+// The engine's own streams live in the module (its mulberry32, and the dither's
+// xorshift32 at the adapter's seed — mixer.c te_xorshift32). What is here is
+// random(): Math.random uses — vol/pan swing at trigger and the random LFO
+// waveform — musically intended nondeterminism in production, injectable for
+// tests, and the seed the module's stream starts from (engineSeed).
 
 // Injectable uniform [0,1) source.
 let _random = Math.random;

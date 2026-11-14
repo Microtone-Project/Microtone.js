@@ -13,9 +13,8 @@ import { fileURLToPath } from "node:url";
 
 import { parseTaud } from "../core/format/taud-parse.js";
 import { TaudEngine } from "../core/engine/engine.js";
-import { setSamplingRate } from "../core/engine/constants.js";
+import { setSamplingRate, MONITOR_BINAURAL } from "../core/engine/constants.js";
 import { setRandomSource, makeSeededRandom } from "../core/engine/rng.js";
-import { MONITOR_BINAURAL } from "../core/engine/binaural.js";
 import { loadIntoEngine, renderSong } from "../core/audio/offline-render.js";
 import * as IMX from "../core/engine/imix.js";
 

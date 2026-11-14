@@ -24,9 +24,8 @@ const FILES = [
   "core/engine/tables.js",
   "core/engine/spatial.js",
   "core/engine/speakers.js",
-  "core/engine/analysis.js",   // the master strip's tap (JavaScript, on the module's memory)
-  "core/engine/dither.js",
-  "core/engine/loudness.js",   // the Mastering view's tap, likewise
+  "core/engine/analysis.js",   // the meters' shapes (the taps are the engine's, meters.c)
+  "core/engine/loudness.js",
   "core/engine/mastering.js",
   "core/engine/imix.js",
   // The mastering and mixing-chain blocks cross into the engine as the file's

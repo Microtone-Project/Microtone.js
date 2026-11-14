@@ -7,22 +7,8 @@
 import { PATTERN_BYTES, PATTERN_BYTES_WIDE } from "../engine/constants.js";
 import {
   CMD, SNAP_HEADER_SIZE, SNAP_INTERRUPT_MASK, SNAP_INTERRUPT_ARGS, SNAP_SAB_I32_MASK,
-  SNAP_SAB_I32_ARGS, SNAP_AN_METERS, SNAP_AN_FRAMES, SNAP_AN_FIELD, SNAP_AN_CORR_LL,
-  SNAP_AN_CORR_RR, SNAP_AN_CORR_LR, SNAP_AN_RING_WRITE, SNAP_METER_BASE, SNAP_METER_STRIDE,
-  SNAP_M_PEAK, SNAP_M_TRUE_PEAK, SNAP_M_MEAN_SQUARE, SNAP_M_CLIP, SNAP_SCOPE_BASE, SNAP_MM_FRAMES,
-  SNAP_MM_COMP_GR, SNAP_MM_LIM_GR, SNAP_MM_HIST_TOTAL, SNAP_MM_BASE, SNAP_MM_SUM_Z, SNAP_MM_CH,
-  SNAP_MM_C_PEAK, SNAP_MM_C_TRUE_PEAK, SNAP_MM_C_MEAN_SQUARE, SNAP_MM_C_CLIP, SNAP_MM_C_STRIDE,
-  SNAP_MM_STAGE_STRIDE, SNAP_MM_AP_PEAK, SNAP_MM_AP_SUM_SQ, SNAP_MM_STAGES, SNAP_HIST_BASE,
-  SNAP_HIST_BINS, SNAP_MM_SPEC_WRITE, SNAP_SPEC_BASE, SNAP_SPEC_FRAMES, SNAP_PAIR_BASE,
-  SNAP_MM_HIST_DEPTH, SNAP_MM_HIST_USED, SNAP_MM_HIST_MIN, SNAP_MM_HIST_MAX, SNAP_MM_HIST_ENTROPY,
-  SNAP_IM_BASE, SNAP_FLOATS,
+  SNAP_SAB_I32_ARGS, SNAP_METER_BASE, SNAP_MM_BASE, SNAP_IM_BASE, SNAP_FLOATS,
 } from "./protocol.js";
-import { ANALYSIS_MAX_METERS, makeAnalysisReadout } from "../engine/analysis.js";
-import { makeMasterMeterReadout } from "../engine/loudness.js";
-
-/** Reused drain targets — the snapshot path never allocates. */
-const analysisReadout = makeAnalysisReadout();
-const masterMeterReadout = makeMasterMeterReadout();
 
 /**
  * Apply an engine-mutating command to `eng`. Returns true if handled here.
@@ -138,11 +124,10 @@ export function drainInterruptsInto(eng, playhead, f, i32 = null) {
 }
 
 /** Write every snapshot field except the interrupt latch into `f`. The
- *  engine writes the playhead, the voice blocks, the Mixing tab's meter blocks
- *  and the envelope playheads itself (snapshot.c, imixtap.c — the offsets are
- *  protocol.js's, through snap_layout.h) into a buffer of its own, and they are
- *  copied from there; the master strip's and the Mastering view's taps are
- *  JavaScript (analysis.js, loudness.js) and drain here. */
+ *  engine writes them all (snapshot.c, imixtap.c, meters.c — the offsets are
+ *  protocol.js's, through snap_layout.h) into a buffer of its own, draining
+ *  the meters as it goes, and they are copied from there. A meter that is
+ *  off leaves its block in `f` as it was: only its "off" marker moves. */
 export function fillSnapshotInto(eng, playhead, f) {
   const ts = eng.playheads[playhead].trackerState;
   const v = eng.snapshotView(SNAP_FLOATS);
@@ -152,108 +137,12 @@ export function fillSnapshotInto(eng, playhead, f) {
     const end = Math.min(to, f.length);
     if (end > from) f.set(v.subarray(from, end), from);
   };
-  // The playhead's fields sit either side of the interrupt latch's slot,
-  // which is drainInterruptsInto's and must not be written over.
+  // The playhead's fields and the meters' sit either side of the interrupt
+  // latch's slot, which is drainInterruptsInto's and must not be written over.
   put(0, SNAP_INTERRUPT_MASK);
-  put(SNAP_INTERRUPT_MASK + 1, SNAP_AN_METERS);
+  put(SNAP_INTERRUPT_MASK + 1, SNAP_INTERRUPT_ARGS);
   put(SNAP_HEADER_SIZE, SNAP_METER_BASE);
+  if (ts.analysis !== null) put(SNAP_METER_BASE, SNAP_MM_BASE);  // the strip's meters and scope ring
+  if (ts.masterMeter !== null) put(SNAP_MM_BASE, SNAP_IM_BASE);   // the Mastering view's figures and rings
   put(SNAP_IM_BASE, SNAP_FLOATS); // the Mixing-tab seats, then the envelope playheads
-  fillAnalysisInto(ts, f);
-  fillMasterMeterInto(ts, f);
-}
-
-/**
- * Mastering-meter block (item 178). Drains the view's own tap — the K-weighted
- * energy, the allpassed crest's peak and energy, the per-channel
- * peak/true-peak/mean-square/clip figures on BOTH sides of the chain, the
- * chain's gain reduction, and the delivered 8-bit code histogram. With the tap
- * off only the "no frames" marker is written.
- */
-function fillMasterMeterInto(ts, f) {
-  const tap = ts.masterMeter;
-  if (tap === null) {
-    f[SNAP_MM_FRAMES] = 0;
-    f[SNAP_MM_COMP_GR] = 0;
-    f[SNAP_MM_LIM_GR] = 0;
-    f[SNAP_MM_HIST_TOTAL] = 0;
-    f[SNAP_MM_SPEC_WRITE] = 0;
-    f[SNAP_MM_HIST_DEPTH] = 0;
-    f[SNAP_MM_HIST_USED] = 0;
-    f[SNAP_MM_HIST_MIN] = 0;
-    f[SNAP_MM_HIST_MAX] = 0;
-    f[SNAP_MM_HIST_ENTROPY] = 0;
-    return;
-  }
-  const r = tap.drain(masterMeterReadout);
-  f[SNAP_MM_FRAMES] = r.frames;
-  f[SNAP_MM_COMP_GR] = r.compGrDb;
-  f[SNAP_MM_LIM_GR] = r.limGrDb;
-  for (let s = 0; s < SNAP_MM_STAGES; s++) {
-    const o = SNAP_MM_BASE + s * SNAP_MM_STAGE_STRIDE;
-    f[o + SNAP_MM_SUM_Z] = r.sumZ[s];
-    for (let c = 0; c < 2; c++) {
-      const co = o + SNAP_MM_CH + c * SNAP_MM_C_STRIDE;
-      const i = s * 2 + c;
-      f[co + SNAP_MM_C_PEAK] = r.peak[i];
-      f[co + SNAP_MM_C_TRUE_PEAK] = r.truePeak[i];
-      f[co + SNAP_MM_C_MEAN_SQUARE] = r.meanSquare[i];
-      f[co + SNAP_MM_C_CLIP] = r.clip[i];
-    }
-    f[o + SNAP_MM_AP_PEAK] = r.apPeak[s];
-    f[o + SNAP_MM_AP_SUM_SQ] = r.apSumSq[s];
-  }
-  // Normalised buckets (see protocol.js): a raw count leaves float32's exact
-  // integer range after a few minutes on one code. The FIGURES come from the
-  // full-resolution census the tap kept, not from these.
-  const bits = r.bits;
-  const total = bits.total;
-  f[SNAP_MM_HIST_TOTAL] = total;
-  f[SNAP_MM_HIST_DEPTH] = r.bitDepth;
-  f[SNAP_MM_HIST_USED] = bits.used;
-  f[SNAP_MM_HIST_MIN] = bits.minCode;
-  f[SNAP_MM_HIST_MAX] = bits.maxCode;
-  f[SNAP_MM_HIST_ENTROPY] = bits.entropyBits;
-  const inv = total > 0 ? 1 / total : 0;
-  for (let i = 0; i < SNAP_HIST_BINS; i++) f[SNAP_HIST_BASE + i] = r.buckets[i] * inv;
-  f[SNAP_MM_SPEC_WRITE] = r.specWrite;
-  for (let s = 0; s < SNAP_MM_STAGES; s++) {
-    f.set(r.spec[s], SNAP_SPEC_BASE + s * SNAP_SPEC_FRAMES);
-    f.set(r.pair[s], SNAP_PAIR_BASE + s * 2 * SNAP_SPEC_FRAMES);
-  }
-}
-
-/**
- * Master-strip block (item 98). Drains the analysis tap — meters, correlation
- * sums, field energy and the B-format scope ring — into the snapshot. With the
- * tap off, only the "no meters" marker is written; the ring keeps whatever it
- * last held, which nothing reads.
- */
-function fillAnalysisInto(ts, f) {
-  const tap = ts.analysis;
-  if (tap === null) {
-    f[SNAP_AN_METERS] = 0;
-    f[SNAP_AN_FRAMES] = 0;
-    f[SNAP_AN_FIELD] = 0;
-    f[SNAP_AN_CORR_LL] = 0;
-    f[SNAP_AN_CORR_RR] = 0;
-    f[SNAP_AN_CORR_LR] = 0;
-    return;
-  }
-  const r = tap.drain(analysisReadout);
-  f[SNAP_AN_METERS] = r.meterCount;
-  f[SNAP_AN_FRAMES] = r.frames;
-  f[SNAP_AN_FIELD] = r.fieldEnergy;
-  f[SNAP_AN_CORR_LL] = r.corrLL;
-  f[SNAP_AN_CORR_RR] = r.corrRR;
-  f[SNAP_AN_CORR_LR] = r.corrLR;
-  f[SNAP_AN_RING_WRITE] = r.ringWrite;
-  for (let c = 0; c < ANALYSIS_MAX_METERS; c++) {
-    const o = SNAP_METER_BASE + c * SNAP_METER_STRIDE;
-    const live = c < r.meterCount;
-    f[o + SNAP_M_PEAK] = live ? r.peak[c] : 0;
-    f[o + SNAP_M_TRUE_PEAK] = live ? r.truePeak[c] : 0;
-    f[o + SNAP_M_MEAN_SQUARE] = live ? r.meanSquare[c] : 0;
-    f[o + SNAP_M_CLIP] = live ? r.clip[c] : 0;
-  }
-  f.set(tap.ring, SNAP_SCOPE_BASE);
 }

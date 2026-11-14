@@ -314,9 +314,9 @@ class TrackerStateView extends WasmTrackerState {
     return list;
   }
 }
-// `imixMeters` stays the base class's own (the seats' JavaScript side), not
-// the C record's pointer pair of the same name.
-mixInRecord(TrackerStateView.prototype, "TaudEngine", ["imixMeters"]);
+// The meters' pointers are not views: `masterMeter` is the base class's
+// handle (wasm-engine.js WasmMasterMeter), and the taps' records are opaque.
+mixInRecord(TrackerStateView.prototype, "TaudEngine", ["imixMeters", "masterMeter", "analysisTap", "busMastering"]);
 
 class PlayheadView extends WasmPlayhead {
   constructor(eng) {

@@ -740,6 +740,7 @@ void te_reset_play_state(TaudEngine *e)
     te_imix_reset_chains(e);
     /* …and the Mixing tab's meters: their integration describes one playback. */
     for (i = 0; i < IMX_METER_SEATS; i++) if (e->imixMeters[i] != NULL) te_imix_tap_reset_all(e->imixMeters[i]);
+    if (e->masterMeter != NULL) te_master_meter_reset_all(e->masterMeter);
 }
 
 void te_set_tracker_row(TaudEngine *e, int row)
@@ -857,7 +858,32 @@ unsigned te_drain_interrupts(TaudEngine *e)
     return m;
 }
 
-bool te_render_chunk(TaudEngine *e) { return te_generate_tracker_audio(e); }
+/* Render one chunk; then a multichannel export's chain runs over its bus and
+ * the meters take the chunk in. Not on a chunk the song halted before. */
+bool te_render_chunk(TaudEngine *e)
+{
+    if (!te_generate_tracker_audio(e)) return false;
+    if (e->busMastering != NULL && e->spatial != NULL &&
+        te_master_chain_channels(e->busMastering) == e->spatial->numChannels) {
+        te_master_chain_process_planar(e->busMastering, e->spatial->data, TRACKER_CHUNK, TRACKER_CHUNK);
+    }
+    if (e->analysisTap != NULL || e->masterMeter != NULL) te_meters_after_render(e);
+    return true;
+}
+
+/* Master the render target's bus instead of the pair (a multichannel export,
+ * engine spec §12.3): `params` engaged = a chain as wide as the bus as it now
+ * stands — set the target first — or NULL / not engaged = none. The pair's
+ * own chain is the host's to switch off. */
+void te_set_bus_mastering(TaudEngine *e, const TaudMastering *params)
+{
+    te_master_chain_free(e->busMastering);
+    e->busMastering = NULL;
+    if (params == NULL || !te_mastering_engaged(params) || e->spatial == NULL) return;
+    e->busMastering = te_master_chain_new_planar(params, e->rate, e->spatial->numChannels,
+                                                 e->rendererKind == RENDER_AMBISONIC);
+    if (e->busMastering == NULL) e->oom = true;
+}
 
 /* Install the project's LYRICS (the `ILyr` section, §9.17): `count` decoded
  * entries, replacing whatever was installed — an instrument no entry names
@@ -964,6 +990,9 @@ void te_engine_free(TaudEngine *e)
     while (c != NULL) { TaudVoiceChunk *n = c->next; free(c); c = n; }
     free(e->spatial);
     free(e->analysisBus);
+    free(e->analysisTap);
+    te_master_meter_free(e->masterMeter);
+    te_master_chain_free(e->busMastering);
     for (i = 0; i < IMX_METER_SEATS; i++) free(e->imixMeters[i]);
     free(e->stemLog);
     te_binaural_free(e->binaural);

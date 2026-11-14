@@ -308,6 +308,8 @@ void te_reset_params(TaudEngine *e)
      * the chain the previous one left installed. */
     te_mastering_default(&neutral);
     te_set_mastering(e, &neutral);
+    /* …and the Mastering view's meter starts its integration again. */
+    if (e->masterMeter != NULL) te_master_meter_reset_all(e->masterMeter);
     /* The instrument chains' PARAMETERS are the engine's; their running
      * state is the playback's. */
     te_imix_reset_chains(e);

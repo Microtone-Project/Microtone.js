@@ -466,18 +466,25 @@ const float *tw_mix_left(const TaudEngine *e) { return e->mixLeft; }
 TW_EXPORT(tw_mix_right)
 const float *tw_mix_right(const TaudEngine *e) { return e->mixRight; }
 
-/** Install the master strip's analysis bus (te_set_analysis_bus) and return
- *  its data — numChannels × TRACKER_CHUNK doubles, channel-major: the nine
- *  scope harmonics, then the layout's speaker feeds — or NULL for none. */
-TW_EXPORT(tw_set_analysis_bus)
-const double *tw_set_analysis_bus(TaudEngine *e, int layout)
+/** The master strip's tap (meters.c): target −1 = off, else AN_TARGET_* and,
+ *  for a speaker target, its layout 1…3. Install it again when the surround
+ *  model or the render target moves: its shape follows them. */
+TW_EXPORT(tw_set_analysis)
+void tw_set_analysis(TaudEngine *e, int target, int layout) { te_set_analysis(e, target, layout); }
+
+/** Hand the strip's interval over into `out` (AN_READOUT doubles) and start
+ *  the next; 0 when the tap is off. tw_fill_snapshot does the same. */
+TW_EXPORT(tw_analysis_drain)
+int tw_analysis_drain(TaudEngine *e, double *out)
 {
-    te_set_analysis_bus(e, layout);
-    return e->analysisBus != NULL ? e->analysisBus->data : NULL;
+    if (e->analysisTap == NULL) return 0;
+    te_analysis_drain(e->analysisTap, out);
+    return 1;
 }
 
-TW_EXPORT(tw_analysis_bus_channels)
-int tw_analysis_bus_channels(const TaudEngine *e) { return e->analysisBus != NULL ? e->analysisBus->numChannels : 0; }
+/** The strip's B-format ring: SCOPE_FRAMES × SCOPE_CHANNELS floats. */
+TW_EXPORT(tw_analysis_ring)
+const float *tw_analysis_ring(const TaudEngine *e) { return e->analysisTap != NULL ? te_analysis_ring(e->analysisTap) : NULL; }
 
 /** Switch the stem-export tap on or off. While on, each rendered chunk
  *  leaves a log of every voice's pre-pan mono contribution to every frame —
@@ -497,23 +504,53 @@ int tw_stem_count(const TaudEngine *e) { return e->stemCount; }
 TW_EXPORT(tw_set_imix_meter)
 void tw_set_imix_meter(TaudEngine *e, int slot, int seat) { te_set_imix_meter(e, slot, seat); }
 
-/** Keep (or stop keeping) the mix as it enters the mastering chain, for a
- *  meter that reads both sides of it: tw_pre_left / tw_pre_right. */
-TW_EXPORT(tw_set_pre_tap)
-void tw_set_pre_tap(TaudEngine *e, int on) { e->preTap = on != 0; }
+/** The Mastering view's tap (meters.c): on, the all-pass crest, the census
+ *  depth (8 or 16) and the span the drain reports (0 the take, 1 the last
+ *  3 s, 2 the last 400 ms). A new scramble or depth is a new tap. */
+TW_EXPORT(tw_set_master_meter)
+void tw_set_master_meter(TaudEngine *e, int on, int scramble, int depth, int span)
+{
+    te_set_master_meter(e, on != 0, scramble != 0, depth, span);
+}
 
-TW_EXPORT(tw_pre_left)
-const float *tw_pre_left(const TaudEngine *e) { return e->preLeft; }
+/** Hand the view's interval over into `out` (MM_READOUT doubles, the MM_R_*
+ *  fields) and start the next; 0 when the tap is off. */
+TW_EXPORT(tw_master_meter_drain)
+int tw_master_meter_drain(TaudEngine *e, double *out)
+{
+    if (e->masterMeter == NULL) return 0;
+    te_master_meter_drain(e->masterMeter, out);
+    return 1;
+}
 
-TW_EXPORT(tw_pre_right)
-const float *tw_pre_right(const TaudEngine *e) { return e->preRight; }
+/** The tap's rings: two mono ones (before, after the chain) of
+ *  MM_SPEC_FRAMES floats, and two interleaved pairs of twice that. */
+TW_EXPORT(tw_master_meter_rings)
+const float *tw_master_meter_rings(const TaudEngine *e) { return e->masterMeter != NULL ? te_master_meter_rings(e->masterMeter) : NULL; }
 
-/** The last chunk's deepest compressor / limiter gain reduction, dB (≤ 0). */
-TW_EXPORT(tw_master_comp_gr)
-double tw_master_comp_gr(const TaudEngine *e) { return te_master_chain_comp_gr(e->mastering); }
+TW_EXPORT(tw_master_meter_pairs)
+const float *tw_master_meter_pairs(const TaudEngine *e) { return e->masterMeter != NULL ? te_master_meter_pairs(e->masterMeter) : NULL; }
 
-TW_EXPORT(tw_master_lim_gr)
-double tw_master_lim_gr(const TaudEngine *e) { return te_master_chain_lim_gr(e->mastering); }
+/** A census's figures (8 doubles: used, span, total, peak code, lowest,
+ *  highest, effective bits, entropy) and its MM_HIST_BUCKETS raw counts;
+ *  returns the census's depth, 0 with the tap off. */
+TW_EXPORT(tw_master_meter_census)
+int tw_master_meter_census(TaudEngine *e, int span, double *bits, double *buckets)
+{
+    if (e->masterMeter == NULL) return 0;
+    te_master_meter_census(e->masterMeter, span, bits, buckets);
+    return te_master_meter_depth(e->masterMeter);
+}
+
+/** A multichannel export's chain: one `sMst` block run over the render
+ *  target's bus, as wide as it is now (set the target first); len 0 = none. */
+TW_EXPORT(tw_set_bus_mastering)
+void tw_set_bus_mastering(TaudEngine *e, const uint8_t *block, uint32_t len)
+{
+    TaudMastering m;
+    if (len == 0 || !te_mastering_parse_block(block, len, &m)) te_set_bus_mastering(e, NULL);
+    else te_set_bus_mastering(e, &m);
+}
 
 /** Voices sounding right now: the lanes', the jam bank's and the background
  *  list's (a profiler's reading). */

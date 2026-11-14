@@ -8,21 +8,23 @@
 //     designed to break it, in both peak modes; and
 //   * the loudness figures are a standard, so they are checked against the
 //     standard's own test signals rather than against themselves.
+//
+// The chain and the meters are the engine's (core/engine/c/src/mastering.c,
+// meters.c), driven here through its parts; the parameter model, the curve the
+// view draws and the integrators are the page's JavaScript.
 
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 import {
-  MasterChain, defaultMastering, normaliseMastering, cloneMastering,
+  MasterCurve, defaultMastering, normaliseMastering, cloneMastering,
   masteringEngaged, masteringEqual, responseCurve, dbToGain, RANGE,
   EQ_LOW_SHELF, EQ_PEAKING, EQ_HIGH_SHELF, COMP_RMS, HP_SLOPE_24,
-  LIMITER_LOOKAHEAD_MS,
 } from "../../core/engine/mastering.js";
 import {
-  KWeighting, kWeightingCoefficients, LoudnessIntegrator, PhaseScrambler,
-  MasterMeterTap, makeMasterMeterReadout, TAP_PRE, TAP_POST, SPEC_FRAMES,
-  bitUsage, crestDb, dbfs, gatedMean, loudnessRange, loudnessRangeBounds,
+  LoudnessIntegrator, makeMasterMeterReadout, TAP_PRE, TAP_POST, SPEC_FRAMES,
+  crestDb, dbfs, gatedMean, loudnessRange, loudnessRangeBounds,
   percentile, FRAME_SEC,
   HIST_SPAN_ALL, HIST_SPAN_LONG, HIST_SPAN_SHORT, HIST_SPAN_SEC,
   BIT_DEPTHS, DEFAULT_BIT_DEPTH, HIST_BUCKETS,
@@ -38,7 +40,7 @@ import {
 import {
   Fft, BandAnalyser, hannWindow, spectrumDb, SPECTRUM_BANDS, SPECTRUM_NBANDS,
   SPECTRUM_TILT_DB_PER_OCT, SPECTRUM_TILT_PIVOT_HZ, tiltDbAt, tiltWeights,
-} from "../../core/engine/fft.js";
+} from "../../src/audio/fft.js";
 import { fillSnapshotInto } from "../../core/worklet/engine-commands.js";
 import {
   SNAP_FLOATS, SNAP_MM_BASE, SNAP_MM_STAGE_STRIDE, SNAP_MM_AP_PEAK,
@@ -54,6 +56,28 @@ import { loadIntoEngine, renderSong, encodeWav } from "../../core/audio/offline-
 import { analyseSongAsync, gainForTruePeak, gainForLoudness, trimForLoudness }
   from "../../src/audio/master-analysis.js";
 import { setRandomSource, makeSeededRandom } from "../../core/engine/rng.js";
+import { engineParts } from "../fixtures/engine-parts.js";
+
+/** The engine's own pieces, under the names the JavaScript ones had. A chain
+ *  draws its response with the page's curve (MasterCurve); it RUNS in C. */
+const P = engineParts();
+const MasterChain = class {
+  constructor(params, rate = SAMPLING_RATE, nch = 2, ambisonic = false) {
+    const c = P.masterChain(params, rate, nch, ambisonic);
+    const curve = new MasterCurve(params, rate);
+    const set = c.setParams;
+    c.setParams = (p) => { set(p); curve.setParams(p); };
+    c.responseDb = (f) => curve.responseDb(f);
+    return c;
+  }
+};
+const KWeighting = class { constructor(rate) { return P.kWeighting(rate); } };
+const kWeightingCoefficients = (rate) => { const k = P.kWeighting(rate); return [k.shelf, k.hp]; };
+const PhaseScrambler = class { constructor(rate) { return P.phaseScrambler(rate); } };
+const MasterMeterTap = class { constructor(rate, opts = {}) { return P.masterMeter(rate, opts); } };
+const bitUsage = (hist, depth = 8) => P.bitUsage(hist, depth);
+/** The limiter's look-ahead (mastering.c LIMITER_LOOKAHEAD_MS). */
+const LIMITER_LOOKAHEAD_MS = 1.0;
 
 const corpusDir = new URL("../corpus/", import.meta.url).pathname;
 
@@ -232,7 +256,7 @@ test("an EQ band's response curve matches what it does to a tone", () => {
   const measured = 10 * Math.log10(outSq / inSq);
   assert.ok(Math.abs(measured - 6) < 0.1, `measured ${measured.toFixed(3)} dB`);
 
-  const { freq, db } = responseCurve(chain, 20, 20000, 128);
+  const { freq, db } = responseCurve(new MasterCurve(p, SAMPLING_RATE), 20, 20000, 128);
   assert.equal(freq.length, 128);
   assert.ok(freq[0] === 20 && Math.abs(freq[127] - 20000) < 1e-6);
   assert.ok(Math.max(...db) > 5.5, "the curve carries the boost");
@@ -406,9 +430,10 @@ test("the integrator hands its LRA over as a pair of LUFS bounds", () => {
  *  stereo the long span is 600 codes and the short one 80. */
 function windowedTap(bitDepth) {
   const tap = new MasterMeterTap(100, { bitDepth });
-  assert.equal(tap.codeRing.length, Math.round(HIST_SPAN_SEC[HIST_SPAN_LONG] * 100) * 2);
-  assert.equal(tap.shortLag, Math.round(HIST_SPAN_SEC[HIST_SPAN_SHORT] * 100) * 2);
-  assert.ok(tap.shortLag < tap.codeRing.length, "the short window is a suffix of the long one");
+  // The spans' lengths in codes, which the windows below are measured in.
+  tap.long = Math.round(HIST_SPAN_SEC[HIST_SPAN_LONG] * 100) * 2;
+  tap.short = Math.round(HIST_SPAN_SEC[HIST_SPAN_SHORT] * 100) * 2;
+  assert.ok(tap.short < tap.long, "the short window is a suffix of the long one");
   return tap;
 }
 
@@ -421,19 +446,18 @@ function censusTotal(h) {
 
 test("the three census spans are the whole take and two rolling windows", () => {
   const tap = windowedTap(8);
-  const long = tap.codeRing.length;
-  const short = tap.shortLag;
-  const hl = tap.histWin[HIST_SPAN_LONG];
-  const hs = tap.histWin[HIST_SPAN_SHORT];
+  const { long, short } = tap;
+  let hl, hs;
   const feed = (code, codes) => {
-    tap.binOutput(new Uint8Array(codes).fill(code), null, null, codes / 2);
+    tap.bin(new Uint8Array(codes).fill(code), null, null, codes / 2);
+    hl = tap.hist(HIST_SPAN_LONG);
+    hs = tap.hist(HIST_SPAN_SHORT);
   };
 
   feed(10, long);
-  assert.equal(tap.hist[10], long);
+  assert.equal(tap.hist()[10], long);
   assert.equal(hl[10], long, "one long window's worth fills the long window");
   assert.equal(hs[10], short, "…and the short one holds only its own share");
-  assert.equal(tap.ringFull, true);
 
   // Half the SHORT window of something else: the short census has already
   // half turned over while the long one has barely moved.
@@ -451,7 +475,7 @@ test("the three census spans are the whole take and two rolling windows", () => 
   assert.equal(hs[10], 0, "gone from the moment");
   assert.equal(hs[200], short);
   assert.ok(hl[10] > 0, "…but still in the passage");
-  assert.equal(tap.hist[10], long, "…and the take remembers all of it");
+  assert.equal(tap.hist()[10], long, "…and the take remembers all of it");
   assert.equal(censusTotal(hl), long, "a full long window is exactly the ring");
   assert.equal(censusTotal(hs), short, "…and the short one is exactly its lag");
 
@@ -475,38 +499,37 @@ test("the three census spans are the whole take and two rolling windows", () => 
   assert.equal(out.buckets[10], 0);
 
   tap.resetAll();
-  assert.equal(censusTotal(hl), 0);
-  assert.equal(censusTotal(hs), 0);
-  assert.equal(censusTotal(tap.hist), 0);
-  assert.equal(tap.ringFull, false);
-  assert.equal(tap.ringWrite, 0);
+  assert.equal(censusTotal(tap.hist(HIST_SPAN_LONG)), 0);
+  assert.equal(censusTotal(tap.hist(HIST_SPAN_SHORT)), 0);
+  assert.equal(censusTotal(tap.hist()), 0);
+  // …and the windows fill from empty again: half a short window holds half.
+  feed(10, short / 2);
+  assert.equal(censusTotal(hs), short / 2);
 });
 
 test("…and both windows are exact on the 16-bit path too", () => {
   const tap = windowedTap(16);
-  const long = tap.codeRing.length;
-  const short = tap.shortLag;
+  const { long, short } = tap;
   const feed = (v, codes) => {
-    const buf = new Float64Array(codes / 2).fill(v);
-    tap.binOutput(null, buf, buf, codes / 2);
+    const buf = new Float32Array(codes / 2).fill(v);
+    tap.bin(null, buf, buf, codes / 2);
   };
   // The clean export's dither spreads a constant over one LSB either side, so
   // a value's codes are the three around it.
   const codeOf = (v) => (Math.round(v * 32767) + 32768) & 0xffff;
   const near = (h, v) => h[codeOf(v) - 1] + h[codeOf(v)] + h[codeOf(v) + 1];
   feed(0.5, long);
-  assert.equal(near(tap.histWin[HIST_SPAN_LONG], 0.5), long);
-  assert.equal(near(tap.histWin[HIST_SPAN_SHORT], 0.5), short);
+  assert.equal(near(tap.hist(HIST_SPAN_LONG), 0.5), long);
+  assert.equal(near(tap.hist(HIST_SPAN_SHORT), 0.5), short);
   feed(-0.5, short);
-  assert.equal(near(tap.histWin[HIST_SPAN_SHORT], 0.5), 0, "rolled out of the moment");
-  assert.ok(near(tap.histWin[HIST_SPAN_LONG], 0.5) > 0, "…still in the passage");
-  assert.equal(censusTotal(tap.histWin[HIST_SPAN_LONG]), long);
-  assert.equal(censusTotal(tap.histWin[HIST_SPAN_SHORT]), short);
+  assert.equal(near(tap.hist(HIST_SPAN_SHORT), 0.5), 0, "rolled out of the moment");
+  assert.ok(near(tap.hist(HIST_SPAN_LONG), 0.5) > 0, "…still in the passage");
+  assert.equal(censusTotal(tap.hist(HIST_SPAN_LONG)), long);
+  assert.equal(censusTotal(tap.hist(HIST_SPAN_SHORT)), short);
   // No count can go negative, whatever order the codes arrive in — each window
   // only ever decrements a code it put in itself.
-  for (const h of tap.histWin) {
-    if (h === null) continue;
-    for (const v of h) assert.ok(v >= 0);
+  for (const span of [HIST_SPAN_LONG, HIST_SPAN_SHORT]) {
+    for (const v of tap.hist(span)) assert.ok(v >= 0);
   }
 });
 
@@ -518,15 +541,13 @@ test("…and neither depends on how the blocks are cut up", () => {
   // comparison spans a wrap.
   const codes = new Uint8Array(1008);
   for (let i = 0; i < codes.length; i++) codes[i] = 1 + (i % 250);
-  whole.binOutput(codes, null, null, codes.length / 2);
+  whole.bin(codes, null, null, codes.length / 2);
   for (let i = 0; i < codes.length; i += 14) {
-    piecemeal.binOutput(codes.subarray(i, i + 14), null, null, 7);
+    piecemeal.bin(codes.subarray(i, i + 14), null, null, 7);
   }
-  assert.equal(piecemeal.ringWrite, whole.ringWrite);
   for (const span of [HIST_SPAN_LONG, HIST_SPAN_SHORT]) {
-    for (let c = 0; c < 256; c++) {
-      assert.equal(piecemeal.histWin[span][c], whole.histWin[span][c], `span ${span} code ${c}`);
-    }
+    const a = piecemeal.hist(span), b = whole.hist(span);
+    for (let c = 0; c < 256; c++) assert.equal(a[c], b[c], `span ${span} code ${c}`);
   }
 });
 
@@ -535,20 +556,26 @@ test("the span is a REPORTING choice: asking for it keeps the take's census", ()
   const ts = eng.playheads[0].trackerState;
   eng.setMasterMeter(0, true, false, 8, HIST_SPAN_ALL);
   const tap = ts.masterMeter;
-  tap.binOutput(new Uint8Array(64).fill(7), null, null, 32);
-  assert.equal(tap.hist[7], 64);
+  // Two chunks of the (silent, dithered) device output: fewer codes than the
+  // short window holds, so every census counts all of them.
+  const device = new Uint8Array(TRACKER_CHUNK * 2);
+  eng.renderChunk(0, device);
+  eng.renderChunk(0, device);
+  const codes = 4 * TRACKER_CHUNK;
+  assert.equal(tap.census().bits.total, codes);
   // Switching to a window must not build a new tap — that would throw away both
   // the take's census and the window it is being asked for.
   eng.setMasterMeter(0, true, false, 8, HIST_SPAN_SHORT);
   assert.equal(ts.masterMeter, tap, "same tap");
   assert.equal(tap.histSpan, HIST_SPAN_SHORT);
-  assert.equal(tap.hist[7], 64, "the take's census survived");
-  assert.equal(tap.histWin[HIST_SPAN_SHORT][7], 64, "…and so did the window's");
+  assert.equal(tap.census().bits.total, codes, "the take's census survived");
+  assert.equal(tap.census(HIST_SPAN_SHORT).bits.total, codes, "…and so did the window's");
+  assert.equal(tap.drain(makeMasterMeterReadout()).histSpan, HIST_SPAN_SHORT, "…which the drain reports");
   eng.setMasterMeter(0, true, false, 8, HIST_SPAN_LONG);
   assert.equal(ts.masterMeter, tap);
   assert.equal(tap.histSpan, HIST_SPAN_LONG);
   // Anything that is not a span at all falls back to the whole take rather than
-  // indexing a hole in `histWin`.
+  // reporting a census that is not there.
   eng.setMasterMeter(0, true, false, 8, 99);
   assert.equal(tap.histSpan, HIST_SPAN_ALL);
   // A DEPTH change is a different measurement and does rebuild it.
@@ -944,9 +971,12 @@ test("a transport reset clears the chain's state", () => {
   const chain = new MasterChain(p, SAMPLING_RATE);
   const loud = new Float32Array(2048).fill(0.9);
   chain.process(loud, Float32Array.from(loud), 2048);
-  assert.ok(chain.comp.grDb < -5, "the compressor is holding reduction");
+  assert.ok(chain.compGrDb < -5, "the compressor is holding reduction");
   chain.reset();
-  assert.equal(chain.comp.grDb, 0);
+  assert.equal(chain.compGrDb, 0);
+  // …and the next block starts from no reduction: a whisper is let through.
+  const quiet = new Float32Array(8).fill(0.001);
+  chain.process(quiet, Float32Array.from(quiet), 8);
   assert.equal(chain.compGrDb, 0);
 });
 
@@ -961,39 +991,40 @@ test("the metering tap measures both sides of the chain", () => {
   const post = new Float32Array(n).fill(0.4);
   tap.push(TAP_PRE, pre, pre, n);
   tap.push(TAP_POST, post, post, n);
-  tap.binOutput(new Uint8Array(n * 2).fill(200), post, post, n);
+  tap.bin(new Uint8Array(n * 2).fill(200), post, post, n);
   const r = tap.drain(makeMasterMeterReadout());
   assert.equal(r.frames, n, "only the post pass counts frames");
   assert.ok(Math.abs(r.peak[TAP_PRE * 2] - 0.8) < 1e-6);
   assert.ok(Math.abs(r.peak[TAP_POST * 2] - 0.4) < 1e-6);
   assert.ok(r.sumZ[TAP_PRE] > r.sumZ[TAP_POST], "the louder side has more K-weighted energy");
   assert.ok(r.apSumSq[TAP_POST] > 0, "the scrambled measurement ran");
-  assert.equal(r.hist[200], n * 2, "the histogram binned the delivered codes");
+  assert.equal(r.buckets[200], n * 2, "the histogram binned the delivered codes");
   const after = tap.drain(makeMasterMeterReadout());
   assert.equal(after.frames, 0, "a drain resets the interval");
-  assert.equal(after.hist[200], n * 2, "…but the histogram is cumulative");
+  assert.equal(after.buckets[200], n * 2, "…but the histogram is cumulative");
   tap.resetAll();
-  assert.equal(tap.hist[200], 0);
+  assert.equal(tap.hist()[200], 0);
 });
 
 // ── which output the bit census describes ───────────────────────────────────
 
 test("the 8-bit census bins the dithered device codes", () => {
   const tap = new MasterMeterTap(SAMPLING_RATE, { bitDepth: 8 });
-  assert.equal(tap.hist.length, 256);
+  assert.equal(tap.hist().length, 256);
   const n = 64;
   const u8 = new Uint8Array(n * 2).fill(200);
   // The float pair is deliberately somewhere else: at 8 bits the census must
   // read the DITHERED buffer, not re-quantise the bus.
   const f = new Float32Array(n).fill(0.5);
-  tap.binOutput(u8, f, f, n);
-  assert.equal(tap.hist[200], n * 2);
-  assert.equal(tap.hist[Math.round(0.5 * 127.5) + 128], 0);
+  tap.bin(u8, f, f, n);
+  const h = tap.hist();
+  assert.equal(h[200], n * 2);
+  assert.equal(h[Math.round(0.5 * 127.5) + 128], 0);
 });
 
 test("the 16-bit census repeats exactly what the WAV encoder writes", () => {
   const tap = new MasterMeterTap(SAMPLING_RATE, { bitDepth: 16 });
-  assert.equal(tap.hist.length, 65536);
+  assert.equal(tap.hist().length, 65536);
   // Out-of-range values, and a ramp long enough for the dither to matter.
   const values = [0, 0.5, -0.25, 1, -1, 2, -3];
   for (let i = 0; i < 500; i++) values.push(Math.sin(i / 7) * 0.001);
@@ -1001,7 +1032,7 @@ test("the 16-bit census repeats exactly what the WAV encoder writes", () => {
   const n = values.length;
   // Same buffer both sides; the U8 argument must be ignored at this depth
   // (code 7 is nowhere near these values, so the count below would show it).
-  tap.binOutput(new Uint8Array(n * 2).fill(7), l, l, n);
+  tap.bin(new Uint8Array(n * 2).fill(7), l, l, n);
   // The clean file of that very pair, from the top, at the engine's rate:
   // its dither stream is the census's, so the two counts agree code for code.
   const inter = new Float32Array(n * 2);
@@ -1010,8 +1041,9 @@ test("the 16-bit census repeats exactly what the WAV encoder writes", () => {
   const dv = new DataView(wav.buffer, 44);
   const want = new Float64Array(65536);
   for (let i = 0; i < n * 2; i++) want[(dv.getInt16(i * 2, true) + 32768) & 0xffff] += 1;
+  const h = tap.hist();
   for (let c = 0; c < 65536; c++) {
-    if (tap.hist[c] !== want[c]) assert.fail(`code ${c}: census ${tap.hist[c]}, file ${want[c]}`);
+    if (h[c] !== want[c]) assert.fail(`code ${c}: census ${h[c]}, file ${want[c]}`);
   }
 });
 
@@ -1025,7 +1057,7 @@ test("the drain reports exact figures and a 256-bucket picture at either depth",
       l[i] = Math.fround(0.4 * Math.sin((2 * Math.PI * 220 * i) / SAMPLING_RATE));
       u8[i * 2] = u8[i * 2 + 1] = 128 + Math.round(l[i] * 100);
     }
-    tap.binOutput(u8, l, l, n);
+    tap.bin(u8, l, l, n);
     const r = tap.drain(makeMasterMeterReadout());
     assert.equal(r.bitDepth, depth);
     assert.equal(r.buckets.length, HIST_BUCKETS, "the wire always carries 256");
@@ -1278,7 +1310,7 @@ test("the tap keeps a mono spectrum ring for each stage", () => {
   assert.ok(Math.abs(r.spec[TAP_POST][0] - 0.1) < 1e-6);
   assert.equal(r.spec[TAP_PRE][n], 0, "…and stops where the block did");
   tap.resetAll();
-  assert.equal(tap.specWrite, 0);
+  assert.equal(tap.drain(makeMasterMeterReadout()).specWrite, 0);
 });
 
 test("the offline analysis carries a spectral column per frame", async () => {
@@ -1545,17 +1577,9 @@ test("a multichannel chain declares the same latency as the pair", () => {
   }
 });
 
-test("process() refuses a bus that is not the pair", () => {
-  const p = defaultMastering();
-  p.on = true; p.trimDb = -3;
-  const chain = new MasterChain(normaliseMastering(p), SAMPLING_RATE, 6);
-  assert.throws(() => chain.process(new Float32Array(8), new Float32Array(8), 8),
-    /processPlanar/);
-});
-
 test("a neutral chain is skipped on a multichannel bus too", () => {
   const chain = new MasterChain(defaultMastering(), SAMPLING_RATE, 6);
-  assert.equal(chain.engaged, false);
+  assert.equal(masteringEngaged(defaultMastering()), false);
   const bus = planarSignal(6, 256);
   const want = Float64Array.from(bus);
   chain.processPlanar(bus, 256, 256);

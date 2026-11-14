@@ -58,9 +58,9 @@
 import {
   SCOPE_CHANNELS, SCOPE_FRAMES, SCOPE_W, SCOPE_Y, SCOPE_Z, SCOPE_X,
 } from "../../core/engine/analysis.js";
-import { Fft, SPECTRUM_BANDS } from "../../core/engine/fft.js";
+import { Fft, SPECTRUM_BANDS } from "../audio/fft.js";
 
-// The FFT moved to core/engine/fft.js when the Mastering view (item 178) and the
+// The FFT moved to src/audio/fft.js when the Mastering view (item 178) and the
 // offline spectral analysis needed it too — same class, same numbers. Re-exported
 // so cloud.js and the tests keep importing it from here.
 export { Fft };

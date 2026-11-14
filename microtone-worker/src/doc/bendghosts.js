@@ -54,7 +54,7 @@ import {
 import {
   resolveArg, applyVolColumn, applyPanColumn, applyPanColumnWide, rowVolumeFromDefault,
   narrowVolAxis,
-} from "../../core/engine/columns.js";
+} from "./columns.js";
 import {
   SURROUND_STEREO, SURROUND_SPATIAL,
   applyPanSet, applyPanSlide, applyElevation, applyNotePanSet, applyNotePanSlide,

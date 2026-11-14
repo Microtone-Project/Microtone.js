@@ -12,7 +12,10 @@
  *
  * Beyond a voice's walks, the pieces a test drives on their own: the binaural
  * head, an instrument mixing chain, an OPL channel and a PSG pair keyed by
- * hand, the sample-modification decoders and the engine's tables. A pointer
+ * hand, the sample-modification decoders, the engine's tables, the master
+ * bus's chain at any width, and its meters (the strip's analysis tap with a
+ * bus of its own, the Mastering view's tap, the true-peak probe, the
+ * K-weighting and the all-pass cascade, the census's figures). A pointer
  * one of these returns lives until the matching _free (or the instance). */
 
 #include <stdlib.h>
@@ -417,3 +420,198 @@ const void *tw_part_table(int which, int *len)
     default: *len = 0; return NULL;
     }
 }
+
+/* ── the mastering chain (mastering.c) ── */
+
+/* A chain from one `sMst` block, `nch` wide (2 = the pair). NULL for a block
+ * the reader does not understand. */
+TW_EXPORT(tw_part_master_chain_new)
+TaudMasterChain *tw_part_master_chain_new(const uint8_t *block, uint32_t len, int rate, int nch, int ambisonic)
+{
+    TaudMastering m;
+    if (!te_mastering_parse_block(block, len, &m)) return NULL;
+    return te_master_chain_new_planar(&m, rate, nch, ambisonic != 0);
+}
+
+TW_EXPORT(tw_part_master_chain_set_block)
+int tw_part_master_chain_set_block(TaudMasterChain *c, const uint8_t *block, uint32_t len)
+{
+    TaudMastering m;
+    if (!te_mastering_parse_block(block, len, &m)) return 0;
+    te_master_chain_set_params(c, &m);
+    return 1;
+}
+
+TW_EXPORT(tw_part_master_chain_free)
+void tw_part_master_chain_free(TaudMasterChain *c) { te_master_chain_free(c); }
+
+TW_EXPORT(tw_part_master_chain_reset)
+void tw_part_master_chain_reset(TaudMasterChain *c) { te_master_chain_reset(c); }
+
+TW_EXPORT(tw_part_master_chain_process)
+void tw_part_master_chain_process(TaudMasterChain *c, float *left, float *right, int frames)
+{
+    te_master_chain_process(c, left, right, frames);
+}
+
+TW_EXPORT(tw_part_master_chain_process_planar)
+void tw_part_master_chain_process_planar(TaudMasterChain *c, double *data, int frames, int stride)
+{
+    te_master_chain_process_planar(c, data, frames, stride);
+}
+
+TW_EXPORT(tw_part_master_chain_comp_gr)
+double tw_part_master_chain_comp_gr(const TaudMasterChain *c) { return te_master_chain_comp_gr(c); }
+
+TW_EXPORT(tw_part_master_chain_lim_gr)
+double tw_part_master_chain_lim_gr(const TaudMasterChain *c) { return te_master_chain_lim_gr(c); }
+
+TW_EXPORT(tw_part_master_chain_latency)
+int tw_part_master_chain_latency(const TaudMasterChain *c) { return te_master_chain_latency(c); }
+
+/* ── the meters (meters.c) ── */
+
+/* The strip's tap for `target` on a song of `model`, with — unless the song
+ * is stereo — an analysis bus of its own (tw_part_analysis_bus). */
+TW_EXPORT(tw_part_analysis_new)
+TaudAnalysisTap *tw_part_analysis_new(int target, int layout, int model)
+{
+    return te_analysis_tap_new(target, layout, model);
+}
+
+TW_EXPORT(tw_part_analysis_free)
+void tw_part_analysis_free(TaudAnalysisTap *t) { free(t); }
+
+TW_EXPORT(tw_part_analysis_meter_count)
+int tw_part_analysis_meter_count(const TaudAnalysisTap *t) { return te_analysis_meter_count(t); }
+
+TW_EXPORT(tw_part_analysis_meter_source)
+int tw_part_analysis_meter_source(const TaudAnalysisTap *t) { return te_analysis_meter_source(t); }
+
+/* The bus the tap reads (layout 0 = the harmonics alone), or NULL for a tap
+ * that reads the pair alone. */
+TW_EXPORT(tw_part_analysis_bus)
+TaudSpatialBus *tw_part_analysis_bus(const TaudAnalysisTap *t)
+{
+    return te_analysis_needs_bus(t) ? te_analysis_bus_new(te_analysis_layout(t)) : NULL;
+}
+
+TW_EXPORT(tw_part_analysis_finish)
+void tw_part_analysis_finish(TaudAnalysisTap *t, const TaudSpatialBus *bus, const float *mixL, const float *mixR,
+                             int frames)
+{
+    te_analysis_finish(t, bus != NULL ? bus->data : NULL, mixL, mixR, frames);
+}
+
+TW_EXPORT(tw_part_analysis_drain)
+void tw_part_analysis_drain(TaudAnalysisTap *t, double *out) { te_analysis_drain(t, out); }
+
+TW_EXPORT(tw_part_analysis_ring)
+const float *tw_part_analysis_ring(const TaudAnalysisTap *t) { return te_analysis_ring(t); }
+
+/* A bus driven by hand: its width, its data (channel-major, TRACKER_CHUNK a
+ * channel), a source's gains, a source added, the bus cleared. */
+TW_EXPORT(tw_part_bus_channels)
+int tw_part_bus_channels(const TaudSpatialBus *bus) { return bus->numChannels; }
+
+TW_EXPORT(tw_part_bus_data)
+double *tw_part_bus_data(TaudSpatialBus *bus) { return bus->data; }
+
+TW_EXPORT(tw_part_bus_channel_gains)
+void tw_part_bus_channel_gains(const TaudSpatialBus *bus, double az, double el, double *out, int off)
+{
+    te_bus_channel_gains(bus, az, el, out, off);
+}
+
+TW_EXPORT(tw_part_bus_add_source)
+void tw_part_bus_add_source(TaudSpatialBus *bus, int n, double value, const double *gains, int off, double ramp)
+{
+    te_spatial_bus_add_source(bus, n, value, gains, off, ramp);
+}
+
+TW_EXPORT(tw_part_bus_clear)
+void tw_part_bus_clear(TaudSpatialBus *bus) { memset(bus->data, 0, sizeof bus->data); }
+
+TW_EXPORT(tw_part_bus_free)
+void tw_part_bus_free(TaudSpatialBus *bus) { free(bus); }
+
+/* The Mastering view's tap on its own. */
+TW_EXPORT(tw_part_master_meter_new)
+TaudMasterMeter *tw_part_master_meter_new(double rate, int scramble, int depth)
+{
+    return te_master_meter_new(rate, scramble != 0, depth);
+}
+
+TW_EXPORT(tw_part_master_meter_free)
+void tw_part_master_meter_free(TaudMasterMeter *t) { te_master_meter_free(t); }
+
+TW_EXPORT(tw_part_master_meter_reset_all)
+void tw_part_master_meter_reset_all(TaudMasterMeter *t) { te_master_meter_reset_all(t); }
+
+TW_EXPORT(tw_part_master_meter_set_span)
+void tw_part_master_meter_set_span(TaudMasterMeter *t, int span) { te_master_meter_set_span(t, span); }
+
+TW_EXPORT(tw_part_master_meter_push)
+void tw_part_master_meter_push(TaudMasterMeter *t, int stage, const float *left, const float *right, int frames)
+{
+    te_master_meter_push(t, stage, left, right, frames);
+}
+
+TW_EXPORT(tw_part_master_meter_bin)
+void tw_part_master_meter_bin(TaudMasterMeter *t, const uint8_t *u8, const float *left, const float *right, int frames)
+{
+    te_master_meter_bin(t, u8, left, right, frames);
+}
+
+TW_EXPORT(tw_part_master_meter_drain)
+void tw_part_master_meter_drain(TaudMasterMeter *t, double *out) { te_master_meter_drain(t, out); }
+
+TW_EXPORT(tw_part_master_meter_census)
+void tw_part_master_meter_census(TaudMasterMeter *t, int span, double *bits, double *buckets)
+{
+    te_master_meter_census(t, span, bits, buckets);
+}
+
+TW_EXPORT(tw_part_master_meter_hist)
+const double *tw_part_master_meter_hist(const TaudMasterMeter *t, int span) { return te_master_meter_hist(t, span); }
+
+TW_EXPORT(tw_part_master_meter_rings)
+const float *tw_part_master_meter_rings(const TaudMasterMeter *t) { return te_master_meter_rings(t); }
+
+TW_EXPORT(tw_part_master_meter_pairs)
+const float *tw_part_master_meter_pairs(const TaudMasterMeter *t) { return te_master_meter_pairs(t); }
+
+/* The true-peak probe: a fresh history, the kernel, one sample in. */
+TW_EXPORT(tw_part_tp_probe_new)
+TaudTruePeakProbe *tw_part_tp_probe_new(void) { return (TaudTruePeakProbe *)calloc(1, sizeof(TaudTruePeakProbe)); }
+
+TW_EXPORT(tw_part_tp_coef)
+void tw_part_tp_coef(double *h) { te_tp_coef(h); }
+
+TW_EXPORT(tw_part_tp_push)
+double tw_part_tp_push(TaudTruePeakProbe *pr, const double *coef, double v) { return te_tp_push(pr, coef, v); }
+
+/* BS.1770's K-weighting: the coefficients (shelf then high-pass, b0 b1 b2 a1
+ * a2 each), and one channel run through them (state: 8 doubles, zeroed). */
+TW_EXPORT(tw_part_kw_coefficients)
+void tw_part_kw_coefficients(double rate, double *shelf, double *hp) { te_kw_coefficients(rate, shelf, hp); }
+
+TW_EXPORT(tw_part_kw_run)
+double tw_part_kw_run(const double *shelf, const double *hp, double *state, double x)
+{
+    return te_kw_run(shelf, hp, state, x);
+}
+
+/* The all-pass cascade: its coefficients (AP_SECTIONS × 4) and one channel
+ * run through it (state: AP_SECTIONS × 4 doubles, zeroed). */
+TW_EXPORT(tw_part_ap_coefficients)
+void tw_part_ap_coefficients(double rate, double *c) { te_ap_coefficients(rate, (double (*)[4])c); }
+
+TW_EXPORT(tw_part_ap_run)
+double tw_part_ap_run(const double *c, double *state, double x)
+{
+    return te_ap_run((const double (*)[4])c, (double (*)[4])state, x);
+}
+
+TW_EXPORT(tw_part_bit_usage)
+void tw_part_bit_usage(const double *hist, int depth, double *out) { te_bit_usage(hist, depth, out); }

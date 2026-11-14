@@ -1,4 +1,4 @@
-/* Sample-modification note effects (notefx 2 / 3) — port of samplemod.js.
+/* Sample-modification note effects (notefx 2 / 3) — ported from the JavaScript engine's samplemod.js.
  * Non-destructive views over the sample pool, applied when a byte is read. */
 
 #include "taud_internal.h"

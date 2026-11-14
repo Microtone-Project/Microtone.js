@@ -13,6 +13,7 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 - The engine is the same bits everywhere now. It carries its own mathematics instead of the browser's, so a song renders to the identical file in Chrome, Firefox, Safari, the desktop app and the player libraries, whatever the machine.
 - Microtone Touch and the desktop app run the same engine.
 - The old JavaScript engine is gone rather than kept beside the new one, so the audio thread has about half as much code to load before the first note, and the `taudplay` library is a fifth smaller.
+- The master strip's and the Mastering view's meters now run inside the new engine as well, and so does the mastering chain on a surround or ambisonic export, so every reading and every exported file comes out the same on every computer.
 - The `taudplay` JavaScript library is version 5.0.0 and runs this engine too, with the API it had; `libtaudplay`, the C library, is no longer a port of the engine but its source.
 - Fixed: a note whose pitch does not end in 0 in hex, which the built-in tuning systems now write, could fall into the gap between two keyboard zones of a sampled instrument and play its base sample instead; a zone, a layer's range and an operator's range now run through the whole of their last step.
 

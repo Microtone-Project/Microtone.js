@@ -46,7 +46,8 @@ test("the module imports nothing and carries the host API", () => {
   assert.deepEqual(WebAssembly.Module.imports(mod), []);
   const names = new Set(WebAssembly.Module.exports(mod).map((e) => e.name));
   for (const n of ["memory", "_initialize", "malloc", "free", "tw_new", "tw_render_chunk", "tw_fill_snapshot",
-    "tw_jam_note", "tw_chase_tracker_row", "tw_set_analysis_bus", "taud_open"]) {
+    "tw_jam_note", "tw_chase_tracker_row", "tw_set_analysis", "tw_set_master_meter", "tw_set_bus_mastering",
+    "taud_open"]) {
     assert.ok(names.has(n), `exports ${n}`);
   }
 });

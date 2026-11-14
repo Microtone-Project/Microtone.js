@@ -30,17 +30,160 @@ import {
   JAM_VOICES, JAM_VOICE_BASE, TOTAL_VOICES,
 } from "./constants.js";
 import { engineSeed } from "./rng.js";
-import { AnalysisTap, ANALYSIS_OFF } from "./analysis.js";
 import {
-  MasterMeterTap, TAP_PRE, TAP_POST, DEFAULT_BIT_DEPTH, HIST_SPAN_ALL, HIST_SPAN_LONG, HIST_SPAN_SHORT,
+  ANALYSIS_OFF, ANALYSIS_STEREO, ANALYSIS_AMBISONIC, ANALYSIS_MAX_METERS, SCOPE_FRAMES, SCOPE_CHANNELS,
+} from "./analysis.js";
+import {
+  TAP_STAGES, SPEC_FRAMES, HIST_BUCKETS, DEFAULT_BIT_DEPTH, HIST_SPAN_ALL, HIST_SPAN_LONG, HIST_SPAN_SHORT,
 } from "./loudness.js";
-import { IMX_METER_SEATS } from "./imix.js";
 import { defaultMastering } from "./mastering.js";
 import { SPEAKER_LAYOUT_NAMES } from "./speakers.js";
 import { buildMasteringBlock } from "../format/mastering-section.js";
 import { buildImixSection } from "../format/imix-section.js";
 
 const WASM_NO_BYTES = new Uint8Array(0);
+
+// The meters' readouts (core/engine/c/src/meters.c; the MM_R_* and
+// AN_READOUT of taud_internal.h): flat arrays of doubles.
+const MM_R_FRAMES = 0, MM_R_COMP_GR = 1, MM_R_LIM_GR = 2, MM_R_SUM_Z = 3, MM_R_PEAK = 5;
+const MM_R_TRUE_PEAK = 9, MM_R_MEAN_SQUARE = 13, MM_R_CLIP = 17, MM_R_AP_PEAK = 21, MM_R_AP_SUM_SQ = 23;
+const MM_R_BIT_DEPTH = 25, MM_R_HIST_SPAN = 26, MM_R_SPEC_WRITE = 27, MM_R_BITS = 28, MM_R_BUCKETS = 36;
+const MM_READOUT = MM_R_BUCKETS + HIST_BUCKETS;
+const AN_READOUT = 7 + 4 * ANALYSIS_MAX_METERS;
+
+/** te_bit_usage's eight figures as loudness.js has always named them. */
+function bitsFrom(d, o) {
+  return {
+    used: d[o], span: d[o + 1], total: d[o + 2], peakCode: d[o + 3],
+    minCode: d[o + 4], maxCode: d[o + 5], effectiveBits: d[o + 6], entropyBits: d[o + 7],
+  };
+}
+
+/** Read te_analysis_drain's readout (AN_READOUT doubles at `p` in `buf`)
+ *  into an analysis.js makeAnalysisReadout. */
+export function readAnalysisReadout(buf, p, out) {
+  const r = new Float64Array(buf, p, AN_READOUT);
+  out.meterCount = r[0];
+  out.frames = r[1];
+  out.fieldEnergy = r[2];
+  out.corrLL = r[3];
+  out.corrRR = r[4];
+  out.corrLR = r[5];
+  out.ringWrite = r[6];
+  const M = ANALYSIS_MAX_METERS;
+  for (let c = 0; c < M; c++) {
+    out.peak[c] = r[7 + c];
+    out.truePeak[c] = r[7 + M + c];
+    out.meanSquare[c] = r[7 + 2 * M + c];
+    out.clip[c] = r[7 + 3 * M + c];
+  }
+  return out;
+}
+
+/** Read te_master_meter_drain's readout (MM_READOUT doubles at `p`) into a
+ *  loudness.js makeMasterMeterReadout, its rings as views of the tap's at
+ *  `rings` and `pairs` (valid until the module's memory next moves). */
+export function readMasterMeterReadout(buf, p, rings, pairs, out) {
+  const r = new Float64Array(buf, p, MM_READOUT);
+  out.frames = r[MM_R_FRAMES];
+  out.compGrDb = r[MM_R_COMP_GR];
+  out.limGrDb = r[MM_R_LIM_GR];
+  for (let s = 0; s < TAP_STAGES; s++) {
+    out.sumZ[s] = r[MM_R_SUM_Z + s];
+    out.apPeak[s] = r[MM_R_AP_PEAK + s];
+    out.apSumSq[s] = r[MM_R_AP_SUM_SQ + s];
+  }
+  for (let i = 0; i < TAP_STAGES * 2; i++) {
+    out.peak[i] = r[MM_R_PEAK + i];
+    out.truePeak[i] = r[MM_R_TRUE_PEAK + i];
+    out.meanSquare[i] = r[MM_R_MEAN_SQUARE + i];
+    out.clip[i] = r[MM_R_CLIP + i];
+  }
+  out.bitDepth = r[MM_R_BIT_DEPTH];
+  out.histSpan = r[MM_R_HIST_SPAN];
+  out.specWrite = r[MM_R_SPEC_WRITE];
+  out.bits = bitsFrom(r, MM_R_BITS);
+  out.histTotal = out.bits.total;
+  if (!out.buckets) out.buckets = new Float64Array(HIST_BUCKETS);
+  out.buckets.set(r.subarray(MM_R_BUCKETS, MM_R_BUCKETS + HIST_BUCKETS));
+  out.spec = [];
+  out.pair = [];
+  for (let s = 0; s < TAP_STAGES; s++) {
+    out.spec.push(new Float32Array(buf, rings + s * SPEC_FRAMES * 4, SPEC_FRAMES));
+    out.pair.push(new Float32Array(buf, pairs + s * SPEC_FRAMES * 8, SPEC_FRAMES * 2));
+  }
+  return out;
+}
+
+/** A census's eight figures and HIST_BUCKETS counts (te_master_meter_census's
+ *  output at `p`), as { bits, buckets }. */
+export function readCensus(buf, p) {
+  const r = new Float64Array(buf, p, 8 + HIST_BUCKETS);
+  return { bits: bitsFrom(r, 0), buckets: r.slice(8, 8 + HIST_BUCKETS) };
+}
+
+/**
+ * The master strip's tap as the page knows it — the tap itself is the
+ * engine's (meters.c). `drain` hands an interval over into a readout of
+ * analysis.js makeAnalysisReadout's shape and starts the next; the snapshot
+ * drains it the same way (tw_fill_snapshot).
+ */
+export class WasmAnalysisTap {
+  constructor(eng, target) {
+    this._eng = eng;
+    this.target = target;
+  }
+  drain(out) {
+    const eng = this._eng;
+    const p = eng._readout();
+    if (!eng._x.tw_analysis_drain(eng._e, p)) return null;
+    return readAnalysisReadout(eng._x.memory.buffer, p, out);
+  }
+  /** The B-format scope ring (SCOPE_FRAMES frames of SCOPE_CHANNELS), a view
+   *  of the module's memory valid until the next call into the engine. */
+  get ring() {
+    const x = this._eng._x;
+    return new Float32Array(x.memory.buffer, x.tw_analysis_ring(this._eng._e) >>> 0, SCOPE_FRAMES * SCOPE_CHANNELS);
+  }
+}
+
+/**
+ * The Mastering view's tap as the page knows it — the tap itself is the
+ * engine's (meters.c). `drain` fills a loudness.js makeMasterMeterReadout;
+ * its rings are views of the module's memory, valid until the next call into
+ * the engine.
+ */
+export class WasmMasterMeter {
+  constructor(eng, scramble, bitDepth, histSpan) {
+    this._eng = eng;
+    this.scramble = scramble;
+    this.bitDepth = bitDepth;
+    this._span = histSpan;
+  }
+  /** Which census `drain` reports (HIST_SPAN_*): a reporting choice only. */
+  get histSpan() { return this._span; }
+  set histSpan(span) {
+    this._span = span;
+    this._eng._x.tw_set_master_meter(this._eng._e, 1, this.scramble ? 1 : 0, this.bitDepth, span);
+  }
+  drain(out) {
+    const eng = this._eng;
+    const x = eng._x;
+    const p = eng._readout();
+    if (!x.tw_master_meter_drain(eng._e, p)) return null;
+    return readMasterMeterReadout(x.memory.buffer, p, x.tw_master_meter_rings(eng._e) >>> 0,
+      x.tw_master_meter_pairs(eng._e) >>> 0, out);
+  }
+  /** One census's figures and its HIST_BUCKETS raw counts — `span` the take
+   *  (HIST_SPAN_ALL, the default) or a rolling one. Drains nothing. */
+  census(span = HIST_SPAN_ALL) {
+    const eng = this._eng;
+    const x = eng._x;
+    const p = eng._readout();
+    const depth = x.tw_master_meter_census(eng._e, span, p, p + 8 * 8);
+    return { bitDepth: depth, ...readCensus(x.memory.buffer, p) };
+  }
+}
 
 /**
  * One `ILyr` entry (file format §9.17) as the engine reads it: the header,
@@ -88,16 +231,12 @@ function lyricEntryBytes(instId, syllables, recipes) {
 export class WasmTrackerState {
   constructor(eng) {
     this._eng = eng;
-    // The metering taps (analysis.js, loudness.js) run here in JavaScript, on
-    // the buffers the engine renders into — the page's own analysis code, fed
-    // from the module's memory. null = off, and then they cost nothing.
+    // The master strip's and the Mastering view's taps (meters.c) — handles
+    // on the engine's own, null = off, and then they cost nothing. The
+    // Mixing tab's (imixtap.c) have no handle: the snapshot is their face.
     this.analysis = null;
     this.analysisTarget = ANALYSIS_OFF;
     this.masterMeter = null;
-    // The Mixing tab's taps sit INSIDE an instrument's chain, so they are the
-    // engine's own (imixtap.c) and fillSnapshot writes their blocks; nothing
-    // is kept here for them.
-    this.imixMeters = new Array(IMX_METER_SEATS).fill(null);
   }
 
   drainInterrupts() { return this._eng._x.tw_poll_interrupts(this._eng._e) >>> 0; }
@@ -105,16 +244,6 @@ export class WasmTrackerState {
   get surroundModel() { return this._eng._x.tw_get_surround_model(this._eng._e); }
   /** Voices sounding now — lanes, jam bank and background list (a profiler's reading). */
   get soundingVoices() { return this._eng._x.tw_sounding_voices(this._eng._e); }
-  /** The mix as it enters the mastering chain (valid while a master meter is on). */
-  get preLeft() { return this._eng._f32(this._eng._x.tw_pre_left(this._eng._e) >>> 0, TRACKER_CHUNK); }
-  get preRight() { return this._eng._f32(this._eng._x.tw_pre_right(this._eng._e) >>> 0, TRACKER_CHUNK); }
-
-  /** A reset that starts a playback somewhere starts the meters' integration
-   *  again with it (TrackerState.resetPlayState). */
-  _resetMeters() {
-    this.masterMeter?.resetAll();
-    for (const m of this.imixMeters) m?.resetAll();
-  }
 
   /** The float mix bus of the chunk just rendered — views into the module's
    *  memory, valid until the next call into the engine. */
@@ -163,6 +292,7 @@ export class WasmTaudEngine {
     this._stemBus = null;
     this._stemVoices = null;
     this._chunkPtr = x.malloc(TRACKER_CHUNK * 2) >>> 0;
+    this._readPtr = 0;
     this.rate = rate;
     this.playheads = [this._makePlayhead()];
   }
@@ -179,6 +309,15 @@ export class WasmTaudEngine {
     const buf = this._x.memory.buffer;
     if (this._u8v === null || this._u8v.buffer !== buf) this._u8v = new Uint8Array(buf);
     return this._u8v;
+  }
+
+  /** A buffer in the module's memory for a meter's readout (doubles). */
+  _readout() {
+    if (!this._readPtr) {
+      this._readPtr = this._x.malloc(MM_READOUT * 8) >>> 0;
+      if (!this._readPtr) throw new Error("taud engine: out of memory");
+    }
+    return this._readPtr;
   }
 
   _f32(ptr, n) {
@@ -305,6 +444,21 @@ export class WasmTaudEngine {
   /** The chain's parameters as they were given (neutral until a host gives some). */
   getMastering(ph) { return this._mastering; }
 
+  /**
+   * A multichannel export's chain (engine spec §12.3): `params` run over the
+   * render target's bus — as wide as it is NOW, so install the target first —
+   * after every chunk, or null for none. The pair's own chain is the
+   * caller's to switch off (setMastering).
+   */
+  setBusMastering(ph, params) {
+    if (params === null || params === undefined) {
+      this._x.tw_set_bus_mastering(this._e, 0, 0);
+      return;
+    }
+    const block = buildMasteringBlock(params);
+    this._x.tw_set_bus_mastering(this._e, this._put(block), block.length);
+  }
+
   /** The project's instrument mixing chains: every IMix block (an array or a
    *  Map by id). Replaces the whole set; a block that keeps its id keeps its
    *  running state. */
@@ -369,10 +523,7 @@ export class WasmTaudEngine {
 
   setCuePosition(ph, pos) { this._x.tw_set_cue_position(this._e, pos); }
   getCuePosition(ph) { return this._x.tw_get_cue_position(this._e); }
-  setTrackerRow(ph, row) {
-    this._x.tw_set_tracker_row(this._e, row);
-    this.playheads[0].trackerState._resetMeters();
-  }
+  setTrackerRow(ph, row) { this._x.tw_set_tracker_row(this._e, row); }
   getTrackerRow(ph) { return this._x.tw_get_tracker_row(this._e); }
 
   setTrackerMixerFlags(ph, flags) { this._x.tw_set_tracker_mixer_flags(this._e, flags); }
@@ -388,59 +539,46 @@ export class WasmTaudEngine {
 
   /**
    * Master-strip analysis tap: ANALYSIS_OFF, ANALYSIS_STEREO, ANALYSIS_AMBISONIC
-   * or a speaker-layout key. Costs nothing while off.
-   *
-   * The tap itself is analysis.js's, here on the page's side of the boundary.
-   * A stereo song is metered from the finished pair; a surround song also
-   * runs a second object bus through the analysis target INSIDE the engine
-   * (every voice, positioned), and the tap reads that bus out of the module's
-   * memory — the nine scope harmonics, then a speaker layout's feeds.
+   * or a speaker-layout key. Costs nothing while off. The tap is the engine's
+   * (meters.c); its shape follows the song's surround model and the render
+   * target as they stand, which is why every call that moves either installs
+   * it again here.
    */
   setAnalysis(ph, target) {
     const x = this._x;
     const ts = this.playheads[0].trackerState;
     ts.analysisTarget = target;
     if (target === ANALYSIS_OFF || target === undefined) {
+      x.tw_set_analysis(this._e, -1, 0);
       ts.analysis = null;
-      x.tw_set_analysis_bus(this._e, -1);
       return;
     }
-    const tap = new AnalysisTap(target, ts.surroundModel);
-    if (tap.bus === null) {
-      x.tw_set_analysis_bus(this._e, -1);
-    } else {
-      // 0 = the harmonics alone; 1… = a speaker layout, in speakers.js's order.
-      const layout = SPEAKER_LAYOUT_NAMES.indexOf(target) + 1;
-      const ptr = x.tw_set_analysis_bus(this._e, layout) >>> 0;
-      if (!ptr) throw new Error("taud engine: out of memory");
-      const count = x.tw_analysis_bus_channels(this._e) * TRACKER_CHUNK;
-      // What the tap asks of its bus: the data, the frame count, a clear()
-      // (the engine clears its own at the top of every chunk).
-      tap.bus = {
-        frames: TRACKER_CHUNK,
-        get data() { return new Float64Array(x.memory.buffer, ptr, count); },
-        clear() {},
-      };
-    }
-    ts.analysis = tap;
+    // 0 the pair, 1 the field, 2 a speaker layout (1… in speakers.js's order;
+    // a name that is none of them meters the field).
+    if (target === ANALYSIS_STEREO) x.tw_set_analysis(this._e, 0, 0);
+    else if (target === ANALYSIS_AMBISONIC) x.tw_set_analysis(this._e, 1, 0);
+    else x.tw_set_analysis(this._e, 2, SPEAKER_LAYOUT_NAMES.indexOf(target) + 1);
+    ts.analysis = new WasmAnalysisTap(this, target);
   }
   getAnalysis(ph) { return this.playheads[0].trackerState.analysisTarget; }
 
-  /** Install (or drop) the Mastering view's metering tap (loudness.js). */
+  /** Install, keep or drop the Mastering view's metering tap (meters.c). A
+   *  new all-pass choice or census depth is a new tap; the span carries. */
   setMasterMeter(ph, on, scramble = false, bitDepth = DEFAULT_BIT_DEPTH, histSpan = HIST_SPAN_ALL) {
     const ts = this.playheads[0].trackerState;
     if (!on) {
+      this._x.tw_set_master_meter(this._e, 0, 0, DEFAULT_BIT_DEPTH, 0);
       ts.masterMeter = null;
-      this._x.tw_set_pre_tap(this._e, 0);
       return;
     }
     const depth = bitDepth === 8 ? 8 : 16;
+    const s = histSpan | 0;
+    const span = s === HIST_SPAN_LONG || s === HIST_SPAN_SHORT ? s : HIST_SPAN_ALL;
+    this._x.tw_set_master_meter(this._e, 1, scramble ? 1 : 0, depth, span);
     if (ts.masterMeter === null || ts.masterMeter.scramble !== !!scramble || ts.masterMeter.bitDepth !== depth) {
-      ts.masterMeter = new MasterMeterTap(this.rate, { scramble: !!scramble, bitDepth: depth });
+      ts.masterMeter = new WasmMasterMeter(this, !!scramble, depth, span);
     }
-    const span = histSpan | 0;
-    ts.masterMeter.histSpan = span === HIST_SPAN_LONG || span === HIST_SPAN_SHORT ? span : HIST_SPAN_ALL;
-    this._x.tw_set_pre_tap(this._e, 1);
+    ts.masterMeter._span = span;
   }
 
   /** Install (or drop, slot < 0) the Mixing tab's tap on one instrument's
@@ -500,16 +638,13 @@ export class WasmTaudEngine {
     this._mastering = defaultMastering(); // the reset puts the chain back to neutral
     const ts = this.playheads[0].trackerState;
     this.setAnalysis(0, ts.analysisTarget); // the reset re-applies the surround model
-    ts.masterMeter?.resetAll();
   }
 
   /** Put the playhead on row `row` of cue `cue` in the state the song itself
    *  arrives there with (the chase, engine spec §15.1), ready for play().
    *  Returns false when the song's own path never reaches that row. */
   chaseTrackerRow(ph, cue, row) {
-    const reached = this._x.tw_chase_tracker_row(this._e, cue, row) !== 0;
-    this.playheads[0].trackerState._resetMeters();
-    return reached;
+    return this._x.tw_chase_tracker_row(this._e, cue, row) !== 0;
   }
 
   getFreePlayhead(fallback) { return this.isPlaying(0) ? fallback : 0; }
@@ -678,28 +813,11 @@ export class WasmTaudEngine {
    */
   renderChunk(ph, out = new Uint8Array(TRACKER_CHUNK * 2)) {
     const x = this._x;
-    const ts = this.playheads[0].trackerState;
-    const analysis = ts.analysis;
-    const meter = ts.masterMeter;
-    if (analysis !== null) analysis.begin();
+    // The engine runs its own meters over the chunk (meters.c), and the
+    // census over the codes it delivers.
     if (!x.tw_render_chunk(this._e)) return null;
-    // The taps read what the engine left in its buffers, in the order the
-    // JavaScript mixer fed them: the mix into the mastering chain, the
-    // finished pair, then the delivered codes.
-    if (analysis !== null || meter !== null) {
-      const mixL = this._mixView(0);
-      const mixR = this._mixView(1);
-      if (meter !== null) meter.push(TAP_PRE, ts.preLeft, ts.preRight, TRACKER_CHUNK);
-      if (analysis !== null) analysis.finish(TRACKER_CHUNK, mixL, mixR);
-      if (meter !== null) {
-        meter.push(TAP_POST, mixL, mixR, TRACKER_CHUNK);
-        meter.compGrDb = x.tw_master_comp_gr(this._e);
-        meter.limGrDb = x.tw_master_lim_gr(this._e);
-      }
-    }
     x.tw_pcm8(this._e, this._chunkPtr);
     out.set(this._u8().subarray(this._chunkPtr, this._chunkPtr + TRACKER_CHUNK * 2));
-    if (meter !== null) meter.binOutput(out, this._mixView(0), this._mixView(1), TRACKER_CHUNK);
     if (this._stemBus !== null) this._feedStems();
     return out;
   }

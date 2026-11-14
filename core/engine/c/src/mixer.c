@@ -135,6 +135,8 @@ void te_dither_u8(uint32_t *xs, float err[4], const float *left, const float *ri
 void te_pcm32f_to_pcm8(TaudEngine *e, uint8_t *out)
 {
     te_dither_u8(&e->xorshift, e->ditherError, e->mixLeft, e->mixRight, TRACKER_CHUNK, out);
+    /* The Mastering view's census counts the codes delivered. */
+    if (e->masterMeter != NULL) te_master_meter_bin(e->masterMeter, out, e->mixLeft, e->mixRight, TRACKER_CHUNK);
 }
 
 static inline double attack_gain(const TaudEngine *e, int attackRampSamples)

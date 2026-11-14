@@ -14,7 +14,7 @@
 import { CUE_EMPTY, PATTERN_SIZE, SAMPLEBIN_SIZE, TAUD_VERSION } from "../../core/format/taud-const.js";
 import { writePatchesBlob, buildMetaRecord, layerNote } from "../../core/engine/inst.js";
 import { EffectOp } from "../../core/engine/tables.js";
-import { rowVolumeFromDefault, narrowVolAxis } from "../../core/engine/columns.js";
+import { rowVolumeFromDefault, narrowVolAxis } from "./columns.js";
 import { INST_GOBACK, INST_SKIP, INST_JUMP } from "../../core/engine/state.js";
 import { sampleSpans, BANK_SECTIONS, cueInfo } from "./document.js";
 import { buildPitchExtSection, pitchPatchesOf, pitchTableOf } from "../../core/format/pitch-ext-section.js";

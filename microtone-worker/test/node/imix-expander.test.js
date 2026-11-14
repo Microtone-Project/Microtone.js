@@ -11,6 +11,18 @@ import { readFile } from "node:fs/promises";
 import * as M from "../../core/engine/imix.js";
 import { engineParts } from "../fixtures/engine-parts.js";
 import { Biquad } from "../../core/engine/mastering.js";
+
+/** One RBJ section run Direct Form I over a channel — the spec's filter,
+ *  written plainly, on the coefficients the engine computes. */
+function df1(s, channels) {
+  const st = Array.from({ length: channels }, () => [0, 0, 0, 0]);
+  return (c, x) => {
+    const h = st[c];
+    const y = s.b0 * x + s.b1 * h[0] + s.b2 * h[1] - s.a1 * h[2] - s.a2 * h[3];
+    h[1] = h[0]; h[0] = x; h[3] = h[2]; h[2] = y;
+    return y;
+  };
+}
 import { parseImixSection, buildImixBlock, buildImixSection } from "../../core/format/imix-section.js";
 import { TaudEngine } from "../../core/engine/engine.js";
 import { TRACKER_CHUNK } from "../../core/engine/constants.js";
@@ -122,9 +134,10 @@ function reference(e, L, R) {
   const onePole = (ms) => 1 - P.exp(-1 / ((ms / 1000) * FS));
   const a = onePole(e.attackMs), r = onePole(e.releaseMs), rc = onePole(10);
   const H = Math.round((e.holdMs * FS) / 1000);
-  const hp = new Biquad(2), lp = new Biquad(2);
-  hp.highPass(e.keyLowCut, Math.SQRT1_2, FS);
-  lp.lowPass(e.keyHighCut, Math.SQRT1_2, FS);
+  const hpc = new Biquad(), lpc = new Biquad();
+  hpc.highPass(e.keyLowCut, Math.SQRT1_2, FS);
+  lpc.lowPass(e.keyHighCut, Math.SQRT1_2, FS);
+  const hp = { run: df1(hpc, 2) }, lp = { run: df1(lpc, 2) };
   const lvl = [];
   const oL = new Float64Array(L.length), oR = new Float64Array(L.length);
   let g = 0, hold = 0, shut = false, ms = 0;

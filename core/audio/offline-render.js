@@ -3,15 +3,14 @@
 // uploadTaudFile order, the one every host uses.
 
 import { TaudEngine } from "../engine/engine.js";
-import { TRACKER_CHUNK, SAMPLING_RATE, MAX_VOICES, NUM_VOICES } from "../engine/constants.js";
-import { MONITOR_BINAURAL } from "../engine/binaural.js";
-import { pcm32fToPcm8, makeDither16, ditherS16 } from "../engine/dither.js";
-import { makeXorshift32 } from "../engine/rng.js";
-import { resampleInterleaved } from "./resampler.js";
+import {
+  TRACKER_CHUNK, SAMPLING_RATE, MAX_VOICES, NUM_VOICES, MONITOR_BINAURAL,
+} from "../engine/constants.js";
+import { instantiateEngine } from "../engine/wasm-module.js";
 
 /**
  * The two stereo WAV characters. CLEAN is 16-bit with a plain TPDF dither
- * (dither.js); GRITTY is 8-bit through the device's own noise-shaped dither —
+ * of one LSB; GRITTY is 8-bit through the device's own noise-shaped dither —
  * at the engine's rate, the very bytes the device would have played.
  */
 export const WAV_CLEAN = "clean";
@@ -157,51 +156,20 @@ export async function renderSongAsync(eng, seconds, { onProgress = null, signal 
  *  the device). Either dither starts afresh, so a render is one file every time.
  *  Exported for taudplay (item 179), whose renderer writes the same files. */
 export function encodeWav(f32, outRate = 48000, quality = WAV_CLEAN) {
-  const pcm = resampleInterleaved(f32, 2, SAMPLING_RATE, outRate);
-  const gritty = quality === WAV_GRITTY;
-  const bytesPer = gritty ? 1 : 2;
-  const numSamples = pcm.length; // interleaved stereo samples
-  const dataBytes = numSamples * bytesPer;
-  const buf = new ArrayBuffer(44 + dataBytes);
-  const dv = new DataView(buf);
-  const wstr = (o, s) => { for (let i = 0; i < s.length; i++) dv.setUint8(o + i, s.charCodeAt(i)); };
-  wstr(0, "RIFF");
-  dv.setUint32(4, 36 + dataBytes, true);
-  wstr(8, "WAVE");
-  wstr(12, "fmt ");
-  dv.setUint32(16, 16, true);
-  dv.setUint16(20, 1, true);                      // PCM
-  dv.setUint16(22, 2, true);                      // stereo
-  dv.setUint32(24, outRate, true);
-  dv.setUint32(28, outRate * 2 * bytesPer, true); // byte rate
-  dv.setUint16(32, 2 * bytesPer, true);           // block align
-  dv.setUint16(34, 8 * bytesPer, true);           // bits
-  wstr(36, "data");
-  dv.setUint32(40, dataBytes, true);
-  if (gritty) {
-    // pcm32fToPcm8 reads the engine's dither state off its first argument and
-    // takes the two sides apart, so it is fed a fresh state and a block at a
-    // time; WAV's unsigned 8-bit centre is the device's own bias.
-    const state = { xorshift32: makeXorshift32(), ditherError: new Float32Array(4) };
-    const out = new Uint8Array(buf, 44);
-    const BLOCK = 4096;
-    const l = new Float32Array(BLOCK), r = new Float32Array(BLOCK);
-    const block = new Uint8Array(BLOCK * 2);
-    const frames = numSamples >> 1;
-    for (let f0 = 0; f0 < frames; f0 += BLOCK) {
-      const n = Math.min(BLOCK, frames - f0);
-      for (let k = 0; k < n; k++) {
-        l[k] = pcm[(f0 + k) * 2];
-        r[k] = pcm[(f0 + k) * 2 + 1];
-      }
-      pcm32fToPcm8(state, l, r, n, block);
-      out.set(block.subarray(0, n * 2), f0 * 2);
-    }
-  } else {
-    const next = makeDither16();
-    for (let i = 0; i < numSamples; i++) dv.setInt16(44 + i * 2, ditherS16(next, pcm[i]), true);
-  }
-  return new Uint8Array(buf);
+  // The engine's own encoder (player.c taud_encode_wav_quality): its resampler
+  // and both quantisers, the very ones the device and the Mastering view's
+  // census use. An instance of its own, dropped afterwards, so the memory a
+  // long render needs is given back.
+  const x = instantiateEngine();
+  const n = f32.length;
+  const src = x.malloc(n * 4) >>> 0;
+  const lenAt = x.malloc(4) >>> 0;
+  if (!src || !lenAt) throw new Error("taud engine: out of memory");
+  new Float32Array(x.memory.buffer, src, n).set(f32);
+  const wav = x.taud_encode_wav_quality(src, n >> 1, SAMPLING_RATE, outRate,
+    quality === WAV_GRITTY ? 1 : 0, lenAt) >>> 0;
+  if (!wav) throw new Error("taud engine: out of memory");
+  return new Uint8Array(x.memory.buffer, wav, new Uint32Array(x.memory.buffer, lenAt, 1)[0]).slice();
 }
 
 /**

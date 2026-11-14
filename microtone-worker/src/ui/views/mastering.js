@@ -37,7 +37,7 @@
 
 import {
   defaultMastering, normaliseMastering, cloneMastering, masteringEqual,
-  responseCurve, MasterChain, RANGE, EQ_BANDS,
+  responseCurve, MasterCurve, RANGE, EQ_BANDS,
   EQ_LOW_SHELF, EQ_PEAKING, EQ_HIGH_SHELF, COMP_PEAK, COMP_RMS,
   HP_SLOPE_12, HP_SLOPE_24,
 } from "../../../core/engine/mastering.js";
@@ -49,7 +49,7 @@ import {
 import {
   Fft, hannWindow, spectrumDb, tiltDbAt, SPECTRUM_BANDS, SPECTRUM_NBANDS,
   SPECTRUM_TILT_DB_PER_OCT,
-} from "../../../core/engine/fft.js";
+} from "../../audio/fft.js";
 import { RAD_BANDS } from "../radiation.js";
 import { drawSpecGround, drawCursor, trackCursor, drawBarRules } from "./imixplots.js";
 import { SAMPLING_RATE } from "../../../core/engine/constants.js";
@@ -411,7 +411,7 @@ export class MasteringView {
      *  rolling windows (HIST_SPAN_*, item 188). */
     this.histSpan = HIST_SPAN_ALL;
     /** A response-curve chain, kept off the audio path purely to draw with. */
-    this.curveChain = new MasterChain(defaultMastering(), SAMPLING_RATE);
+    this.curveChain = new MasterCurve(defaultMastering(), SAMPLING_RATE);
     /** The live spectrometer drawn behind the EQ curve: one transform of the
      *  tap's ring per frame, then a per-COLUMN slew so it reads as a spectrum
      *  rather than as a flicker. */

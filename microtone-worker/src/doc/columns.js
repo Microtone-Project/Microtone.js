@@ -10,10 +10,10 @@
 // `ts` is anything with the playhead's `wideCells`, `volMax` and
 // `surroundModel`; `voice` anything with the lane fields they write.
 
-import { EffectOp, clamp } from "./tables.js";
+import { EffectOp, clamp } from "../../core/engine/tables.js";
 import {
   SURROUND_SPATIAL, applyNotePanSet, applyNotePanSlide, applyNoteElevation,
-} from "./spatial.js";
+} from "../../core/engine/spatial.js";
 
 /** Resolve a non-zero argument or recall from cohort memory. */
 export function resolveArg(arg, mem) { return arg !== 0 ? arg : mem; }

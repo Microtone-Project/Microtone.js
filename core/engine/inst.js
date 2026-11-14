@@ -1035,7 +1035,7 @@ export class TaudInst {
     // remainder: $f's sub-range, the step counter it alternates on, and the
     // wider operation table's own accumulators. modRot/modSub/modScatter/
     // modSeed above are reused as-is for the extended rotate/jump/scatter/
-    // sub/add kinds (see samplemod.js decodeExtOp) rather than duplicated.
+    // sub/add kinds (see samplemod.c te_decode_ext_op) rather than duplicated.
     this.modOpExt = 0;            // 0x000..0xFFF, 0 = off ($xuu)
     this.modF = 0;                 // $f sub-range modifier
     this.modStepIndex = 0;        // counts steps, for $f's A-D alternation

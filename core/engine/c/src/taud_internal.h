@@ -1034,7 +1034,7 @@ typedef struct {
 #define CUE_BLOCK 256
 #define CUE_BLOCKS (NUM_CUES / CUE_BLOCK)
 
-/* ── spatial bus / renderers (spatial.js, binaural.js) ─────────────────── */
+/* ── spatial bus / renderers (spatial.c, binaural.c) ──────────────────── */
 
 typedef struct {
     bool sphere;
@@ -1189,6 +1189,14 @@ void te_mastering_default(TaudMastering *p);
 bool te_mastering_engaged(const TaudMastering *p);
 bool te_mastering_parse_block(const uint8_t *b, size_t len, TaudMastering *out);
 TaudMasterChain *te_master_chain_new(const TaudMastering *p, int rate);
+/* The same chain over a CHANNEL-MAJOR bus `nch` wide (an export's speaker
+ * feeds or ambisonic scene, engine spec §12.3): every channel filtered alike,
+ * one dynamics detector reading all of them, and the width stage scaling an
+ * ambisonic scene's directional channels against W (skipped on speakers). */
+TaudMasterChain *te_master_chain_new_planar(const TaudMastering *p, int rate, int nch, bool ambisonic);
+void te_master_chain_process_planar(TaudMasterChain *c, double *data, int frames, int stride);
+int te_master_chain_channels(const TaudMasterChain *c);
+int te_master_chain_latency(const TaudMasterChain *c);
 void te_master_chain_free(TaudMasterChain *c);
 void te_master_chain_set_params(TaudMasterChain *c, const TaudMastering *p);
 void te_master_chain_reset(TaudMasterChain *c);
@@ -1345,6 +1353,79 @@ void te_fill_imix_meters(struct TaudEngine *e, float *f);
 void te_tp_coef(double h[TP_PHASES * TP_TAPS]);
 double te_tp_push(TaudTruePeakProbe *pr, const double *coef, double v);
 
+/* ── the master bus's meters (meters.c; analysis.js, loudness.js) ──────── */
+
+#define SCOPE_FRAMES 4096       /* the strip's B-format ring, frames */
+#define ANALYSIS_MAX_METERS 8   /* the widest metered set (7.1) */
+/* Metering targets (analysis.js ANALYSIS_*): the pair, the encoded field, a
+ * speaker layout (then 1…3: quad, 5.1, 7.1 in speakers.js's order). */
+#define AN_TARGET_STEREO 0
+#define AN_TARGET_AMBISONIC 1
+#define AN_TARGET_SPEAKERS 2
+/* te_analysis_drain's readout: meterCount, frames, field energy, the three
+ * correlation sums, the ring cursor, then per meter (ANALYSIS_MAX_METERS
+ * each) peak, true peak, mean square, clips. */
+#define AN_READOUT (7 + 4 * ANALYSIS_MAX_METERS)
+
+#define MM_STAGES 2             /* before the mastering chain, after it */
+#define MM_TAP_PRE 0
+#define MM_TAP_POST 1
+#define MM_SPEC_FRAMES 2048     /* loudness.js SPEC_FRAMES */
+#define MM_HIST_BUCKETS 256
+#define AP_SECTIONS 8           /* the phase scrambler's all-pass sections */
+/* te_master_meter_drain's readout (wasm-engine.js mirrors these): */
+#define MM_R_FRAMES 0
+#define MM_R_COMP_GR 1
+#define MM_R_LIM_GR 2
+#define MM_R_SUM_Z 3            /* per stage */
+#define MM_R_PEAK 5             /* per stage × channel, stage-major */
+#define MM_R_TRUE_PEAK 9
+#define MM_R_MEAN_SQUARE 13
+#define MM_R_CLIP 17
+#define MM_R_AP_PEAK 21         /* per stage */
+#define MM_R_AP_SUM_SQ 23
+#define MM_R_BIT_DEPTH 25
+#define MM_R_HIST_SPAN 26
+#define MM_R_SPEC_WRITE 27
+#define MM_R_BITS 28            /* te_bit_usage's eight */
+#define MM_R_BUCKETS 36         /* MM_HIST_BUCKETS raw counts */
+#define MM_READOUT (MM_R_BUCKETS + MM_HIST_BUCKETS)
+
+typedef struct TaudAnalysisTap TaudAnalysisTap;
+typedef struct TaudMasterMeter TaudMasterMeter;
+
+void te_set_analysis(struct TaudEngine *e, int target, int layout);
+TaudAnalysisTap *te_analysis_tap_new(int target, int layout, int model);
+void te_analysis_finish(TaudAnalysisTap *t, const double *bus, const float *mixL, const float *mixR, int frames);
+int te_analysis_meter_count(const TaudAnalysisTap *t);
+int te_analysis_meter_source(const TaudAnalysisTap *t);
+bool te_analysis_needs_bus(const TaudAnalysisTap *t);
+int te_analysis_layout(const TaudAnalysisTap *t);
+void te_master_meter_set_span(TaudMasterMeter *t, int span);
+void te_analysis_drain(TaudAnalysisTap *t, double *out);
+const float *te_analysis_ring(const TaudAnalysisTap *t);
+void te_set_master_meter(struct TaudEngine *e, bool on, bool scramble, int bitDepth, int histSpan);
+TaudMasterMeter *te_master_meter_new(double rate, bool scramble, int bitDepth);
+void te_master_meter_free(TaudMasterMeter *t);
+void te_master_meter_reset_all(TaudMasterMeter *t);
+void te_master_meter_push(TaudMasterMeter *t, int stage, const float *left, const float *right, int frames);
+void te_master_meter_bin(TaudMasterMeter *t, const uint8_t *u8, const float *left, const float *right, int frames);
+void te_master_meter_drain(TaudMasterMeter *t, double *out);
+void te_master_meter_census(TaudMasterMeter *t, int span, double bits[8], double *buckets);
+const float *te_master_meter_rings(const TaudMasterMeter *t);
+const float *te_master_meter_pairs(const TaudMasterMeter *t);
+int te_master_meter_depth(const TaudMasterMeter *t);
+const double *te_master_meter_hist(const TaudMasterMeter *t, int span);
+void te_bit_usage(const double *hist, int depth, double out[8]);
+void te_kw_coefficients(double rate, double shelf[5], double hp[5]);
+double te_kw_run(const double *s, const double *h, double st[8], double x);
+void te_ap_coefficients(double rate, double c[AP_SECTIONS][4]);
+double te_ap_run(const double c[AP_SECTIONS][4], double st[AP_SECTIONS][4], double x);
+void te_meters_after_render(struct TaudEngine *e);
+void te_fill_meters(struct TaudEngine *e, float *f);
+/* The clean WAV export's 16-bit quantiser (player.c). */
+int16_t te_dither_s16(uint32_t *xs, float v);
+
 /* ── the engine (engine.js + state.js Playhead/TrackerState) ───────────── */
 
 /* formant.js's module-level tables, computed once per engine. The bank grid
@@ -1461,9 +1542,16 @@ typedef struct TaudEngine {
      * surround song's strip is on screen; NULL otherwise. */
     TaudSpatialBus *analysisBus;
     unsigned analysisGen;
+    /* …and the meters (meters.c): the strip's tap, the Mastering view's.
+     * NULL = off, and then they cost nothing. */
+    TaudAnalysisTap *analysisTap;
+    TaudMasterMeter *masterMeter;
     TaudMastering masteringParams;
     bool hasMasteringParams;
     TaudMasterChain *mastering;
+    /* A multichannel export's chain (setBusMastering): the song's chain run
+     * over the render target's bus instead of the pair; NULL = none. */
+    TaudMasterChain *busMastering;
     double tuningRatio;
     double amigaLPStateL, amigaLPStateR;
     double amigaLEDStateL[4], amigaLEDStateR[4];
@@ -1613,6 +1701,7 @@ void te_silence_song_voices(TaudEngine *e, bool ramp);
 void te_reset_sample_fx_state(TaudEngine *e);
 unsigned te_drain_interrupts(TaudEngine *e);
 bool te_render_chunk(TaudEngine *e);
+void te_set_bus_mastering(TaudEngine *e, const TaudMastering *params);
 void te_pcm32f_to_pcm8(TaudEngine *e, uint8_t *out);
 /** The device's dither over any pair of buffers, its state passed in: the
  *  engine's own, or a fresh one (seed TE_XORSHIFT_SEED, errors zero) for a
@@ -1620,7 +1709,7 @@ void te_pcm32f_to_pcm8(TaudEngine *e, uint8_t *out);
 void te_dither_u8(uint32_t *xs, float err[4], const float *left, const float *right, size_t frames, uint8_t *out);
 /** One step of the dither's xorshift32 stream. */
 uint32_t te_xorshift32(uint32_t *state);
-/** The adapter's xorshift32 seed (AudioAdapter.kt; rng.js makeXorshift32). */
+/** The adapter's xorshift32 seed (AudioAdapter.kt). */
 #define TE_XORSHIFT_SEED 0x9e3779b9u
 
 /* Voice pool + background list. */
@@ -1905,6 +1994,8 @@ void te_display_angles(TaudEngine *e, int vi, const TaudVoice *v, double out[2])
 /** Install the analysis bus: layout −1 = none, 0 = the scope harmonics alone,
  *  1 quad, 2 5.1, 3 7.1 (speakers.js). */
 void te_set_analysis_bus(TaudEngine *e, int layout);
+TaudSpatialBus *te_analysis_bus_new(int layout);
+void te_bus_channel_gains(const TaudSpatialBus *bus, double az, double el, double *out, int off);
 /** Make `bus` a render target of `kind`: an ambisonic one of `order` (planar
  *  or full sphere), or speaker layout 1 quad / 2 5.1 / 3 7.1. Sets its
  *  channel count; false for a kind or a layout it does not know. */

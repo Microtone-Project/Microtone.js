@@ -19,6 +19,10 @@
 //
 //   P.binaural(sphere, rate)   the head (channelGains, decode(bus, frames))
 //   P.imixChain(block, …)      an instrument mixing chain (process, readGr)
+//   P.masterChain(params, …)   the mastering chain, the pair or a bus (process, processPlanar)
+//   P.analysisTap(target, model) the master strip's tap, with a bus of its own
+//   P.masterMeter(rate, opts)  the Mastering view's tap (push, bin, drain, census)
+//   P.truePeakProbe(), P.kWeighting(rate), P.phaseScrambler(rate), P.bitUsage
 //   P.opl / P.psg              a chip channel keyed by hand
 //   P.samplemod                the sample-modification decoders
 //   P.table(name)              a table of the engine's (SNES_GAUSS, MOD_SIN_TABLE, …)
@@ -30,6 +34,13 @@ import { TaudEngine } from "../../core/engine/engine.js";
 import { recordSize } from "../../core/engine/wasm-reflect.js";
 import { SAMPLING_RATE, TRACKER_CHUNK } from "../../core/engine/constants.js";
 import { buildImixSection } from "../../core/format/imix-section.js";
+import { buildMasteringBlock } from "../../core/format/mastering-section.js";
+import {
+  readAnalysisReadout, readMasterMeterReadout, readCensus,
+} from "../../core/engine/wasm-engine.js";
+import { makeAnalysisReadout, ANALYSIS_STEREO, ANALYSIS_AMBISONIC, SCOPE_FRAMES, SCOPE_CHANNELS } from "../../core/engine/analysis.js";
+import { makeMasterMeterReadout, HIST_SPAN_ALL } from "../../core/engine/loudness.js";
+import { SPEAKER_LAYOUT_NAMES } from "../../core/engine/speakers.js";
 
 /** The C engine's EXT_KIND_* order, by the names the decoder used to give. */
 const EXT_KINDS = [
@@ -272,6 +283,183 @@ export function engineParts(eng = new TaudEngine()) {
     /** An LFO's phase increment per sample (16.16 per sample, as the file's rate). */
     imixLfoIncrement(sync, rate, bpm, fs) { return x.tw_part_imix_lfo_increment(sync ? 1 : 0, rate, bpm, fs); },
 
+    // ── mastering.c ──
+    /** The mastering chain on `params` (a mastering record), `nch` wide:
+     *  process(left, right, n) runs a pair of Float32Arrays in place,
+     *  processPlanar(data, frames, stride) a channel-major Float64Array;
+     *  compGrDb, limGrDb (the last call's deepest), latency, setParams, reset. */
+    masterChain(params, rate = SAMPLING_RATE, nch = 2, ambisonic = false) {
+      const c = withBytes(buildMasteringBlock(params),
+        (q, n) => x.tw_part_master_chain_new(q, n, rate, nch, ambisonic ? 1 : 0)) >>> 0;
+      if (!c) throw new Error("not a chain (or out of memory)");
+      return {
+        $ptr: c,
+        process(left, right, n) {
+          const q = x.malloc(n * 8) >>> 0;
+          new Float32Array(x.memory.buffer, q, n).set(left.subarray(0, n));
+          new Float32Array(x.memory.buffer, q + n * 4, n).set(right.subarray(0, n));
+          x.tw_part_master_chain_process(c, q, q + n * 4, n);
+          left.set(new Float32Array(x.memory.buffer, q, n));
+          right.set(new Float32Array(x.memory.buffer, q + n * 4, n));
+          x.free(q);
+        },
+        processPlanar(data, frames, stride) {
+          const len = (nch - 1) * stride + frames;
+          const q = x.malloc(len * 8) >>> 0;
+          new Float64Array(x.memory.buffer, q, len).set(data.subarray(0, len));
+          x.tw_part_master_chain_process_planar(c, q, frames, stride);
+          data.set(new Float64Array(x.memory.buffer, q, len));
+          x.free(q);
+        },
+        setParams(p) { withBytes(buildMasteringBlock(p), (q, n) => x.tw_part_master_chain_set_block(c, q, n)); },
+        reset() { x.tw_part_master_chain_reset(c); },
+        get compGrDb() { return x.tw_part_master_chain_comp_gr(c); },
+        get limGrDb() { return x.tw_part_master_chain_lim_gr(c); },
+        get latency() { return x.tw_part_master_chain_latency(c); },
+        free() { x.tw_part_master_chain_free(c); },
+      };
+    },
+
+    // ── meters.c ──
+    /** The master strip's tap for `target` on a song of surround `model`:
+     *  meterCount, meterSource, bus (null for a stereo song) — { numChannels,
+     *  frames, channelGains(az, el, out, off), addSource(n, v, gains, off,
+     *  ramp), clear() } — and begin() / finish(n, mixL,
+     *  mixR) / drain(out) / ring, as the engine feeds and drains it. */
+    analysisTap(target, model) {
+      const kind = target === ANALYSIS_STEREO ? 0 : target === ANALYSIS_AMBISONIC ? 1 : 2;
+      const t = x.tw_part_analysis_new(kind, SPEAKER_LAYOUT_NAMES.indexOf(target) + 1, model) >>> 0;
+      const b = x.tw_part_analysis_bus(t) >>> 0;
+      const nc = b ? x.tw_part_bus_channels(b) : 0;
+      const mix = x.malloc(TRACKER_CHUNK * 8) >>> 0;
+      const gainsAt = x.malloc(32 * 8) >>> 0;
+      const bus = b === 0 ? null : {
+        numChannels: nc,
+        frames: TRACKER_CHUNK,
+        get data() { return new Float64Array(x.memory.buffer, x.tw_part_bus_data(b) >>> 0, nc * TRACKER_CHUNK); },
+        channelGains(az, el, out, off = 0) {
+          x.tw_part_bus_channel_gains(b, az, el, gainsAt, 0);
+          out.set(new Float64Array(x.memory.buffer, gainsAt, nc), off);
+        },
+        addSource(n, value, gains, off = 0, ramp = 1) {
+          new Float64Array(x.memory.buffer, gainsAt, nc).set(gains.subarray(off, off + nc));
+          x.tw_part_bus_add_source(b, n, value, gainsAt, 0, ramp);
+        },
+        clear() { x.tw_part_bus_clear(b); },
+      };
+      return {
+        meterCount: x.tw_part_analysis_meter_count(t),
+        meterSource: x.tw_part_analysis_meter_source(t),
+        bus,
+        begin() { bus?.clear(); },
+        finish(frames, mixL, mixR) {
+          new Float32Array(x.memory.buffer, mix, frames).set(mixL.subarray(0, frames));
+          new Float32Array(x.memory.buffer, mix + TRACKER_CHUNK * 4, frames).set(mixR.subarray(0, frames));
+          x.tw_part_analysis_finish(t, b, mix, mix + TRACKER_CHUNK * 4, frames);
+        },
+        drain(out = makeAnalysisReadout()) {
+          const p = scratch(64);
+          x.tw_part_analysis_drain(t, p);
+          return readAnalysisReadout(x.memory.buffer, p, out);
+        },
+        get ring() {
+          return new Float32Array(x.memory.buffer, x.tw_part_analysis_ring(t) >>> 0, SCOPE_FRAMES * SCOPE_CHANNELS);
+        },
+      };
+    },
+
+    /** The Mastering view's tap on its own: push(stage, left, right, n) the
+     *  mix either side of the chain, bin(u8, left, right, n) the delivered
+     *  codes (u8 for an 8-bit census, the float pair for a 16-bit one),
+     *  drain(out), census(span), histSpan, resetAll(). Its rings come back
+     *  as views of the module's memory. */
+    masterMeter(rate = SAMPLING_RATE, { scramble = false, bitDepth = 16 } = {}) {
+      const t = x.tw_part_master_meter_new(rate, scramble ? 1 : 0, bitDepth) >>> 0;
+      if (!t) throw new Error("out of memory");
+      let span = HIST_SPAN_ALL;
+      const put = (arr, n, Type) => {
+        const q = x.malloc(Math.max(1, n) * Type.BYTES_PER_ELEMENT) >>> 0;
+        if (arr) new Type(x.memory.buffer, q, n).set(arr.subarray(0, n));
+        return q;
+      };
+      return {
+        $ptr: t,
+        scramble,
+        bitDepth: bitDepth === 8 ? 8 : 16,
+        get histSpan() { return span; },
+        set histSpan(s) { span = s; x.tw_part_master_meter_set_span(t, s); },
+        push(stage, left, right, n) {
+          const l = put(left, n, Float32Array), r = put(right, n, Float32Array);
+          x.tw_part_master_meter_push(t, stage, l, r, n);
+          x.free(l); x.free(r);
+        },
+        bin(u8, left, right, n) {
+          const u = put(u8, n * 2, Uint8Array), l = put(left, n, Float32Array), r = put(right, n, Float32Array);
+          x.tw_part_master_meter_bin(t, u, l, r, n);
+          x.free(u); x.free(l); x.free(r);
+        },
+        drain(out = makeMasterMeterReadout()) {
+          const p = scratch(400);
+          x.tw_part_master_meter_drain(t, p);
+          return readMasterMeterReadout(x.memory.buffer, p, x.tw_part_master_meter_rings(t) >>> 0,
+            x.tw_part_master_meter_pairs(t) >>> 0, out);
+        },
+        census(s = HIST_SPAN_ALL) {
+          const p = scratch(400);
+          x.tw_part_master_meter_census(t, s, p, p + 64);
+          return readCensus(x.memory.buffer, p);
+        },
+        /** The census over `s` at full resolution: 1 << bitDepth counts. */
+        hist(s = HIST_SPAN_ALL) {
+          const n = 1 << (bitDepth === 8 ? 8 : 16);
+          return Float64Array.from(new Float64Array(x.memory.buffer, x.tw_part_master_meter_hist(t, s) >>> 0, n));
+        },
+        resetAll() { x.tw_part_master_meter_reset_all(t); },
+        free() { x.tw_part_master_meter_free(t); },
+      };
+    },
+
+    /** The 4× true-peak probe: push(v) → the largest of |v| and the four
+     *  points interpolated around it. */
+    truePeakProbe() {
+      const pr = x.tw_part_tp_probe_new() >>> 0;
+      const coef = x.malloc(32 * 8) >>> 0;
+      x.tw_part_tp_coef(coef);
+      return { push(v) { return x.tw_part_tp_push(pr, coef, v); } };
+    },
+    /** BS.1770's K-weighting at `rate`: { shelf, hp } as {b0, b1, b2, a1, a2},
+     *  and run(x), one channel through both sections. */
+    kWeighting(rate = SAMPLING_RATE) {
+      const q = x.malloc(18 * 8) >>> 0;
+      new Float64Array(x.memory.buffer, q, 18).fill(0);
+      x.tw_part_kw_coefficients(rate, q, q + 40);
+      const c = Float64Array.from(new Float64Array(x.memory.buffer, q, 10));
+      const rec = (o) => ({ b0: c[o], b1: c[o + 1], b2: c[o + 2], a1: c[o + 3], a2: c[o + 4] });
+      return { shelf: rec(0), hp: rec(5), run(v) { return x.tw_part_kw_run(q, q + 40, q + 80, v); } };
+    },
+    /** The phase-scrambling all-pass cascade at `rate`: run(x), one channel. */
+    phaseScrambler(rate = SAMPLING_RATE) {
+      const q = x.malloc(64 * 8) >>> 0;
+      new Float64Array(x.memory.buffer, q, 64).fill(0);
+      x.tw_part_ap_coefficients(rate, q);
+      return { run(v) { return x.tw_part_ap_run(q, q + 32 * 8, v); } };
+    },
+    /** A census's figures (used, span, total, peakCode, minCode, maxCode,
+     *  effectiveBits, entropyBits) — the engine's te_bit_usage. */
+    bitUsage(hist, depth = 8) {
+      const n = 1 << depth;
+      const q = x.malloc((n + 8) * 8) >>> 0;
+      new Float64Array(x.memory.buffer, q, n).set(hist.subarray ? hist.subarray(0, n) : hist);
+      x.tw_part_bit_usage(q, depth, q + n * 8);
+      const r = new Float64Array(x.memory.buffer, q + n * 8, 8);
+      const out = {
+        used: r[0], span: r[1], total: r[2], peakCode: r[3], minCode: r[4], maxCode: r[5],
+        effectiveBits: r[6], entropyBits: r[7],
+      };
+      x.free(q);
+      return out;
+    },
+
     // ── opl.c ──
     opl: {
       /** A patch decoded from its block (encodeOplPatch's bytes): a TaudOplPatch view. */
@@ -330,6 +518,12 @@ export function engineParts(eng = new TaudEngine()) {
     },
   };
 
+  /** Copy bytes into the engine's memory for fn(ptr, length). */
+  function withBytes(bytes, fn) {
+    const q = x.malloc(bytes.length) >>> 0;
+    new Uint8Array(x.memory.buffer, q, bytes.length).set(bytes);
+    try { return fn(q, bytes.length); } finally { x.free(q); }
+  }
   /** Copy a patch block into the engine's memory for fn(ptr); returns fn's
    *  result as an address. */
   function withBlock(block, fn) {

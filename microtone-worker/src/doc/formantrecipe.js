@@ -38,7 +38,7 @@
 // Pure computation: reads pool bytes, returns numbers. No DOM, no document
 // mutation (the ops are formantedit.js's).
 
-import { Fft } from "../../core/engine/fft.js";
+import { Fft } from "../audio/fft.js";
 import { META_MIX_GAIN } from "../../core/engine/tables.js";
 import {
   CONSONANTS, CONSONANT_LIST, consonantNeedsNoise, timingScale, vowelAtPitch, noteHz,

@@ -10,8 +10,9 @@
 
 import { parseTaud } from "../../core/format/taud-parse.js";
 import { TaudEngine } from "../../core/engine/engine.js";
-import { SAMPLING_RATE, TRACKER_CHUNK } from "../../core/engine/constants.js";
-import { MONITOR_BINAURAL, MONITOR_FOLD } from "../../core/engine/binaural.js";
+import {
+  SAMPLING_RATE, TRACKER_CHUNK, MONITOR_BINAURAL, MONITOR_FOLD,
+} from "../../core/engine/constants.js";
 import { displayPanByte } from "../../core/engine/spatial.js";
 import { loadIntoEngine, encodeWav } from "../../core/audio/offline-render.js";
 import { FaderBank, gainToFader, faderToGain } from "./faders.js";

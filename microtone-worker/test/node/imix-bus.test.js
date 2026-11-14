@@ -365,29 +365,31 @@ test("a bank import brings a chain's name to its fresh id", async () => {
 // ── surround width: the width on an ambisonic scene ─────────────────────────
 
 test("the mastering width is surround width on an ambisonic bus: every channel but W scaled", async () => {
-  const { MasterChain, defaultMastering } = await import("../../core/engine/mastering.js");
+  const { defaultMastering } = await import("../../core/engine/mastering.js");
+  const chain = (p, nch, ambi) => P.masterChain(p, FS, nch, ambi);
   const p = { ...defaultMastering(), on: true, widthOn: true, width: 0.5 };
   const N = 64, nch = 4;
   const sig = (c, n) => Math.sin(0.03 * n * (c + 1) + c) * 0.4;
   const fill = () => { const d = new Float64Array(nch * N); for (let c = 0; c < nch; c++) for (let n = 0; n < N; n++) d[c * N + n] = sig(c, n); return d; };
   const amb = fill();
-  new MasterChain(p, FS, nch, true).processPlanar(amb, N, N);
+  chain(p, nch, true).processPlanar(amb, N, N);
   for (let n = 0; n < N; n++) {
     assert.equal(amb[n], sig(0, n), "W untouched");
     for (let c = 1; c < nch; c++) assert.equal(amb[c * N + n], sig(c, n) * 0.5);
   }
   const spk = fill();
-  new MasterChain(p, FS, nch, false).processPlanar(spk, N, N);
+  chain(p, nch, false).processPlanar(spk, N, N);
   assert.ok(same(spk, fill()), "a speaker layout keeps skipping it");
-  // …and it IS the stereo stage, seen through the coincident pair W ± Y.
+  // …and it IS the stereo stage, seen through the coincident pair W ± Y (the
+  // pair's chain delivers binary32, hence the tolerance).
   const scene = fill();
-  const L = new Float64Array(N), R = new Float64Array(N);
+  const L = new Float32Array(N), R = new Float32Array(N);
   for (let n = 0; n < N; n++) { L[n] = 0.5 * (scene[n] + scene[N + n]); R[n] = 0.5 * (scene[n] - scene[N + n]); }
-  new MasterChain(p, FS, 2).process(L, R, N);
-  new MasterChain(p, FS, nch, true).processPlanar(scene, N, N);
+  chain(p, 2, false).process(L, R, N);
+  chain(p, nch, true).processPlanar(scene, N, N);
   for (let n = 0; n < N; n++) {
-    assert.ok(Math.abs(0.5 * (scene[n] + scene[N + n]) - L[n]) < 1e-15);
-    assert.ok(Math.abs(0.5 * (scene[n] - scene[N + n]) - R[n]) < 1e-15);
+    assert.ok(Math.abs(0.5 * (scene[n] + scene[N + n]) - L[n]) < 1e-7);
+    assert.ok(Math.abs(0.5 * (scene[n] - scene[N + n]) - R[n]) < 1e-7);
   }
 });
 

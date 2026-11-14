@@ -14,9 +14,8 @@ import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { MONITOR_FOLD, MONITOR_BINAURAL } from "../../core/engine/binaural.js";
 import { StereoRenderer, SURROUND_PLANAR, SURROUND_SPATIAL } from "../../core/engine/spatial.js";
-import { SAMPLING_RATE } from "../../core/engine/constants.js";
+import { SAMPLING_RATE, MONITOR_FOLD, MONITOR_BINAURAL } from "../../core/engine/constants.js";
 import { TaudEngine } from "../../core/engine/engine.js";
 import { parseTaud } from "../../core/format/taud-parse.js";
 import { Document } from "../../src/doc/document.js";

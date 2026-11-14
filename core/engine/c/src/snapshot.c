@@ -1,8 +1,8 @@
 /* What a page draws from: the playhead, one block per voice (the lanes AND the
  * jam bank) and the envelope playheads, written into a float buffer at the
  * offsets core/worklet/protocol.js gives them (snap_layout.h is generated
- * from it). Port of engine-commands.js fillSnapshotInto, less the three
- * metering blocks and the interrupt latch, which the JavaScript half fills.
+ * from it), every meter's block included. Port of engine-commands.js
+ * fillSnapshotInto, less the interrupt latch, which the host drains.
  *
  * Also the readbacks a view polls by message: an instrument's invert-loop and
  * modification masks, its live sample modification, and what a PSG or formant
@@ -118,6 +118,8 @@ void te_fill_snapshot(TaudEngine *e, float *f)
     f[SNAP_EP_COUNT] = (float)n;
     /* The Mixing tab's meters, one block per seat. */
     te_fill_imix_meters(e, f);
+    /* The master strip's and the Mastering view's (meters.c). */
+    te_fill_meters(e, f);
 }
 
 /* ── readbacks ── */

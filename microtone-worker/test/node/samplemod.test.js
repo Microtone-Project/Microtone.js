@@ -22,7 +22,7 @@ import {
   // Argument extension (item 162)
   fModTouches, extModTouches, EXT_BITPERM_LUT, modAddressExt,
   bitRotate8, applyExtLevel,
-} from "../../core/engine/samplemod.js";
+} from "../../src/ui/samplemod.js";
 import { setRandomSource, makeSeededRandom } from "../../core/engine/rng.js";
 import { engineParts } from "../fixtures/engine-parts.js";
 import { EffectOp } from "../../core/engine/tables.js";

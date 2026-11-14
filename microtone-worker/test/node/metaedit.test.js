@@ -18,7 +18,7 @@ import {
   stackLayer,
 } from "../../src/doc/metaedit.js";
 import { velShown, velStored, velRangeText } from "../../src/doc/velaxis.js";
-import { narrowVolAxis } from "../../core/engine/columns.js";
+import { narrowVolAxis } from "../../src/doc/columns.js";
 import {
   planCreateMeta, planAddMetaLayers, planUnlinkMetaLayer,
 } from "../../src/doc/bankmerge.js";

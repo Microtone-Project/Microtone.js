@@ -17,7 +17,7 @@ import { Lamp, liveBrightnessByKey } from "../lamp.js";
 import {
   ModGeom, resolveModGeom, modTouches, modAddress,
   extModTouches, modAddressExt, applyExtLevel, isExtFunkOp,
-} from "../../../core/engine/samplemod.js";
+} from "../samplemod.js";
 import { encodeU8Wav } from "../../audio/wavwrite.js";
 import { download } from "../../storage/import-export.js";
 import { sanitiseName } from "../../audio/stem-export.js";
