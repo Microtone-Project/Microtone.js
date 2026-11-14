@@ -421,6 +421,57 @@ test("arpeggio steps between pitches instead of wobbling between them (item 144)
   assert.ok(share < 15, `pitch is in transit ${share.toFixed(0)}% of the time — that is a wobble`);
 });
 
+for (const [name, op, note] of [["G $0400 (tone portamento)", 0x10, 0x8000], ["F $0400 (pitch slide)", 0x0f, 0]]) {
+  test(`a wide ${name} bends across the tick; it does not step (item 333)`, () => {
+    const eng = makeTestEngine();
+    const pat = new Uint8Array(512);
+    for (let r = 0; r < 64; r++) { pat[r * 8 + 3] = 0xc0; pat[r * 8 + 4] = 0xc0; }
+    pat[0] = 0x00; pat[1] = 0x50; pat[2] = 1;
+    pat[8] = note & 0xff; pat[9] = note >> 8;
+    for (let r = 1; r < 3; r++) { pat[r * 8 + 5] = op; pat[r * 8 + 6] = 0x00; pat[r * 8 + 7] = 0x04; }
+    eng.uploadPattern(0, pat);
+    const cue = new Uint8Array(64);
+    for (let ch = 0; ch < 32; ch++) { cue[ch * 2] = 0xff; cue[ch * 2 + 1] = 0x7f; }
+    cue[0] = 0x00; cue[1] = 0x00;
+    eng.uploadCue(0, cue);
+    // 137 BPM: a tick of 583.94 samples, so the ticks are 583 and 584 long and
+    // the probes walk through them (see above).
+    eng.setBPM(0, 137); eng.setTickRate(0, 6); eng.setMasterVolume(0, 255);
+    eng.setCuePosition(0, 0); eng.play(0);
+    const v = eng.playheads[0].trackerState.voices[0];
+    const out = new Uint8Array(TRACKER_CHUNK * 2);
+    const cents = [];
+    for (let i = 0; i < 90; i++) { eng.renderChunk(0, out); cents.push(1200 * Math.log2(v.currentPlaybackRate)); }
+    const climb = cents[cents.length - 1] - cents[0];
+    assert.ok(climb > 2400, `the slide climbed ${climb.toFixed(0)} cents`);
+    // A step is 300 cents a tick. Spread over the tick that is ~66 cents a
+    // 128-sample probe; a staircase puts the whole step inside one probe — and
+    // so does a glide that lands early on the next tick's target.
+    let jump = 0;
+    for (let i = 1; i < cents.length; i++) jump = Math.max(jump, cents[i] - cents[i - 1]);
+    assert.ok(jump < 90, `${jump.toFixed(0)} cents between two probes — the slide steps`);
+  });
+}
+
+test("a glide whose target moves before it ends glides on from where it stands (item 333)", () => {
+  const P = engineParts();
+  const v = P.voice();
+  v.snapPlaybackRate = false;
+  v.pitchGlideWhole = true;
+  v.currentPlaybackRate = 1.0;
+  v.playbackRate = 2 ** (300 / 1200);
+  for (let i = 0; i < 639; i++) P.advancePitchRamp(v, 640);  // one sample short of the tick
+  const before = v.currentPlaybackRate;
+  assert.ok(before < v.playbackRate, "still gliding");
+  v.playbackRate = 2 ** (600 / 1200);                          // the next tick's target
+  P.advancePitchRamp(v, 640);
+  const step = 1200 * Math.log2(v.currentPlaybackRate / before);
+  assert.ok(step > 0 && step < 2, `moved ${step.toFixed(2)} cents in one sample — it landed on the new target`);
+  let n = 1;
+  while (v.currentPlaybackRate !== v.playbackRate && n < 2000) { P.advancePitchRamp(v, 640); n++; }
+  assert.equal(n, 640, "and the new glide takes the whole tick");
+});
+
 test("S$Dxny: a zero $y schedules no action at all", () => {
   const eng = makeTestEngine();
   const pat = new Uint8Array(512);

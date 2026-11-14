@@ -12,17 +12,17 @@
     "play: Troll_Chord": {
       "file": "assets/demo_projects/Troll_Chord.taud",
       "chunks": 3000,
-      "f32": "7526b776dbb30a1044a4fa23725738833fa38741325a568048b9bf0d7481b79c",
-      "u8": "3bfa9c5aac2f02f8d6c1bd587373e52b2bb76fa9ee5b5da236062928cbabe746",
+      "f32": "8058be7ef02c8dab165862d04e14d78c8a8a4a2dab5b96389e988b6e0fda6d3a",
+      "u8": "063c5309e8c4e09d9d455b094fb2e1ddf8920422839c64d3e6c3aadbb9fac257",
       "notes": "8a6656119e2a887a48df6ae1e979cfb586de271bdaa7626a38887795091d396c",
       "peak": 0.599
     },
     "play: every song of WHEN_AMBI": {
       "file": "assets/demo_projects/WHEN_AMBI.taud",
       "chunks": 2100,
-      "f32": "9f18d2e71b8c031237b3d96c5b948308810c2c098ffb7fa07b816bce3c53bed5",
-      "u8": "f6ecf2d7c68d8b5722fcaa961081e9ffe3127a9c91884acea9e7b62a17ef28f0",
-      "notes": "e57eb41229bc226206d0492a37493d6b6ab6b67084ca7731efc094a2d8b73211",
+      "f32": "d77a5f87d8743f1d70620e020fc6b649c16a5ad2cc48ed6ae42f9876f90aa050",
+      "u8": "a5e4105d8cba6a9ab95cd14e34512fa15cf9534fda3f860ddf5bba56f8d68378",
+      "notes": "7112b7a7947f614df6cd2d47413d1c41158054beacb9d6431ed25007a946220a",
       "peak": 0.899
     },
     "jam on a stopped transport": {

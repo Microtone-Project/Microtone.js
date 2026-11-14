@@ -1,6 +1,6 @@
 {
   "name": "microtone-js",
-  "version": "5.0.2",
+  "version": "5.0.3",
   "description": "A tracker workstation for any sound, in any tuning. Patterns, samples, synthesis, mixing and mastering, with stereo, surround and ambisonic export. Free software, no install, no account.",
   "type": "module",
   "private": true,

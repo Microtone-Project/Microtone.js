@@ -4,6 +4,15 @@ Every entry below is one version of Microtone, newest first, with the date it wa
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone-project/Microtone.js).
 
+## Version 5.0.3 (2026-11-14)
+
+**Wide pitch slides bend smoothly instead of stepping**: a fast `G` portamento or `E`/`F` slide now glides through every tick, so a string bend sounds like a bend and not like a run of quick notes.
+
+- Fixed: a fast tone portamento such as `G $0400` (three semitones a tick) — the kind a MIDI pitch bend becomes on import — sounded choppy; each tick's step landed almost at once and then held still, because the engine treated every wide move as a note change.
+- A portamento that reaches its note in a single tick still lands at once, so a chain of quick portamento notes keeps its separate notes, and arpeggios and glissando still step.
+- Fixed: every few ticks a vibrato or slide could jump the last stretch of its glide instead of moving through it, when a tick came out a sample shorter than the glide.
+- Songs with pitch slides, vibrato or portamento sound slightly different as a result; songs without them are unchanged.
+
 ## Version 5.0.2 (2026-11-14)
 
 **The desktop app plays its audio from a thread of its own, as the website does**: the engine no longer renders on the audio thread itself, so a heavy song or a busy computer is far less likely to make it crackle.

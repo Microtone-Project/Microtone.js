@@ -448,12 +448,20 @@ void te_advance_pitch_ramp(TaudEngine *e, TaudVoice *v, double spt)
         v->snapPlaybackRate = false;
         return;
     }
+    /* The target moved under a glide still running — a tick a sample shorter
+     * than the glide, or anything that set the rate mid-tick: glide on from
+     * HERE to the new target, never land on it from the old glide's last step. */
+    if (v->pitchRampSamples > 0 && target != v->pitchRampTarget) v->pitchRampSamples = 0;
     if (v->pitchRampSamples > 0) {
         v->currentPlaybackRate += v->pitchRampStep;
         v->pitchRampSamples--;
         if (v->pitchRampSamples == 0) v->currentPlaybackRate = target;
     } else if (v->currentPlaybackRate != target) {
-        int n = pitch_glide_samples(e, v->currentPlaybackRate, target, spt);
+        /* A slide is motion, not an event: its step is spread over the tick
+         * whatever its size (pitchGlideWhole, set by the tick pass). */
+        int n = v->pitchGlideWhole ? (spt >= 1 ? (int)js_round(spt) : 1)
+                                   : pitch_glide_samples(e, v->currentPlaybackRate, target, spt);
+        v->pitchRampTarget = target;
         if (n <= 1) {
             v->currentPlaybackRate = target;
             v->pitchRampSamples = 0;

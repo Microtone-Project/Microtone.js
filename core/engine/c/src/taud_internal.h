@@ -769,6 +769,9 @@ struct TaudVoice {
     double playbackRate, currentPlaybackRate;
     int pitchRampSamples;
     double pitchRampStep;
+    double pitchRampTarget;     /* where the running glide heads (§8.8) */
+    bool pitchGlideWhole;       /* this tick's move is a slide: glide the whole tick */
+    bool portaUnderway;         /* the last G step left its target unreached */
     bool snapPlaybackRate;
     bool forward;
     int instrumentId;
