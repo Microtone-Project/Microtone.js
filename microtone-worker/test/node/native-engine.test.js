@@ -15,7 +15,7 @@ import { readFileSync } from "node:fs";
 import { CMD, MSG } from "../../core/worklet/protocol.js";
 import { applyAudioCommand } from "../../core/worklet/engine-commands.js";
 import {
-  lowerCommand, encodeFrames, decodeSnapshot, decodeInvertMask, NATIVE_MSG,
+  lowerCommand, encodeFrames, decodeSnapshot, decodeInvertMask, NATIVE_MSG, NativeEngineLink, nativeApiName,
 } from "../../core/audio/native-engine.js";
 import {
   engineAnalysisArgs, engineMasterMeterArgs, engineJamSampleSpec, ENGINE_FORMANT_VOICES, ENGINE_FORMANT_DOUBLES,
@@ -194,4 +194,37 @@ test("an INVERT_MASK reply decodes to what the render Worker posts", () => {
   assert.equal(m.formant.voices[0].glide, 4);
   assert.equal(m.formant.voices[0].coda, true);
   assert.deepEqual(m.formant.lyric, [5, 8]);
+});
+
+test("the host's own requests: the device list and another output, each answered in turn", async () => {
+  const sent = [];
+  const socket = { readyState: WebSocket.OPEN, send: (b) => sent.push(b) };
+  const link = new NativeEngineLink(socket, { ok: true, apiId: "pulse", rate: 48000 });
+  const statuses = [];
+  link.onStatus = (s) => statuses.push(s);
+  const devices = link.requestDevices();
+  const config = { api: "alsa", device: "", rate: 44100, bufferFrames: 128 };
+  const configured = link.configure(config);
+  await new Promise((r) => setTimeout(r, 0)); // the frames of one turn go as one message
+  assert.equal(sent.length, 1);
+  const frames = decodeFrames(sent[0]);
+  assert.deepEqual(frames.map((f) => f.name), ["HOST_DEVICES", "HOST_CONFIGURE"]);
+  assert.deepEqual(JSON.parse(new TextDecoder().decode(frames[1].blobs[0])), config);
+  // The host answers each by its kind.
+  const reply = (kind, obj) => {
+    const json = new TextEncoder().encode(JSON.stringify(obj));
+    const b = new Uint8Array(4 + json.length);
+    b[0] = kind;
+    b.set(json, 4);
+    return b.buffer;
+  };
+  const list = { apis: [{ id: "alsa", name: "ALSA", devices: [] }], current: {} };
+  socket.onmessage({ data: reply(NATIVE_MSG.DEVICES, list) });
+  socket.onmessage({ data: reply(NATIVE_MSG.STATUS, { ok: true, apiId: "alsa", rate: 44100, error: "" }) });
+  assert.deepEqual(await devices, list);
+  assert.equal((await configured).rate, 44100);
+  assert.equal(link.hello.apiId, "alsa", "the link keeps the newest status");
+  assert.equal(statuses.length, 1);
+  assert.equal(nativeApiName("pulse"), "PulseAudio");
+  assert.equal(nativeApiName("weird", "Weird"), "Weird");
 });

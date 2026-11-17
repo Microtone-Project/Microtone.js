@@ -20,6 +20,7 @@ import { MasteringView } from "./views/mastering.js";
 import { ProjectView } from "./views/project.js";
 import { WelcomeView } from "./views/welcome.js";
 import { MotifView } from "./views/motif.js";
+import { SettingsView } from "./views/settings.js";
 import { MasterStrip } from "./views/masterstrip.js";
 import { SplitView, VIEWS, MAX_PANES } from "./splitview.js";
 import { JamKeyboard } from "./jam.js";
@@ -114,12 +115,18 @@ async function ensureAudio({ resume = true } = {}) {
     // mutes toggled before the first audio gesture only exist in the store
     store.voiceMutes.forEach((m, ch) => { if (m) store.audio.setVoiceMute(0, ch, true); });
   }
-  if (store.audio.running) {
-    const badge = $("audioBadge");
-    const api = store.audio.outputApi;
-    setBadgeText(badge, `audio @ ${store.audio.outputRate} Hz${api ? ` · ${api}` : ""}`);
-    badge.classList.add("on");
-  }
+  store.audio.onOutputChange = refreshAudioBadge;
+  refreshAudioBadge();
+}
+
+/** The top bar's audio badge: the rate the sound leaves at, and, from the
+ *  desktop app's native host, its audio API (the Settings tab can change both). */
+function refreshAudioBadge() {
+  if (!store.audio?.running) return;
+  const badge = $("audioBadge");
+  const api = store.audio.outputApi;
+  setBadgeText(badge, `audio @ ${store.audio.outputRate} Hz${api ? ` · ${api}` : ""}`);
+  badge.classList.add("on");
 }
 
 /** Every pointerdown comes through ensureAudio, between the press and the
@@ -505,7 +512,7 @@ function updateHint() {
   const el = $("stHint");
   if (!el) return;
   let key = "status.hint"; // generic / no-doc prompt
-  if (store.doc || store.view === "files" || store.view === "motif") {
+  if (store.doc || store.view === "files" || store.view === "motif" || store.view === "settings") {
     switch (store.view) {
       // A layout that has claimed the bottom row moves the sentinels onto
       // Shift, so the hint that names them has to say the same thing.
@@ -518,6 +525,7 @@ function updateHint() {
       case "project": key = "status.hint.project"; break;
       case "files": key = "status.hint.files"; break;
       case "motif": key = "status.hint.motif"; break;
+      case "settings": key = "status.hint.settings"; break;
     }
   }
   el.textContent = t(key);
@@ -1003,6 +1011,10 @@ const VIEW_SPEC = {
       loadBuilt: (name, bytes) => loadBytes(name, bytes, { fromMotif: true }),
     }),
   },
+  settings: {
+    host: { id: "settingsHost" },
+    make: (el) => new SettingsView(store, el),
+  },
 };
 
 // Fixtures that stay single whatever the split does: the instrument lookup is
@@ -1048,11 +1060,20 @@ function refreshToolbox() {
 // and previews against 12-TET until one is open. Item 104.1 — before this,
 // going to the File tab with no document was a one-way trip, because the
 // Timeline tab was as inert as the rest.
-const NO_DOC_VIEWS = ["timeline", "files", "keymap", "motif"];
+const NO_DOC_VIEWS = ["timeline", "files", "keymap", "motif", "settings"];
+
+/** The desktop app's Settings tab (item 336) exists where the Qt shell runs
+ *  the native audio host; the website's audio is the browser's, so it has
+ *  none. Shown before the split view clones the tab bar for its other panes. */
+const SETTINGS_TAB = !!globalThis.__MICROTONE_NATIVE__?.engine;
+if (SETTINGS_TAB) document.querySelector('#tabs [data-view="settings"]').hidden = false;
 
 /** Is this view reachable at all right now? (The dead-end tabs say so rather
  *  than silently swallowing the click — item 104.1.) */
-function viewEnabled(name) { return !!store.doc || NO_DOC_VIEWS.includes(name); }
+function viewEnabled(name) {
+  if (name === "settings") return SETTINGS_TAB;
+  return !!store.doc || NO_DOC_VIEWS.includes(name);
+}
 
 /** paneViews[i] holds pane i's copy of each view it has ever shown, as
  *  {el, els, obj} (+ the welcome screen on a Timeline entry). */
@@ -1983,6 +2004,13 @@ window.addEventListener("keydown", (e) => {
   if (e.key === "?" && store.view !== "files") {
     e.preventDefault();
     showHelp();
+    return;
+  }
+  // Ctrl+, — the desktop app's Settings tab (item 336): the key desktop
+  // programs keep for their preferences. The website has no such tab.
+  if (e.code === "Comma" && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && SETTINGS_TAB) {
+    e.preventDefault();
+    showView("settings");
     return;
   }
   // \ — the context menu at the cursor (item 190). The three grids' menus have

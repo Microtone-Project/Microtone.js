@@ -46,7 +46,7 @@ import {
   PATTERN_BYTES, PATTERN_BYTES_WIDE, NUM_INTERRUPTS,
 } from "../engine/constants.js";
 import { AR_SAB_BYTES, AR_CTRL_LEN, AR_DOORBELL } from "./audio-ring.js";
-import { NativeEngineLink } from "./native-engine.js";
+import { NativeEngineLink, nativeApiName } from "./native-engine.js";
 import { ANALYSIS_OFF, SCOPE_FRAMES, SCOPE_CHANNELS } from "../engine/analysis.js";
 import { DEFAULT_BIT_DEPTH } from "../engine/loudness.js";
 
@@ -86,6 +86,7 @@ export class AudioSystem {
     this.usingPort = false;     // …and posts its audio to the worklet, having no shared memory
     this.native = null;         // the desktop's native audio host (native-engine.js), where there is one
     this.usingNative = false;   // the engine runs there, on the audio device's own callback
+    this.onOutputChange = null; // optional callback() when the native host's output changes
     this.workerDoorbell = null; // Int32Array over the audio ring's control words —
                                 // AR_DOORBELL there wakes the worker (_postWorker)
     this._cueHighWater = 0;     // highest cue index+1 ever uploaded to the engine
@@ -215,6 +216,7 @@ export class AudioSystem {
     link.onSnapshot = (s) => this._onNativeSnapshot(s);
     link.onMessage = (m) => this._onEngineMessage(m, null);
     link.onClose = () => console.warn("audio: the native audio host went away");
+    link.onStatus = () => { if (this.onOutputChange) this.onOutputChange(); };
     link.postMessage({ t: CMD.INIT, snapshotIntervalMs });
     this.profiling = profile;
     if (profile) link.postMessage({ t: CMD.SET_PROFILE, on: true });
@@ -357,7 +359,7 @@ export class AudioSystem {
       m.usingPort = this.usingPort;
       m.usingNative = this.usingNative;
       m.bundleFallback = this.usedBundleFallback;
-      m.contextSampleRate = this.context.sampleRate;
+      m.contextSampleRate = this.outputRate;
       // …and with the render Worker's, while it is current: it reports only
       // while it renders, so one more than two windows old is a song that
       // stopped, not a reading.
@@ -375,7 +377,9 @@ export class AudioSystem {
   get outputRate() { return this.usingNative ? this.native.hello.rate : this.context?.sampleRate; }
 
   /** The native host's audio API (PulseAudio, ALSA, WASAPI…), or null. */
-  get outputApi() { return this.usingNative ? this.native.hello.api : null; }
+  get outputApi() {
+    return this.usingNative ? nativeApiName(this.native.hello.apiId, this.native.hello.api) : null;
+  }
 
   /** Call from a user gesture (pointerdown/keydown). */
   async resume() {

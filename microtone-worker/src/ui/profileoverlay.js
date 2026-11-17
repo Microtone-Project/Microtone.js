@@ -18,6 +18,7 @@
 // profileVerdict() is pure so it can be unit-tested in Node.
 
 import { t } from "./i18n.js";
+import { nativeApiName } from "../../core/audio/native-engine.js";
 import { toLayout } from "./zoom.js";
 import { setIconLabel } from "./icons.js";
 
@@ -83,18 +84,29 @@ export function profileRows(p) {
   const ctxRate = p.contextSampleRate ?? p.sampleRate;
   const converted = Math.abs((p.step ?? 1) - 1) > 1e-6;
   const memory = w?.memoryBytes ?? p.memoryBytes ?? 0;
-  const rows = [
+  // The desktop app's native host: the C engine, natively, on the device's
+  // own callback (the report says which API and what scheduling it got).
+  const native = p.native ?? null;
+  const rows = native ? [
+    [t("profiler.engine"), t("profiler.engineNative")],
+    [t("profiler.where"), t("profiler.whereNative", { api: nativeApiName(native.apiId, native.api) })],
+  ] : [
     [t("profiler.engine"), memory > 0 ? t("profiler.engineWasm", { mb: mb(memory) }) : t("profiler.engineWasmIdle")],
     [t("profiler.where"), t(!p.workerRender ? "profiler.whereWorklet"
       : p.usingPort ? "profiler.whereWorkerPort" : "profiler.whereWorker")],
+  ];
+  rows.push(
     [t("profiler.output"), converted
       ? t("profiler.outputConverted", { rate: ctxRate, engine: engineRate })
       : t("profiler.outputNative", { rate: ctxRate })],
-    [t("profiler.meters"), t(p.usingSab ? "profiler.metersShared" : "profiler.metersMessages")
+    [t("profiler.meters"), native ? t("profiler.metersSocket") : t(p.usingSab ? "profiler.metersShared" : "profiler.metersMessages")
       + (p.bundleFallback ? t("profiler.bundle") : "")],
     [t("profiler.clock"), p.hiResClock ? t("profiler.clockFine") : t("profiler.clockCoarse", { ms: p.clockResMs }),
       p.hiResClock ? null : "warn"],
-  ];
+  );
+  if (native) {
+    rows.push([t("profiler.realtime"), native.realtime || t("profiler.realtimeNone"), native.realtime ? null : "warn"]);
+  }
   if (p.workerRender) {
     if (w) {
       rows.push([t("profiler.engineLoad"), t("profiler.engineLoadValue",

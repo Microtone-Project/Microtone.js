@@ -18,6 +18,10 @@
 //                blob; the frames of one turn of the page's event loop go as
 //                one message, in order
 //   host → page  u8 kind, 3 pad, then per NATIVE_MSG below
+//
+// Besides the engine's commands the page asks the host itself for two things
+// (the desktop Settings tab): HOST_DEVICES, every audio API's output devices,
+// and HOST_CONFIGURE, another output (a JSON blob), answered by a STATUS.
 
 import { CMD, MSG } from "../worklet/protocol.js";
 import { engineSeed } from "../engine/rng.js";
@@ -29,8 +33,16 @@ import {
 import { buildMasteringBlock } from "../format/mastering-section.js";
 import { buildImixSection } from "../format/imix-section.js";
 
-/** What the host sends (nativeaudio.cpp). */
-export const NATIVE_MSG = { HELLO: 0, SNAPSHOT: 1, INVERT_MASK: 2, PROFILE: 3 };
+/** What the host sends (nativeaudio.cpp). STATUS is first the hello. */
+export const NATIVE_MSG = { STATUS: 0, SNAPSHOT: 1, INVERT_MASK: 2, PROFILE: 3, DEVICES: 4 };
+
+/** An audio API's name as people know it (RtAudio's id → its own short
+ *  display name otherwise). */
+const API_NAMES = {
+  pulse: "PulseAudio", alsa: "ALSA", jack: "JACK", wasapi: "WASAPI", asio: "ASIO", ds: "DirectSound",
+  core: "Core Audio", oss: "OSS",
+};
+export function nativeApiName(id, fallback = id) { return API_NAMES[id] ?? fallback ?? ""; }
 
 // What a reply's fixed parts hold (enginehost.c).
 const SAMPLE_MOD_DOUBLES = 25;
@@ -208,7 +220,7 @@ export class NativeEngineLink {
       ws.onmessage = (e) => {
         clearTimeout(timer);
         const kind = new Uint8Array(e.data, 0, 1)[0];
-        const hello = kind === NATIVE_MSG.HELLO ? JSON.parse(textOf(e.data)) : null;
+        const hello = kind === NATIVE_MSG.STATUS ? JSON.parse(textOf(e.data)) : null;
         if (!hello?.ok) { ws.close(); resolve(null); return; }
         resolve(new NativeEngineLink(ws, hello));
       };
@@ -217,12 +229,17 @@ export class NativeEngineLink {
 
   constructor(ws, hello) {
     this.ws = ws;
-    this.hello = hello;       // { ok, api, device, rate, bufferFrames }
+    // The output as the host last said: { ok, api, apiId, device,
+    // deviceChoice, rate, rateChoice, engineRate, bufferFrames, bufferMs,
+    // latencyMs, realtime, error } (nativeaudio.cpp status()).
+    this.hello = hello;
     this.onSnapshot = null;   // ({ mask, args, ranges }) per SNAPSHOT
     this.onMessage = null;    // MSG-shaped messages: INVERT_MASK, PROFILE
     this.onClose = null;
+    this.onStatus = null;     // (status) whenever the output changes
     this._queue = [];
     this._flushQueued = false;
+    this._waiting = { [NATIVE_MSG.STATUS]: [], [NATIVE_MSG.DEVICES]: [] };
     ws.onmessage = (e) => this._receive(e.data);
     ws.onclose = () => { if (this.onClose) this.onClose(); };
     ws.onerror = null;
@@ -241,6 +258,27 @@ export class NativeEngineLink {
     }
   }
 
+  /** Every audio API the host has and its output devices: { apis: [{ id,
+   *  name, devices: [{ name, isDefault, rates, preferredRate }] }], current }. */
+  requestDevices() { return this._ask("HOST_DEVICES", null, NATIVE_MSG.DEVICES); }
+
+  /** Another output: { api, device, rate, bufferFrames } (device "" and rate
+   *  0 = the defaults). Resolves to the host's status once the device is
+   *  open again — the asked-for one, or, with `error` said, the one before. */
+  configure(config) { return this._ask("HOST_CONFIGURE", config, NATIVE_MSG.STATUS); }
+
+  _ask(name, json, replyKind) {
+    return new Promise((resolve) => {
+      this._waiting[replyKind].push(resolve);
+      const blobs = json === null ? [] : [UTF8.encode(JSON.stringify(json))];
+      this._queue.push({ name, ints: [], doubles: [], blobs });
+      if (!this._flushQueued) {
+        this._flushQueued = true;
+        queueMicrotask(() => this._flush());
+      }
+    });
+  }
+
   _flush() {
     this._flushQueued = false;
     if (this._queue.length === 0 || !this.open) { this._queue.length = 0; return; }
@@ -257,6 +295,12 @@ export class NativeEngineLink {
       if (this.onMessage) this.onMessage(decodeInvertMask(buffer));
     } else if (kind === NATIVE_MSG.PROFILE) {
       if (this.onMessage) this.onMessage({ ...JSON.parse(textOf(buffer)), t: MSG.PROFILE });
+    } else if (kind === NATIVE_MSG.STATUS) {
+      this.hello = JSON.parse(textOf(buffer));
+      this._waiting[kind].shift()?.(this.hello);
+      if (this.onStatus) this.onStatus(this.hello);
+    } else if (kind === NATIVE_MSG.DEVICES) {
+      this._waiting[kind].shift()?.(JSON.parse(textOf(buffer)));
     }
   }
 

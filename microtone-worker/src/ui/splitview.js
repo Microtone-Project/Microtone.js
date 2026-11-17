@@ -36,7 +36,7 @@ import { applyDom, t } from "./i18n.js";
 /** Tab order, which is also the F1..F8 order in app.js. */
 export const VIEWS = [
   "timeline", "cues", "pattern", "samples", "instruments", "mastering", "project", "files",
-  "keymap", "motif",
+  "keymap", "motif", "settings",
 ];
 
 /** How many panes the view area can hold. */

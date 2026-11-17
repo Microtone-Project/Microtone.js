@@ -77,6 +77,7 @@ qt_add_executable(microtone
   src/shell.cpp src/shell.h
   src/links.cpp src/links.h
   src/nativeaudio.cpp src/nativeaudio.h src/enginehost.h
+  src/resampler.cpp src/resampler.h
 )
 
 target_link_libraries(microtone PRIVATE

@@ -78,6 +78,10 @@ bool handOverToRunningInstance() {
 int main(int argc, char **argv) {
   QCoreApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
   QApplication app(argc, argv);
+  // Both names: without an organisation QSettings reads and writes nothing
+  // (the window's place, the audio output). Settings: <config>/Microtone/
+  // Microtone.conf; the browser profile: <data>/Microtone/Microtone.
+  QApplication::setOrganizationName(QStringLiteral("Microtone"));
   QApplication::setApplicationName(QStringLiteral("Microtone"));
   QApplication::setApplicationVersion(QStringLiteral(MICROTONE_VERSION));
   QGuiApplication::setDesktopFileName(QStringLiteral("cc.microtone.qt"));

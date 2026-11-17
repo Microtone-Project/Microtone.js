@@ -291,6 +291,9 @@
             <button data-view="files" data-i18n="tab.files">File</button>
             <button data-view="keymap" data-i18n="tab.keymap">Keymap</button>
             <button data-view="motif" data-i18n="tab.motif">Motif</button>
+            <!-- The desktop app's (item 336): shown by app.js where the shell
+                 runs the native audio host. -->
+            <button data-view="settings" data-i18n="tab.settings" hidden>Settings</button>
           </nav>
           <button class="icon-btn pane-btn pane-sub-btn" hidden></button>
           <button class="icon-btn pane-btn"></button>
@@ -309,6 +312,7 @@
             <div id="filesHost" class="files-host" hidden></div>
             <div id="keymapHost" class="view-dom" hidden></div>
             <div id="motifHost" class="view-dom" hidden></div>
+            <div id="settingsHost" class="view-dom" hidden></div>
             <div id="placeholder" class="empty-state" hidden></div>
           </div>
         </div>

@@ -59,7 +59,10 @@ microtone [--root <dir>] [--open <page>] [--web-audio]
   `QTWEBENGINE_REMOTE_DEBUGGING=<port>` opens the DevTools protocol, which is
   how the app is driven in tests.
 
-The native audio host reads:
+The output (audio system, device, sample rate, buffer) is chosen in the app's
+**Settings** tab (Ctrl+,), which only the desktop app has, and remembered in
+`<config>/Microtone/Microtone.conf` (`[audio]`). For a test run, the
+environment overrides what is remembered:
 
 - `MICROTONE_AUDIO_API`: `pulse`, `alsa`, `jack` (Linux), `wasapi`, `asio`
   (Windows), `core` (macOS). Default on Linux: PulseAudio (PipeWire answers
@@ -145,6 +148,30 @@ then `PULSE_SINK=microtone_test` for the app.
   - **The same audio as the web build.** Twenty seconds captured from the
     callback (256-frame buffers) are bit-identical to the WebAssembly engine's
     offline render of the same song.
+  - **The engine always renders at 48 kHz, as in the browser.** A device at
+    another rate hears it through the web build's own interpolator
+    (`resampler.cpp`: `core/audio/resampler.js`'s Kaiser-windowed sinc and the
+    worklet's shared-ring read loop, ported). The read position is a whole
+    frame plus a fraction kept apart, so the samples do not depend on when
+    playback started. A change of output therefore never touches the engine:
+    the device closes, opens again, and playback carries on.
+  - Ten seconds at 44.1 kHz match the worklet's read loop over the same render
+    in all 882 000 samples.
+- **The Settings tab** (`microtone-worker/src/ui/views/settings.js`): it is
+  laid out as the Samples and Instruments views are, with categories down the
+  left.
+  - *Audio*: the audio system as pushbuttons, the device and the sample rate
+    as dropdowns, and the buffer as pushbuttons from 64 to 2048 frames. What is
+    open is described in words, with whether the output is converted.
+  - *Performance*: the callback's load, the engine's, dropouts, and the
+    real-time scheduling the thread got, plus the profiler's verdict, while the
+    category is open.
+  - A change applies at once. One the device refuses puts the previous setting
+    back, and the tab says why.
+  - The host answers two requests of its own, besides the engine's commands:
+    `HOST_DEVICES` (every API's output devices) and `HOST_CONFIGURE`.
+  - The tab exists only where `window.__MICROTONE_NATIVE__` does: the
+    website's audio is the browser's.
 - **`links`**: `docs.html` opens in the docs window, other pages of the app in
   the main window, `http(s):` and `mailto:` in the system browser. The window a
   link was clicked in never navigates away from an open project.
@@ -158,7 +185,6 @@ then `PULSE_SINK=microtone_test` for the app.
   into `www/`), packaging (AppImage, NSIS, .dmg) and CI.
 - Moving projects over from the Tauri build.
 - The native audio host's next steps:
-  - a desktop settings tab to choose the device, the API and the buffer;
   - the Windows build (WASAPI, and ASIO with the SDK files RtAudio ships), the
     macOS build (CoreAudio), and JACK on Linux;
   - audio input for the sampler's Record, and MIDI;

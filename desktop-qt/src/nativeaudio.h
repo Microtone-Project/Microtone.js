@@ -1,6 +1,13 @@
 // The native audio host: the C engine (enginehost.c over core/engine/c) on the
 // audio device's own callback, driven by the page over a WebSocket.
 //
+// The engine renders at 48 kHz, as it does in the browser, for its whole life:
+// a device at another rate hears it through the web build's own resampler
+// (resampler.h). So the output — API, device, rate, buffer — can be changed at
+// any time, from the page's Settings tab, without touching the engine: the
+// stream is closed and opened again, and playback carries on. A setting that
+// fails to open puts the previous one back; one that works is remembered.
+//
 // Threads. The page's commands arrive on the GUI thread and are applied under
 // the engine lock. The device callback renders exactly the frames the device
 // asks for (spans of at most a chunk: te_render_frames), taking the same lock;
@@ -11,12 +18,15 @@
 // GUI never collected ride along in the next, so no Int fire is lost.
 //
 // The wire (native-engine.js has the page's side):
-//   page → host  one or more frames: u8 name length, the CMD's name, u16 ints,
+//   page → host  one or more frames: u8 name length, the name, u16 ints,
 //                u8 doubles, u8 blobs, then i32s, f64s and (u32 length, bytes)
-//                per blob — the C arguments, lowered by the page
-//   host → page  u8 kind + 3 pad, then: 0 HELLO (JSON), 1 SNAPSHOT (interrupt
+//                per blob. A CMD's name carries its C arguments, lowered by
+//                the page; HOST_DEVICES and HOST_CONFIGURE (a JSON blob) are
+//                the host's own.
+//   host → page  u8 kind + 3 pad, then: 0 STATUS (JSON: first as the hello,
+//                again after every HOST_CONFIGURE), 1 SNAPSHOT (interrupt
 //                mask + 16 args, ranges, floats), 2 INVERT_MASK (enginehost.c),
-//                3 PROFILE (JSON)
+//                3 PROFILE (JSON), 4 DEVICES (JSON)
 #pragma once
 
 #include <QByteArray>
@@ -32,6 +42,7 @@
 #include <vector>
 
 #include "enginehost.h"
+#include "resampler.h"
 
 class RtAudio;
 class QWebSocket;
@@ -41,18 +52,33 @@ namespace microtone {
 class NativeAudio : public QObject {
   Q_OBJECT
  public:
+  /** The engine's rate: the web build's, fixed. */
+  static constexpr unsigned kEngineRate = 48000;
+
+  /** An output setting. Empty api / device = the default; rate 0 = 48 kHz
+   *  where the device has it, else its own. */
+  struct Config {
+    QString api;
+    QString device;
+    unsigned rate = 0;
+    unsigned bufferFrames = 256;
+  };
+
   explicit NativeAudio(QObject *parent = nullptr);
   ~NativeAudio() override;
 
-  /** Open and start an output device. MICROTONE_AUDIO_API (pulse, alsa,
-   *  jack, wasapi, asio, core) and MICROTONE_BUFFER_FRAMES override the
-   *  defaults. False, with `error` said, when there is none to open. */
+  /** Open the remembered output, else the first that opens (Linux:
+   *  PulseAudio, ALSA, JACK). MICROTONE_AUDIO_API (pulse, alsa, jack,
+   *  wasapi, asio, core) and MICROTONE_BUFFER_FRAMES override what is
+   *  remembered. False, with `error` said, when nothing opens. */
   bool start(QString *error);
 
   /** The page's connection; a new one (a reload) replaces the old. */
   void attach(std::unique_ptr<QWebSocket> socket);
 
   QJsonObject status() const;
+  /** Every compiled API's output devices, and what is open now. */
+  QJsonObject devices();
 
  private:
   static int callback(void *out, void *in, unsigned int frames, double time, unsigned int status, void *user);
@@ -61,22 +87,34 @@ class NativeAudio : public QObject {
   void publishSnapshot();
   void requestRealtime(long tid);
 
+  bool open(const Config &config, QString *error);
+  void closeDevice();
+  void configure(const QByteArray &json);
+  static Config remembered();
+  static void remember(const Config &config);
+
   void onMessage(const QByteArray &message);
   void pump();
   void sendSnapshot(int slot);
   void sendProfile();
+  void sendStatus();
   void send(const QByteArray &bytes);
   void detach();
 
   std::unique_ptr<RtAudio> dac_;
-  QString api_, device_;
-  unsigned int rate_ = 48000;
+  Config config_;            // what is open, its api and device spelled out
+  QString apiName_, device_;
+  QString lastError_;        // the last setting that would not open
+  unsigned int rate_ = kEngineRate;
   unsigned int bufferFrames_ = 256;
+  unsigned int streamLatency_ = 0;
   bool running_ = false;
 
   MtHost *host_ = nullptr;
   std::mutex engine_;
   MtSnapLayout layout_{};
+  RingResampler resampler_;
+  std::vector<float> scratch_;  // engine frames on their way into the resampler
 
   std::unique_ptr<QWebSocket> socket_;
   QTimer pump_;
@@ -112,18 +150,20 @@ class NativeAudio : public QObject {
   // (RLIMIT_RTPRIO 0), so RtAudio's own request fails and the render is
   // preempted mid-span. On Linux the session's RealtimeKit grants it, as it
   // does PipeWire: the callback notes its thread id, the GUI thread asks.
+  // A reopened stream has a thread of its own, and asks again.
   std::atomic<long> callbackTid_{0};
   bool realtimeAsked_ = false;
-  QString realtime_;  // what was granted, for the profile
+  QString realtime_;  // what was granted, for the status
 
   // ── a capture, for checking the host against the WebAssembly engine ──
   // MICROTONE_NATIVE_DUMP=<file> keeps the first MICROTONE_NATIVE_DUMP_SECONDS
-  // (default 30) of what the engine rendered — interleaved stereo float, the
-  // mix bus, silence between plays left out — and the GUI thread writes it
-  // out once full. Preallocated: the callback only copies.
+  // (default 30) of the device's output while the engine renders —
+  // interleaved stereo float — and the GUI thread writes it out once full.
+  // Preallocated: the callback only copies.
   QString dumpPath_;
   std::vector<float> dump_;
   size_t dumpUsed_ = 0;
+  size_t dumpTarget_ = 0;  // the seconds asked for, at the open stream's rate
   std::atomic<bool> dumpFull_{false};
   bool dumpWritten_ = false;
 };
