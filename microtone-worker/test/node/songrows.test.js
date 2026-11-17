@@ -22,7 +22,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   planDeleteRows, planInsertRows, planInsertCue, planSplitCue, planCutCue,
-  splitPointAt, PATTERN_ROWS,
+  planLengthenSong, planShortenSong, splitPointAt, PATTERN_ROWS,
 } from "../../src/doc/songrows.js";
 import { remapPatternsOp } from "../../src/doc/ops.js";
 import { Document, cueInfo } from "../../src/doc/document.js";
@@ -885,4 +885,63 @@ test("a song whose cues all differ in length still reads straight through", () =
     want.splice(at, 3);
   }
   assert.deepEqual(linear(song), want);
+});
+
+// ── the whole song lengthened / shortened (item 340) ──
+
+for (const name of ["town.taud", "WHEN.taud", "flourish.taud"]) {
+  for (const n of [2, 3]) {
+    test(`${name}: Lengthen song ×${n} spaces every row out and drops nothing`, () => {
+      const doc = load(name);
+      const wide = doc.wideCells;
+      const before = linear(doc.songs[0], wide);
+      const song = applyPlan(doc, planLengthenSong(doc.songs[0], n,
+        { wide, patternNames: doc._nameTable("pNam") }));
+      const want = [];
+      for (const row of before) { want.push(row); for (let k = 1; k < n; k++) want.push(blankRow()); }
+      assert.deepEqual(linear(song, wide), want);
+      assert.ok(limits(song).every((l) => l <= PATTERN_ROWS));
+    });
+
+    test(`${name}: Shorten song ÷${n} after Lengthen ×${n} gives the song back`, () => {
+      const doc = load(name);
+      const wide = doc.wideCells;
+      const before = linear(doc.songs[0], wide);
+      const was = limits(doc.songs[0]);
+      applyPlan(doc, planLengthenSong(doc.songs[0], n, { wide }));
+      const song = applyPlan(doc, planShortenSong(doc.songs[0], n, { wide }));
+      assert.deepEqual(linear(song, wide), before);
+      assert.deepEqual(limits(song), was, "…on the cue grid it had");
+    });
+  }
+}
+
+test("Shorten song keeps every nth row of the song and closes up behind it", () => {
+  const doc = load("town.taud");
+  const before = linear(doc.songs[0]);
+  const song = applyPlan(doc, planShortenSong(doc.songs[0], 2, {}));
+  // town's cues are all even-length, so the phase never shifts across a merge.
+  assert.deepEqual(linear(song), before.filter((_, r) => r % 2 === 0));
+});
+
+test("Lengthen and Shorten song keep a jump pointing at the same music", () => {
+  const doc = load("town.taud");
+  const song0 = doc.songs[0];
+  const map = song0.songMap();
+  // A JMP to cue 1 ($F001) on cue 3's end, in instruction word 1 — the sign
+  // bits of lanes 16…31.
+  const last = map.entries[3].cue;
+  for (let b = 0; b < 16; b++) {
+    const bit = (0xf001 >> b) & 1;
+    song0.cues[last][16 + b] = (song0.cues[last][16 + b] & 0x7fff) | (bit << 15);
+  }
+  const target = map.entries[1].startRow;
+  const lin = linear(song0);
+  const len = applyPlan(doc, planLengthenSong(song0, 2, {}));
+  const jl = len.songMap().entries.map((e) => cueInfo(len.cues[e.cue]).flow).find(Boolean);
+  assert.equal(jl.type, INST_JUMP);
+  assert.equal(linear(len)[len.songMap().entries[jl.arg].startRow], lin[target]);
+  const sh = applyPlan(doc, planShortenSong(len, 2, {}));
+  const js = sh.songMap().entries.map((e) => cueInfo(sh.cues[e.cue]).flow).find(Boolean);
+  assert.equal(js.arg, 1, "back on cue 1, where it began");
 });

@@ -276,9 +276,10 @@ function applyBendEffect(ts, st, v, op, rawArg) {
       v.spatialTargetEl = ts.surroundModel === SURROUND_SPATIAL ? spatialArg[1] : 0.0;
       break;
     case EffectOp.OP_Z: {
-      // effects.c OP_Z — `$Ffxx` is the funk repeat (not spatial at all);
-      // `$0xxx` arms the great-circle slide for this row.
-      if ((rawArg & 0xf000) === 0xf000) break;
+      // effects.c OP_Z — `$Ffxx` is the funk repeat and `$Exxx` the note's
+      // fadeout (neither spatial at all); `$0xxx` arms the great-circle slide
+      // for this row.
+      if ((rawArg & 0xf000) === 0xf000 || (rawArg & 0xf000) === 0xe000) break;
       if (ts.surroundModel === SURROUND_STEREO) break;
       const raw = rawArg & 0xfff;
       const arg = resolveArg(raw, v.mem.z);

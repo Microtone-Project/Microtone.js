@@ -328,6 +328,12 @@ test("S $Apsd sets operator p's auto-vibrato for the note — past the principal
   assert.equal(rig.voices[2].activeVibratoSpeed, 3 * 17);
   assert.equal(rig.voices[2].activeVibratoDepth, 5 * 17);
   assert.equal(rig.voices[1].activeVibratoDepth, 0, "operator 0 untouched");
+  // The Easy and FM tabs read it back by table entry; the record is not touched.
+  assert.deepEqual(eng.getInstrumentFmVibratoState(a.metaSlot),
+    [{ entry: 2, speed: 3 * 17, depth: 5 * 17, released: false }]);
+  assert.deepEqual(eng.getInstrumentFmVibratoState(a.metaSlot + 1), [], "another instrument shows none");
+  const opInst = eng.instruments[rig.voices[2].instrumentId];
+  assert.notEqual(opInst.vibratoDepth, 5 * 17, "the operator's instrument keeps its own");
 
   // An ordinary rack counts from its principal.
   const cands = doc.selectableInstrumentSlots().filter((s) => !doc.instruments[s].isMeta && !doc.instruments[s].isFm);
@@ -337,6 +343,7 @@ test("S $Apsd sets operator p's auto-vibrato for the note — past the principal
   const rig2 = plain.playheads[0].trackerState.voices[0].fmRig;
   assert.equal(rig2.voices[1].activeVibratoSpeed, 255);
   assert.equal(rig2.voices[1].activeVibratoDepth, 0);
+  assert.deepEqual(plain.getInstrumentFmVibratoState(p.metaSlot), [{ entry: 1, speed: 255, depth: 0, released: false }]);
 });
 
 test("the Easy Mode bit survives a flag edit and reads as nothing to the engine", () => {

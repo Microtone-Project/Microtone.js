@@ -771,6 +771,33 @@ export class WasmTaudEngine {
     };
   }
 
+  /** The fadeouts `Z $Exxx` has given sounding notes of instrument `slot`
+   *  (item 345): [{ step, released }], one per voice, [] when none. */
+  getInstrumentFadeoutState(slot) {
+    const CAP = 16;
+    const p = this._put(new Uint8Array(CAP * 2 * 4));
+    const n = this._x.tw_get_fadeout_state(this._e, slot, p, CAP);
+    const w = new Int32Array(this._x.memory.buffer, p, CAP * 2);
+    const out = [];
+    for (let i = 0; i < n; i++) out.push({ step: w[i * 2], released: w[i * 2 + 1] !== 0 });
+    return out;
+  }
+
+  /** The auto-vibratos `S $Apsd` has given operators of sounding notes of FM
+   *  rack `slot`: [{ entry, speed, depth, released }], entry the operator's
+   *  place in the rack's table; [] when none. */
+  getInstrumentFmVibratoState(slot) {
+    const CAP = 32;
+    const p = this._put(new Uint8Array(CAP * 4 * 4));
+    const n = this._x.tw_get_fm_vibrato_state(this._e, slot, p, CAP);
+    const w = new Int32Array(this._x.memory.buffer, p, CAP * 4);
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      out.push({ entry: w[i * 4], speed: w[i * 4 + 1], depth: w[i * 4 + 2], released: w[i * 4 + 3] !== 0 });
+    }
+    return out;
+  }
+
   /** A formant instrument's live state, or null for any other instrument:
    *  { voices: [{own, front, open, round, toFront, toOpen, toRound, nasal,
    *  rhotic, glide, coda}], lyric: [syllable indices] }. */

@@ -7,6 +7,7 @@ import {
 } from "./clipshare.js";
 import { DEFAULT_KEYMAP, QUOTE_DEFAULT } from "./keymap.js";
 import { envClipToJson, envClipFromJson } from "../doc/envedit.js";
+import { LANE_FLAG_FX2 } from "../../core/format/lane-section.js";
 
 /** Panes the Patterns view can hold — the fx2 flags are kept per pane INDEX so
  *  they survive the pane churn a viewport resize causes (pattern.js MAX_PANES).
@@ -75,7 +76,10 @@ export class Store {
     // Format v3's SECOND effect column (§5.5), exposed per lane (Timeline)
     // and per pane (Patterns). Hidden by default: most songs never use it, and
     // it costs six characters of a column that is already the widest thing on
-    // screen. View state, not document state — nothing here is saved.
+    // screen. These two arrays are the TRANSIENT half — Show all / Hide all —
+    // and are never saved; a lane's own setting, made from its header's menu,
+    // is the song's, kept in the document's `sLan` section (file format
+    // §9.19), and a lane it shows stays shown through Hide all.
     this.fx2Chans = new Array(64).fill(false);
     this.fx2Panes = new Array(FX2_PANES).fill(false);
     // The two block clipboards (item 17 cells, item 128 cue words) live in
@@ -123,8 +127,15 @@ export class Store {
   viewOpen(name) { return this.views.includes(name); }
 
   // ── the second effect column ──
-  /** Is the column exposed on lane `ch`? Only a v3 document HAS one. */
-  fx2Chan(ch) { return this.wideCells() && this.fx2Chans[ch] === true; }
+  /** Is the column exposed on lane `ch`? Only a v3 document HAS one. Shown
+   *  when the song's own setting for the lane says so OR Show all is on. */
+  fx2Chan(ch) {
+    return this.wideCells() && (this.fx2Chans[ch] === true || this.fx2Saved(ch));
+  }
+  /** The song's own setting for lane `ch` (sLan, file format §9.19). */
+  fx2Saved(ch) {
+    return (this.doc?.laneFlags(this.songIndex, ch) & LANE_FLAG_FX2) !== 0;
+  }
   /** …and the same question for Patterns-view pane `i`. */
   fx2Pane(i) { return this.wideCells() && this.fx2Panes[i] === true; }
   wideCells() { return this.doc?.wideCells === true; }
@@ -133,11 +144,26 @@ export class Store {
    *  Patterns view's column-width budget. */
   fx2Any() {
     if (!this.wideCells()) return false;
-    return this.fx2Chans.some(Boolean) || this.fx2Panes.some(Boolean);
+    if (this.fx2Chans.some(Boolean) || this.fx2Panes.some(Boolean)) return true;
+    const chans = this.doc?.channelCount ?? 0;
+    for (let ch = 0; ch < chans; ch++) if (this.fx2Saved(ch)) return true;
+    return false;
   }
 
+  /** Is Show all in force anywhere? What the all-lanes switches offer to undo
+   *  — a lane the song itself shows is not theirs to hide, so it must not
+   *  keep them saying "Hide all" for ever. */
+  fx2AllShown() {
+    return this.wideCells() && (this.fx2Chans.some(Boolean) || this.fx2Panes.some(Boolean));
+  }
+
+  /** The lane header's Show/Hide: the song's own setting for the lane, saved
+   *  with it (sLan). The transient flag follows, so Hide works on a lane Show
+   *  all had opened as well. */
   toggleFx2Chan(ch) {
-    this.fx2Chans[ch] = !this.fx2Chans[ch];
+    const on = !this.fx2Chan(ch);
+    this.doc?.setLaneFlag(this.songIndex, ch, LANE_FLAG_FX2, on);
+    this.fx2Chans[ch] = on;
     this.emit("fx2");
   }
 
@@ -146,7 +172,9 @@ export class Store {
     this.emit("fx2");
   }
 
-  /** Show/hide the column EVERYWHERE — every lane and every pattern pane. */
+  /** Show/hide the column EVERYWHERE — every lane and every pattern pane.
+   *  The lanes' own settings are left alone: Hide all keeps a lane the song
+   *  shows. */
   setAllFx2(on) {
     this.fx2Chans.fill(on);
     this.fx2Panes.fill(on);

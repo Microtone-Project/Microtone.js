@@ -887,6 +887,14 @@ struct TaudVoice {
     const TaudEnvPoint *activeFilterEnv;
     int activeFilterEnvLoop, activeFilterEnvSustain;
     int activeFadeoutStep, activeDefaultCutoff, activeDefaultResonance;
+    /* activeFadeoutStep was written by Z $Exxx, not read from the record
+     * (cleared by the next trigger and by a fast fade) — what the instrument
+     * tab shows as the note's own fadeout. */
+    bool fadeoutOwn;
+    /* activeVibratoSpeed/Depth were written by S $Apsd on an FM rack, not read
+     * from the record (cleared by the next trigger) — what the FM and Easy
+     * tabs show as the operator's own auto-vibrato. */
+    bool vibratoOwn;
     bool filterSfMode;
     double activeAttenGain;
 
@@ -2014,6 +2022,8 @@ int te_get_invert_mask(const TaudEngine *e, int slot, uint8_t *out, int cap);
 int te_get_mod_mask(const TaudEngine *e, int slot, uint8_t *out, int cap);
 void te_get_sample_mod(const TaudEngine *e, int slot, double *out);
 int te_get_psg_state(const TaudEngine *e, int slot, int *out);
+int te_get_fadeout_state(const TaudEngine *e, int slot, int *out, int cap);
+int te_get_fm_vibrato_state(const TaudEngine *e, int slot, int *out, int cap);
 int te_get_formant_state(const TaudEngine *e, int slot, double *voices, int *extra, int *lyric, int lyricCap,
                          int *counts);
 void te_get_active_note_counts(const TaudEngine *e, int32_t *out);

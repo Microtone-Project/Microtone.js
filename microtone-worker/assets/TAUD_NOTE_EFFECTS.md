@@ -1652,6 +1652,14 @@ The ladder both commands read is ProTracker's own `mt_FunkTable`, byte-identical
 
 Taud takes the **table value** as its argument rather than ProTracker's nibble, which is what makes the whole ladder — and everything between its rungs — writable; the `PT $x` column is the conversion. A value of `$00` is off, so an engine **MUST** test for it before doing anything else with the argument.
 
+## Z $Exxx — The note's fadeout
+
+**Plain.** Gives the note now sounding on the lane a fadeout of its own: `$xxx` is the fadeout step, in the same units as the instrument's **Fadeout** (`$400` cuts the note in one tick after its key-off, `$020` takes 32 ticks, `$000` never fades). It changes nothing you can hear while the key is held; it decides how the note dies once it is released — by a key-off, a note fade, a New Note Action or a past-note action — so a phrase can end its last note long and every other short without a second instrument. The instrument itself is not changed: the next note on the lane fades at the instrument's own rate again, and while a note with its own fadeout sounds, the instrument's General tab shows that fadeout in its Fadeout field.
+
+**Compatibility.** Unique to Taud. The opcode multiplexes on its first nibble: `Z $0xxx` is the spatial slide and `Z $Ffxx` funk repeat. Unlike the slide, this one works in every surround model, stereo included, and it neither reads nor writes the slide's memory: `Z $E000` is a fadeout of 0, not a recall.
+
+**Implementation.** Set the voice's active fadeout step ([Engine Spec §5.2](TAUD_ENGINE_SPEC.md#5-2-note-events)) to `$xxx` (0…4095) on the lane's voice and on every voice sounding its note, layer children and FM operands included. The record is not written. The step is the voice's until its next trigger, which reads the record (or the Ixmp patch's own fadeout) again; an instrument byte without a note re-resolves the patch and does the same; a fast fade (note `$0004`) overrides it in turn. A New Note Action ghost carries it with the rest of the voice. A wide cell's panning-column SET on the same row stays a plain SET: only `Z $0xxx` turns it into the slide's target.
+
 ## Z $Ffxx — Funk repeat: hop $f at speed $xx (non-destructive)
 
 **Plain.** Hops the sounding **loop** through the sample. The loop keeps its length, so the note goes on repeating a window of the same size at the same pitch — but every step the window jumps to another part of the sample, and when it runs out of room it comes back. Point it at a short loop inside a long sample and a held note scans the whole waveform in grains, cycling forever; the material changes, the pitch does not. `$xx` is the speed, `$00` switches it off and leaves the loop wherever the hop had taken it, and the next note on the lane puts it back.
@@ -1778,7 +1786,7 @@ An implementation **MAY** additionally offer a **binaural monitor** — a head m
 
 **Plain.** Slides the spherical panning by speed `$xxx`. The speed rate is 1/16 of an azimuth unit per tick (see effect `X $eeaa`). `Z 0000` continues the slide by reusing the previously specified slide speed. If the start and target directions are identical, nothing **MUST** happen. If the start and target directions are antipodal, the interpolation path is implementation-defined.
 
-**Compatibility.** Unique to Taud — no ST3/IT/PT equivalent. The effect has its own memory slot, and only this form of `Z` touches it: the opcode multiplexes on its first nibble the way `S` does, and `Z $Ffxx` is funk repeat, a sampler command that is live in every song.
+**Compatibility.** Unique to Taud — no ST3/IT/PT equivalent. The effect has its own memory slot, and only this form of `Z` touches it: the opcode multiplexes on its first nibble the way `S` does: `Z $Ffxx` is funk repeat, a sampler command that is live in every song, and `Z $Exxx` the note's fadeout.
 
 **Implementation.** Convert the start and target azimuth/elevation to unit direction vectors. An implementation **MUST** interpolate the source position along the shortest great-circle path at constant angular velocity. Quaternion-based SLERP using minimal-rotation quaternions is the **RECOMMENDED** implementation.
 

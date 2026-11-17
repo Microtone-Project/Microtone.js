@@ -201,7 +201,7 @@ export function showModal({ title, fields = [], okLabel = "OK", body = null }) {
  * abandon, so it has neither Cancel nor a Proceed (actions.js, `dismiss`).
  * Resolves once it is closed, by the button, Enter or Esc.
  */
-export function showNotice({ title, body = null, okLabel = "OK" }) {
+export function showNotice({ title, body = null, okLabel = "OK", clickAnywhere = false }) {
   return new Promise((resolve) => {
     const dlg = document.createElement("dialog");
     dlg.className = "modal modal-text";
@@ -220,6 +220,10 @@ export function showNotice({ title, body = null, okLabel = "OK" }) {
     const finish = () => { dlg.close(); dlg.remove(); resolve(); };
     dismiss.addEventListener("click", (e) => { e.preventDefault(); finish(); });
     dlg.addEventListener("cancel", (e) => { e.preventDefault(); finish(); });
+    // `clickAnywhere`: a notice with nothing in it to act on (the format 3
+    // conversion) also goes at a click on it or on the backdrop around it —
+    // a modal dialog's backdrop clicks arrive with the dialog as their target.
+    if (clickAnywhere) dlg.addEventListener("click", () => finish());
     dlg.addEventListener("keydown", (e) => e.stopPropagation());
     dlg.showModal();
     dismiss.focus();

@@ -421,6 +421,7 @@ void te_start_fast_fade(TaudEngine *e, TaudVoice *v)
     v->noteFading = true;
     ticks = dmax(FAST_FADE_SEC * e->bpm * 0.4, 1.0);
     v->activeFadeoutStep = (int)dmin(dmax(js_round(1024.0 / ticks), 1), 0xfff);
+    v->fadeoutOwn = false;
 }
 
 static int pitch_glide_samples(const TaudEngine *e, double cur, double target, double spt)

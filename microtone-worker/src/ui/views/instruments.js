@@ -76,7 +76,7 @@ import { oplEnvelopeSvg } from "../oplsketch.js";
 import { renderFormantTab, formantTabFrame } from "./instformant.js";
 import { renderLyricsTab, lyricsTabFrame } from "./instlyrics.js";
 import { renderPsgTab, psgTabFrame } from "./instpsg.js";
-import { renderFmEasyTab } from "./instfmeasy.js";
+import { renderFmEasyTab, fmVibratoChip } from "./instfmeasy.js";
 import {
   easyDecode, easyOscOf, easyPhaseBytes, easyMultiplierText,
 } from "../../doc/fmeasy.js";
@@ -90,7 +90,9 @@ import { themeColors } from "../theme.js";
 import { canvasMonoFont } from "../fonts.js";
 import { unescapeName, escapeNonAscii } from "../../../core/format/names.js";
 import { isStereoSample } from "../../doc/document.js";
-import { baseStereoPatchIndex, packDupCheck, DCT_LANE, envPresent, envCarry } from "../../../core/engine/inst.js";
+import {
+  baseStereoPatchIndex, packDupCheck, DCT_LANE, envPresent, envCarry, fmPrincipalIsDsp,
+} from "../../../core/engine/inst.js";
 import {
   annHex2, annFilter, annFadeout, azimuthLabel, elevationLabel,
   SEG_MINIFLOAT_MAP,
@@ -1425,6 +1427,65 @@ export class InstrumentsView {
     return rows;
   }
 
+  /**
+   * The General tab's Fadeout field while notes sound (item 345): the step
+   * `Z $Exxx` gave a sounding note of this instrument — a held one first, else
+   * one fading in the background — in the accent colour, and the record's own
+   * value back once none has one. The record itself is never written.
+   */
+  fadeoutLiveFrame() {
+    const live = this._fadeoutLive;
+    if (!live || !live.row.isConnected) return;
+    const audio = this.store.audio;
+    const playing = !!audio?.isPlaying();
+    if (playing) audio.requestInvertMask(live.slot);
+    const states = playing ? audio.getFadeoutState(live.slot) : [];
+    const pick = states.find((f) => !f.released) ?? states[0] ?? null;
+    const step = pick ? pick.step : -1;
+    if (step === live.shown) return;
+    live.shown = step;
+    const num = live.row.querySelector(".sl-num");
+    const ann = live.row.querySelector(".sl-ann");
+    const v = step >= 0 ? step : live.record;
+    if (document.activeElement !== num) num.value = v;
+    ann.textContent = annFadeout(v);
+    num.classList.toggle("fmt-live-on", step >= 0);
+    num.title = step >= 0 ? t("inst.fadeoutLiveTitle", { fx: fxWord("Z", 0xe000 | step) }) : "";
+  }
+
+  /**
+   * The FM and Easy tabs while notes sound: the auto-vibrato `S $Apsd` gave
+   * an operator, beside that operator, in the accent colour — a held note's
+   * first, else one ringing in the background — gone again once no sounding
+   * note's operator has one. The operator's instrument is never written.
+   */
+  fmVibratoLiveFrame() {
+    const live = this._fmVibLive;
+    if (!live || !this.panel.isConnected) return;
+    const audio = this.store.audio;
+    const playing = !!audio?.isPlaying();
+    if (playing) audio.requestInvertMask(live.slot);
+    const states = playing ? audio.getFmVibratoState(live.slot) : [];
+    const pick = new Map();
+    for (const f of states) {
+      const had = pick.get(f.entry);
+      if (!had || (had.released && !f.released)) pick.set(f.entry, f);
+    }
+    const key = [...pick.values()].map((f) => `${f.entry}:${f.speed}:${f.depth}`).sort().join();
+    if (key === live.shown) return;
+    live.shown = key;
+    for (const [entry, { chip, p }] of live.chips) {
+      const f = pick.get(entry);
+      chip.hidden = !f;
+      if (!f) continue;
+      const hex = (v) => `$${v.toString(16).toUpperCase().padStart(2, "0")}`;
+      chip.textContent = f.speed === 0 || f.depth === 0 ? t("fm.vibLiveOff")
+        : t("fm.vibLive", { speed: hex(f.speed), depth: hex(f.depth) });
+      const arg = 0xa000 | ((p & 0xf) << 8) | (Math.round(f.speed / 17) << 4) | Math.round(f.depth / 17);
+      chip.title = t("fm.vibLiveTitle", { fx: fxWord("S", arg) });
+    }
+  }
+
   renderGeneral(inst) {
     const fSet = (key) => (v, gid) => this.applyQuiet(setInstFieldOp(this.selected, key, v, gid));
     const flagSet = (mask, shift) => (v) =>
@@ -1434,13 +1495,17 @@ export class InstrumentsView {
     // NNA UI value: 4 = Key Lift (flag bit 5), else 0..3 (flag bits 0-1).
     const nna = ((inst.instrumentFlag >> 5) & 1) ? 4 : (inst.instrumentFlag & 3);
 
+    const fadeoutRow = this.sliderRow(t("inst.fadeout"), fadeout, 0, 1024, (v, gid) =>
+      this.applyQuiet(setInstBytesOp(this.selected,
+        [[172, v & 0xff], [173, (inst.fadeoutHigh & 0x10) | ((v >> 8) & 0x0f)]], gid)),
+      { ann: annFadeout, log: true, title: t("inst.fadeoutTitle") });
+    // What `Z $Exxx` gives sounding notes stands in the field while they sound
+    // (fadeoutLiveFrame), as the Formant tab shows S $9 and S $A.
+    this._fadeoutLive = { row: fadeoutRow, slot: this.selected, record: fadeout, shown: -1 };
     this.group(t("inst.grpVolume"),
       this.sliderRow(t("inst.globalVol"), inst.instGlobalVolume, 0, 255, fSet("instGlobalVolume"), { ann: annHex2, title: t("inst.globalVolTitle") }),
       this.sliderRow(t("inst.defaultNoteVol"), inst.defaultNoteVolume, 0, 255, fSet("defaultNoteVolume"), { ann: annHex2, title: t("inst.defaultNoteVolTitle") }),
-      this.sliderRow(t("inst.fadeout"), fadeout, 0, 1024, (v, gid) =>
-        this.applyQuiet(setInstBytesOp(this.selected,
-          [[172, v & 0xff], [173, (inst.fadeoutHigh & 0x10) | ((v >> 8) & 0x0f)]], gid)),
-        { ann: annFadeout, log: true, title: t("inst.fadeoutTitle") }),
+      fadeoutRow,
       this.sliderRow(t("inst.swing"), inst.volumeSwing, 0, 255, fSet("volumeSwing"), { ann: annHex2, title: t("inst.swingTitle") }),
     );
 
@@ -2598,6 +2663,10 @@ export class InstrumentsView {
     const ops = draft ? draft.ops : fmOperators(inst);
     const program = draft ? draft.program : fmProgramOf(inst);
     const named = fmOperatorsNamed(program, ops.length);
+    // What S $Apsd gives an operator of a sounding note shows beside its name
+    // (fmVibratoLiveFrame); $p counts past a DSP-only principal.
+    const dspPrincipal = fmPrincipalIsDsp(program);
+    this._fmVibLive = { slot, chips: new Map(), shown: null };
     const verdict = fmValidate(program, ops.length);
     const budget = fmBudget(ops.length, program.length);
     const commit = (nextOps, nextProg) => this.applyFmRack(slot, nextOps, nextProg);
@@ -2687,6 +2756,11 @@ export class InstrumentsView {
         badge.textContent = t("fm.unused");
         badge.title = t("fm.unusedTitle");
         tr.querySelector(".nameCell").append(badge);
+      }
+      if (!(dspPrincipal && i === 0)) {
+        const chip = fmVibratoChip();
+        tr.querySelector(".nameCell").append(chip);
+        this._fmVibLive.chips.set(i, { chip, p: dspPrincipal ? i - 1 : i });
       }
       advCell.append(
         // Linked, like a layer's duplicate: a second reading of the same
@@ -3095,8 +3169,12 @@ export class InstrumentsView {
     // The PSG tab shows the instrument's live overlay while playing, and puts
     // the record's values back once it stops.
     if (!this.advanced && this.tab === "psg") psgTabFrame(this);
-    // The Formant tab likewise shows the vowels S $Afgr gave sounding notes.
+    // The Formant tab likewise shows the vowels S $Afgr gave sounding notes,
+    // and the General tab the fadeout Z $Exxx gave them (item 345).
     if (!this.advanced && this.tab === "formant") formantTabFrame(this);
+    if (!this.advanced && this.tab === "general") this.fadeoutLiveFrame();
+    // …and the FM and Easy tabs the operator vibratos S $Apsd gave them.
+    if (!this.advanced && (this.tab === "fm" || this.tab === "fmeasy")) this.fmVibratoLiveFrame();
     // The Lyrics tab marks the syllables being sung (item 280).
     if (!this.advanced && this.tab === "lyrics") lyricsTabFrame(this);
     if (!this.advanced && this.tab === "mixing") this.mixing.frame();
@@ -3104,6 +3182,9 @@ export class InstrumentsView {
     this.updateLiveDots();
   }
 }
+
+/** An effect command as the grids spell it, `Z $E040`. */
+const fxWord = (op, arg) => `${op}\u00a0$${arg.toString(16).toUpperCase().padStart(4, "0")}`;
 
 /** What an envelope graph's playheads were painted from: node and time per
  *  voice, so a moved, a new or a vanished one repaints. */

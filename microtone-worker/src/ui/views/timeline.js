@@ -39,7 +39,7 @@ import {
   muteItems, runMuteItem, fx2Items, runFx2Item,
 } from "../gridmenu.js";
 import { blockToolItems, runBlockTool, isBlockTool } from "../blocktools.js";
-import { rowBandItems, cueItems, beatItems, runRowTool, isRowTool, canSplitAt } from "../rowtools.js";
+import { rowBandItems, cueItems, beatItems, songItems, runRowTool, isRowTool, canSplitAt } from "../rowtools.js";
 import { laneVolumeCell, lanePanCell } from "../lanestate.js";
 import {
   plotSeries, plotGeometry, paintPitchPlot, paintPitchTab, arpOffsets, plotNote,
@@ -826,7 +826,7 @@ export class TimelineView {
     }
     const n = band.row1 - band.row0 + 1;
     const pick = await showContextMenu(e.clientX, e.clientY,
-      [rowBandItems(n), cueItems(canSplitAt(store.song, band.row0)), beatItems()],
+      [rowBandItems(n), cueItems(canSplitAt(store.song, band.row0)), [...beatItems(), ...songItems()]],
       { keyboard: e.fromKeyboard === true });
     if (!isRowTool(pick)) return;
     if (await runRowTool(pick, { store, ...band })) {

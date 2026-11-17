@@ -89,8 +89,8 @@ window.addEventListener("error", (e) => log("ERROR " + e.message));
     "first row: the three row commands", rowIds(dlg, 1).join());
   check(rowIds(dlg, 2).join() === "patsAbove,patsBelow,patsSplit,patsCut",
     "second row: the cue-grid commands", rowIds(dlg, 2).join());
-  check(rowIds(dlg, 3).join() === "beats", "third row: the row highlights",
-    rowIds(dlg, 3).join());
+  check(rowIds(dlg, 3).join() === "beats,songLengthen,songShorten",
+    "third row: the row highlights, and the whole song's Lengthen / Shorten", rowIds(dlg, 3).join());
   check(cell(dlg, "rowsDelete").title.includes("4"),
     "the labels say how many rows the click covers", cell(dlg, "rowsDelete").title);
   await dismiss(dlg);
@@ -216,9 +216,13 @@ window.addEventListener("error", (e) => log("ERROR " + e.message));
   check(store.doc.smetEdited === true, "…and it is marked for the sMet rewrite at save");
   store.setBeats(was.pri, was.sec);
 
-  // The Project tab edits the same two numbers.
-  win.dispatchEvent(new win.KeyboardEvent("keydown", { code: "F6", bubbles: true }));
+  // The Project tab (F7 since Mastering took sixth place) edits the same two
+  // numbers, and its Global Operations offer the song Lengthen / Shorten too.
+  win.dispatchEvent(new win.KeyboardEvent("keydown", { code: "F7", bubbles: true }));
   await sleep(150);
+  const globLabels = [...doc.querySelectorAll(".project-view button")].map((b) => b.textContent);
+  check(globLabels.includes("Lengthen song…") && globLabels.includes("Shorten song…"),
+    "Project → Global Operations has Lengthen song… and Shorten song…");
   const fields = [...doc.querySelectorAll(".project-view .inst-field")];
   const priField = fields.find((f) => f.textContent.trim().startsWith("Rows per beat"));
   check(!!priField, "the Project tab has a rows-per-beat field");

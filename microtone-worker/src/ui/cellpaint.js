@@ -17,7 +17,11 @@
 // A format-3 (wide) cell opens with a PITCH PREFIX ¾ of a cell wide: blank,
 // except where the column shows raw hex — then it holds the octave digit of the
 // 65536-TET pitch in Motif Transport, and the four cells the pitch within the
-// octave: $50000 reads [5][0000].
+// octave: $50000 reads [5][0000] — or the note is Kite's, whose tick moves
+// into the prefix so its accidental gets the two cells every other notation's
+// has:
+//
+//   (tick)[letter][ accidental, 2 cells ][octave]   Kite notation, wide cell
 
 import { resolveNoteSymbol } from "../../core/tuning/pitchtables.js";
 import { hex2, hex4, fxArgFields, fxOpChar } from "./notenames.js";
@@ -109,6 +113,14 @@ export function noteCellText(note, preset, rawMode = false, wide = false) {
   }
   const ink = symb.offGrid ? "offGrid" : "note";
   if (symb.cjk) return { text: symb.cjk + symb.octave, ink, glyphs: true };
+  // A wide cell has the prefix to spare: the tick goes there (item 341) and
+  // the accidental takes two cells, as it does in every other notation.
+  if (wide && symb.tick !== " ") {
+    return {
+      text: symb.letter + (ACC_WIDE[symb.acc] ?? MOTIF.NATURAL2) + symb.octave,
+      tick: TICK[symb.tick] ?? null, ink, glyphs: true,
+    };
+  }
   const text = symb.tick !== " "
     ? (TICK[symb.tick] ?? " ") + symb.letter + (ACC_ONE[symb.acc] ?? symb.acc) + symb.octave
     : symb.letter + (ACC_WIDE[symb.acc] ?? MOTIF.NATURAL2) + symb.octave;
@@ -122,12 +134,14 @@ export function noteCellText(note, preset, rawMode = false, wide = false) {
  */
 export function paintNoteCell(ctx, note, preset, x, y, charW, rowH, palette, rawMode = false, wide = false) {
   const midY = y + rowH / 2;
-  const { text, ink, faint, glyphs, octave } = noteCellText(note, preset, rawMode, wide);
+  const { text, ink, faint, glyphs, octave, tick } = noteCellText(note, preset, rawMode, wide);
   ctx.fillStyle = palette[ink];
   if (wide) {
-    // The prefix: the octave digit of a raw pitch, else nothing at all — not
+    // The prefix: the octave digit of a raw pitch, or a Kite note's tick
+    // (a Motif Grid glyph, centred in the ¾ cell), else nothing at all — not
     // even the empty cell's dots, which belong to the four cells after it.
     if (octave !== undefined) paintPrefix(ctx, octave, x, midY, charW);
+    else if (tick) ctx.fillText(tick, x + (NOTE_PREFIX_CHARS * charW - cellOf(ctx)) / 2, midY);
     x += NOTE_PREFIX_CHARS * charW;
   }
   if (faint) ctx.globalAlpha = 0.4;

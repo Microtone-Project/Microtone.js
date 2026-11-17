@@ -71,6 +71,8 @@ static void resolve_active_envelopes(TaudVoice *v, const TaudInst *inst, const T
     v->activeFilterEnv = filEnv; v->activeFilterEnvLoop = filLoop;
     v->activeFilterEnvSustain = filSus; v->hasFilterEnv = filOn;
 
+    v->fadeoutOwn = false; /* Z $Exxx is the note's: a trigger reads the record again */
+    v->vibratoOwn = false; /* …and so is S $Apsd's operator vibrato */
     if (patch != NULL && patch->hasExtra) {
         v->activeFadeoutStep = patch->fadeoutStep;
         v->filterSfMode = patch->filterSfMode;
@@ -925,6 +927,8 @@ static TaudVoice *ghost_voice(TaudEngine *e, const TaudVoice *src, int channel)
     v->activeFilterEnvLoop = src->activeFilterEnvLoop;
     v->activeFilterEnvSustain = src->activeFilterEnvSustain;
     v->activeFadeoutStep = src->activeFadeoutStep;
+    v->fadeoutOwn = src->fadeoutOwn;
+    v->vibratoOwn = src->vibratoOwn;
     v->activeDefaultCutoff = src->activeDefaultCutoff;
     v->activeDefaultResonance = src->activeDefaultResonance;
     v->activeAttenGain = src->activeAttenGain;
@@ -1123,10 +1127,15 @@ void te_apply_pan_column(TaudEngine *e, TaudVoice *v, int value, int sel)
     }
 }
 
+static bool z_slides(int op, int arg)
+{
+    /* Z $Exxx is the fadeout, not a slide (effects.c OP_Z). */
+    return op == OP_Z && (arg & 0xfff) != 0 && (arg & 0xf000) != 0xe000;
+}
+
 static bool row_slides_spatially(const TaudCell *row)
 {
-    return (row->effect == OP_Z && (row->effectArg & 0xfff) != 0) ||
-           (row->effect2 == OP_Z && (row->effectArg2 & 0xfff) != 0);
+    return z_slides(row->effect, row->effectArg) || z_slides(row->effect2, row->effectArg2);
 }
 
 void te_apply_pan_column_wide(TaudEngine *e, TaudVoice *v, const TaudCell *row)

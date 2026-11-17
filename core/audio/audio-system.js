@@ -96,6 +96,8 @@ export class AudioSystem {
     this.sampleMods = new Map(); // slot → notefx 2/3 modification state (item 130)
     this.psgStates = new Map();  // slot → PSG run-time state (§7.9), null when not PSG
     this.formantStates = new Map();  // slot → formant voices' own vowels (§7.6), null when not formant
+    this.fadeoutStates = new Map();  // slot → [{step, released}] Z $Exxx gave its sounding notes
+    this.fmVibratoStates = new Map(); // slot → [{entry, speed, depth, released}] S $Apsd gave its operators
     this.modMasks = new Map();   // slot → Uint8Array (its inversion mask)
     this.wideCells = false; // format v3's 16-byte cell (set by loadDocument)
     this.monitorMode = 0;   // #998.3 fold/binaural — re-sent on every song load
@@ -298,6 +300,8 @@ export class AudioSystem {
       if (m.mod) this.sampleMods.set(m.slot, m.mod);
       this.psgStates.set(m.slot, m.psg ?? null);
       this.formantStates.set(m.slot, m.formant ?? null);
+      this.fadeoutStates.set(m.slot, m.fadeout ?? []);
+      this.fmVibratoStates.set(m.slot, m.fmVibrato ?? []);
       if (m.modMask) this.modMasks.set(m.slot, new Uint8Array(m.modMask));
     } else if (m.t === MSG.WORKER_PROFILE) {
       if (!this.profiling) return;
@@ -608,6 +612,14 @@ export class AudioSystem {
    *  their own (engine getInstrumentFormantState), from the same reply; null
    *  when none. */
   getFormantState(slot) { return this.formantStates.get(slot) ?? null; }
+  /** The fadeouts Z $Exxx gave sounding notes of `slot` (engine
+   *  getInstrumentFadeoutState), from the same reply: [{step, released}]. */
+  getFadeoutState(slot) { return this.fadeoutStates.get(slot) ?? []; }
+
+  /** The auto-vibratos S $Apsd gave operators of sounding notes of FM rack
+   *  `slot` (engine getInstrumentFmVibratoState), from the last
+   *  requestInvertMask reply; [] when none. */
+  getFmVibratoState(slot) { return this.fmVibratoStates.get(slot) ?? []; }
   /** …and its inversion mask (Uint8Array; empty when the operation is not one). */
   getModMask(slot) { return this.modMasks.get(slot) ?? null; }
 

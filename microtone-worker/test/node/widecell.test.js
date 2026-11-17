@@ -1259,3 +1259,26 @@ test("the grid spells a wide raw pitch as an octave digit and four more", async 
   assert.equal(noteCellText(0x5155 + 8 / 16, null, true, false).text, "5156", "a narrow cell rounds");
   assert.equal(noteCellText(0, null, true, true).octave, undefined, "an empty cell's prefix is blank");
 });
+
+test("a wide cell gives Kite's tick the prefix and its accidental two cells (item 341)", async () => {
+  const { noteCellText } = await import("../../src/ui/cellpaint.js");
+  const { presetForNotation, finePreset, resolveNoteSymbol } = await import("../../core/tuning/pitchtables.js");
+  const { MOTIF } = await import("../../core/fonts/motifglyphs.js");
+  const kite = finePreset(presetForNotation(410));
+  let seen = 0;
+  // Every degree of an octave of 41-TET: wide spells letter + 2-cell accidental
+  // + octave with the tick apart; narrow keeps the 4-cell form.
+  for (let k = 0; k < 41; k++) {
+    const note = 0x5000 + Math.round((k * 0x1000) / 41 * 16) / 16;
+    const symb = resolveNoteSymbol(note, kite);
+    if (!symb || symb.tick === " ") continue;
+    const w = noteCellText(note, kite, false, true);
+    const n = noteCellText(note, kite, false, false);
+    assert.ok(w.tick, `degree ${k}: the tick is apart`);
+    assert.equal([...w.text].length, [...n.text].length - 1, `degree ${k}: no tick in the four cells`);
+    assert.ok(n.text.startsWith(w.tick), `degree ${k}: the same tick glyph`);
+    assert.ok(Object.values(MOTIF).includes([...w.text][1]), `degree ${k}: a two-cell accidental`);
+    seen++;
+  }
+  assert.ok(seen >= 30, "most of the octave carries a tick");
+});

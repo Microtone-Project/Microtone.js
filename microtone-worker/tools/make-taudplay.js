@@ -169,7 +169,7 @@ const PACKAGE_JSON = (version) => JSON.stringify({
   files: ["src", "core", "COPYING", "COPYING.LESSER", "README.md"],
   license: "LGPL-3.0-or-later",
   author: "CuriousTorvald",
-  keywords: ["taud", "tracker", "microtone", "audio", "webaudio", "chiptune", "module"],
+  keywords: ["taud", "tracker", "microtone", "audio", "webaudio", "chiptune", "module", "wasm"],
   repository: { type: "git", url: "https://github.com/curioustorvald/microtone-taudplay" },
   engines: { node: ">=22" },
   scripts: { test: "node --test" },

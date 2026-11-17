@@ -248,6 +248,7 @@ void te_fm_set_operator_vibrato(TaudFmRig *rig, int p, int s, int d)
     if (v == NULL) return;
     v->activeVibratoSpeed = s * 17;
     v->activeVibratoDepth = d * 17;
+    v->vibratoOwn = true;
 }
 
 /* Detach and silence every operator the foreground voice of lane `vi` drives. */

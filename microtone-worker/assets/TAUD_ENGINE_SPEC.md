@@ -249,6 +249,8 @@ ticks = max(0.3 × bpm × 0.4, 1)
 fadeout_step = clamp(round(1024 ÷ ticks), 1, $FFF)
 ```
 
+The row effect **`Z $Exxx`** overrides it too, by the number written: `fadeout_step = $xxx`, in the record's own units, on the lane's voice and every voice sounding its note — layer children and FM operands included. Like the fast fade's, the override is the **voice's**: the instrument record is not touched, a New Note Action ghost takes it along with the rest of the active view, and the next trigger (or an instrument byte alone, which re-resolves the patch) reads the record again. It writes nothing else — a held note goes on sounding until something releases it, and then fades at the new step — and it is not a spatial slide in any surround model ([TAUD_NOTE_EFFECTS.md](TAUD_NOTE_EFFECTS.md#z-exxx-the-note-s-fadeout)). Of the two, the later one wins.
+
 Two cases of note word `$0000` are **not** silent, and both matter:
 
 - **Instrument byte plus a pitch effect** (`E`, `F` or `G`) on a lane that already has a pitch: this **triggers** the note at the voice's current pitch, so the slide has something to move. Latching the instrument and staying silent — the obvious reading — loses the note.

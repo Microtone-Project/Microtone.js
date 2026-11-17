@@ -279,8 +279,8 @@ export function channelHasContent(songObj, ch) {
 /**
  * Insert an empty lane at index `at`: every lane from `at` on shifts one
  * to the right, and the last one falls off the end. `restore` (undo only) is
- * `{pats, mute}` — the per-cue pattern number and the mute to put back at `at`
- * instead of an empty, unmuted slot.
+ * `{pats, mute, lane}` — the per-cue pattern number, the mute and the `sLan`
+ * record to put back at `at` instead of an empty, unmuted slot.
  * Dirty: one cue tag per cue the shift actually changed (+ voices).
  */
 export function insertChannelOp(song, at, restore = null, mutes = null, gestureId = null) {
@@ -311,9 +311,11 @@ export function insertChannelOp(song, at, restore = null, mutes = null, gestureI
         for (let ch = chans - 1; ch > at; ch--) mutes[ch] = mutes[ch - 1] === true;
         mutes[at] = restore?.mute === true;
       }
+      // …and its `sLan` record (file format §9.19), which is about the part too.
+      const droppedLane = doc.shiftLaneRecords(song, at, +1, restore?.lane ?? null);
       this._touched = touched;
       doc.dirty = true;
-      return removeChannelOp(song, at, { pats: dropped, mute: droppedMute }, mutes, gestureId);
+      return removeChannelOp(song, at, { pats: dropped, mute: droppedMute, lane: droppedLane }, mutes, gestureId);
     },
     dirty() {
       const tags = (this._touched ?? []).map((cue) => ({ kind: "cue", song, cue }));
@@ -354,9 +356,10 @@ export function removeChannelOp(song, at, restoreLast = null, mutes = null, gest
         for (let ch = at; ch < chans - 1; ch++) mutes[ch] = mutes[ch + 1] === true;
         mutes[chans - 1] = restoreLast?.mute === true;
       }
+      const removedLane = doc.shiftLaneRecords(song, at, -1, restoreLast?.lane ?? null);
       this._touched = touched;
       doc.dirty = true;
-      return insertChannelOp(song, at, { pats: removed, mute: removedMute }, mutes, gestureId);
+      return insertChannelOp(song, at, { pats: removed, mute: removedMute, lane: removedLane }, mutes, gestureId);
     },
     dirty() {
       const tags = (this._touched ?? []).map((cue) => ({ kind: "cue", song, cue }));

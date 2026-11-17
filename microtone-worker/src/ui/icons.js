@@ -141,6 +141,12 @@ export const ICON = {
       `<rect x="2.5" y="${y}" width="19" height="5.5" rx="1.5"/>` +
       `<rect x="4.7" y="${y + 1.75}" width="8" height="2" rx="1" ` +
       `fill="currentColor" stroke="none"/>`).join("")),
+  /** Lengthen the song: two rows pushed apart, the arrows leading outwards. */
+  songLengthen: SVG(rowBar(7.5) + rowBar(12.5) +
+    '<path d="M12 5.5V1.5M9.5 4 12 1.5 14.5 4M12 18.5v4M9.5 20 12 22.5l2.5-2.5"/>'),
+  /** …and shorten it: two rows far apart, the arrows closing in. */
+  songShorten: SVG(rowBar(2) + rowBar(18) +
+    '<path d="M12 7.5v3M9.5 8 12 10.5 14.5 8M12 16.5v-3M9.5 16 12 13.5l2.5 2.5"/>'),
   /** Row highlights: the beat and bar banding the trough is read against. */
   beats: SVG(
     '<rect x="2.5" y="2.5" width="19" height="4" rx="1.2" fill="currentColor" stroke="none"/>' +

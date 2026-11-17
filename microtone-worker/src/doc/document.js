@@ -31,6 +31,9 @@ import {
   ILYR_FOURCC, parseLyricSection, buildLyricSection, lyricRecipeSpans,
 } from "../../core/format/lyric-section.js";
 import { cueInstructionWords } from "../../core/format/taud-parse.js";
+import {
+  LANE_FOURCC, parseLaneSection, buildLaneSection, laneByte, laneEntryFor,
+} from "../../core/format/lane-section.js";
 import { writeTaud, writeTaudWith } from "../../core/format/taud-write.js";
 import { comp } from "../../core/format/compress.js";
 import { zstdCompressAll } from "../../core/format/zstd.js";
@@ -530,6 +533,85 @@ export class Document {
     } else {
       this.projSections.push({ fourcc, payload });
     }
+  }
+
+  // ── per-lane settings: `sLan` (file format §9.19) ──
+  // Read through a cache keyed by the payload's identity, since the grids ask
+  // for every visible lane on every paint; any write goes through setSection,
+  // which replaces the payload and so retires the cache by itself.
+
+  /** Map<songIndex, {count, stride, bytes}> of the section as it stands. */
+  _laneMap() {
+    const payload = this.projSections.find((s) => s.fourcc === LANE_FOURCC)?.payload ?? null;
+    if (this._laneCache?.payload !== payload) {
+      this._laneCache = { payload, map: parseLaneSection(payload) };
+    }
+    return this._laneCache.map;
+  }
+
+  _setLaneMap(map) {
+    this.setSection(LANE_FOURCC, buildLaneSection(map));
+    this.dirty = true;
+  }
+
+  /** Byte 0 (the flags) of lane `lane` in song `song`; 0 when nothing is said. */
+  laneFlags(song, lane) {
+    return laneByte(this._laneMap().get(song), lane, 0);
+  }
+
+  /** Set or clear flag `bit` of a lane. True when the document changed. */
+  setLaneFlag(song, lane, bit, on) {
+    const was = this.laneFlags(song, lane);
+    const now = on ? was | bit : was & ~bit;
+    if (now === was) return false;
+    const map = new Map(this._laneMap());
+    const e = laneEntryFor(map.get(song), lane, this.channelCount);
+    e.bytes[lane * e.stride] = now;
+    map.set(song, e);
+    this._setLaneMap(map);
+    return true;
+  }
+
+  /**
+   * Shift song `song`'s lane records with its lanes (insertChannelOp /
+   * removeChannelOp): `dir` +1 opens an empty record at `at` and pushes the
+   * last lane's off the end, −1 closes `at` and fills the last lane with
+   * `fill`. Returns the record that left (bytes, or null when it was empty),
+   * for the inverse to put back.
+   */
+  shiftLaneRecords(song, at, dir, fill = null) {
+    const map = this._laneMap();
+    const old = map.get(song);
+    if (!old && !fill) return null;
+    const chans = this.channelCount;
+    const e = laneEntryFor(old, chans - 1, chans);
+    const s = e.stride;
+    const rec = (l) => e.bytes.slice(l * s, (l + 1) * s);
+    let left;
+    if (dir > 0) {
+      left = rec(chans - 1);
+      e.bytes.copyWithin((at + 1) * s, at * s, (chans - 1) * s);
+      e.bytes.fill(0, at * s, (at + 1) * s);
+      if (fill) e.bytes.set(fill.subarray(0, s), at * s);
+    } else {
+      left = rec(at);
+      e.bytes.copyWithin(at * s, (at + 1) * s, chans * s);
+      e.bytes.fill(0, (chans - 1) * s, chans * s);
+      if (fill) e.bytes.set(fill.subarray(0, s), (chans - 1) * s);
+    }
+    const next = new Map(map);
+    next.set(song, e);
+    this._setLaneMap(next);
+    return left.some((b) => b !== 0) ? left : null;
+  }
+
+  /** Song `idx` was removed: its lane records go, and later songs' move down. */
+  removeSongLanes(idx) {
+    const map = this._laneMap();
+    if (map.size === 0) return;
+    const next = new Map();
+    for (const [k, e] of map) if (k !== idx) next.set(k > idx ? k - 1 : k, e);
+    this._setLaneMap(next);
   }
 
   /** 0x1E-separated name-table lookup (INam / SNam / pNam / IMcn). */

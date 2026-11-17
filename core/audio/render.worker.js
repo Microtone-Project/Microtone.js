@@ -357,6 +357,8 @@ function handleMessage(m) {
         mod: engine.getInstrumentSampleMod(m.slot), modMask: modBuf,
         psg: engine.getInstrumentPsgState(m.slot),
         formant: engine.getInstrumentFormantState(m.slot),
+        fadeout: engine.getInstrumentFadeoutState(m.slot),
+        fmVibrato: engine.getInstrumentFmVibratoState(m.slot),
       }, [buf, modBuf]);
       break;
     }

@@ -4,6 +4,36 @@ Every entry below is one version of Microtone, newest first, with the date it wa
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone-project/Microtone.js).
 
+## Version 5.0.5 (2026-11-17)
+
+**MIDI import keeps drum kits in tune, uses up to 64 lanes, and can play through your own soundfonts**: a song that sends a pitch bend to its drum part no longer detunes the whole kit.
+
+- Fixed: a MIDI file that sent a pitch bend on the percussion channel imported its drums detuned (by two semitones in one test file); a General MIDI drum kit is never bent, so those bends are now ignored.
+- A busy MIDI song now imports with up to 64 lanes before any note is cut short to make room; a song that fits in 32 stays a 32-lane one.
+- Import MIDI… now offers every soundfont in the File view's Soundfonts tab beside the built-in GeneralUser GS.
+
+**Lengthen and Shorten the whole song**: the Timeline's row-number menu (beside Row highlights) and Project → Global Operations can now space every row of the song out, or keep every second (third, …) row, in one step.
+
+- Lengthen song… moves every row to row × the factor with blank rows between, and nothing falls off the end of a pattern: a cue that no longer fits in one pattern becomes several.
+- Shorten song… keeps every nth row and closes the gaps, merging cues back together, so a song lengthened and then shortened by the same factor comes back exactly as it was.
+- Jumps and loops in the cue list still lead to the same music; the speed is left alone.
+
+**A note can have its own fadeout**: `Z $Exxx` sets how quickly the note now sounding fades after it is released, without touching the instrument.
+
+- `$xxx` is in the same units as the instrument's Fadeout field (`Z $E400` cuts the note a tick after its key-off, `Z $E000` never fades), and the next note fades at the instrument's own rate again.
+- While such a note sounds, the instrument's General tab shows its fadeout in the Fadeout field, in the accent colour.
+- Likewise, while `S $Apsd` gives an FM operator a vibrato of its own, the rack's FM and Easy tabs show it beside that operator.
+
+**A lane's second effect column is remembered with the song**: showing or hiding it from a lane header's menu is saved in the project.
+
+- Hide all leaves a lane you set to show its second effect column showing it; Show all and Hide all themselves are not saved.
+
+**Kite notation reads more easily in the pattern grids**: the up/down tick moves into the small space before the note, so the accidental gets the two-character width every other notation's has.
+
+- The Notation Maker's preview spells its degrees the same way.
+
+- The notice that a project was converted to format 3 now also closes with a click anywhere.
+
 ## Version 5.0.4 (2026-11-15)
 
 **`K` and `L` volume slides move as far as the original song's did**: a fade under a vibrato or a portamento rises and falls at its proper pace again, and the grey volume ghosts in the Timeline show what you hear.

@@ -19,16 +19,27 @@ import { rangeBoundsOpen } from "../notenames.js";
 /**
  * A span holding `items` left to right: a NUMBER is a note word, spelled as a
  * note cell in `preset`'s notation; a STRING is a literal separator, dim.
+ * `wide`: spell each note as a format-3 grid cell does — a ¾-cell prefix
+ * (`.ng-prefix`, blank but for a Kite note's tick or a raw pitch's octave
+ * digit) before the four cells, so
+ * Kite's accidental takes two cells as every other notation's does.
  */
-export function noteRun(items, preset) {
+export function noteRun(items, preset, { wide = false } = {}) {
   const run = document.createElement("span");
   run.className = "note-glyph";
   for (const item of items) {
     const part = document.createElement("span");
     if (typeof item === "number") {
-      const { text, ink, faint } = noteCellText(item, preset);
-      part.className = "ng-note" + (ink === "note" ? "" : ` ng-${ink}`) + (faint ? " ng-faint" : "");
-      part.textContent = text;
+      const { text, ink, faint, tick, octave } = noteCellText(item, preset, false, wide);
+      part.className = "ng-note" + (wide ? " ng-wide" : "") + (ink === "note" ? "" : ` ng-${ink}`) +
+        (faint ? " ng-faint" : "");
+      if (wide) {
+        const pre = document.createElement("span");
+        // A raw pitch's octave digit is in Motif Transport, as the grids paint it.
+        pre.className = "ng-prefix" + (octave !== undefined ? " ng-octave" : "");
+        pre.textContent = tick ?? octave ?? "";
+        part.append(pre, text);
+      } else part.textContent = text;
     } else {
       part.className = "ng-sep";
       part.textContent = item;
@@ -38,9 +49,9 @@ export function noteRun(items, preset) {
   return run;
 }
 
-/** One note, in the song's notation. */
-export function noteGlyph(note, preset) {
-  return noteRun([note], preset);
+/** One note, in the song's notation (`opts` as noteRun's). */
+export function noteGlyph(note, preset, opts) {
+  return noteRun([note], preset, opts);
 }
 
 /**

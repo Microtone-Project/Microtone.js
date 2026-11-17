@@ -362,6 +362,15 @@ void te_apply_effect_row(TaudEngine *e, TaudVoice *voice, int vi, int op, int ra
             voice->funkSpeed = rawArg & 0xff;
             break;
         }
+        if ((rawArg & 0xf000) == 0xe000) {
+            /* Z $Exxx — the NOTE's fadeout step, $xxx in the record's units
+             * (bytes 172…173, a step of 1/1024 a tick), on every voice sounding
+             * it, layer children included, until its next trigger. An NNA ghost
+             * takes it along (trigger.c ghost_voice copies it). */
+            int step = rawArg & 0xfff;
+            FOR_EACH_LAYER_TARGET(e, voice, vi, v, { v->activeFadeoutStep = step; v->fadeoutOwn = true; });
+            break;
+        }
         if (e->ts_surroundModel == SURROUND_STEREO) break;
         raw = rawArg & 0xfff;
         arg = resolve_arg(raw, voice->mem.z);

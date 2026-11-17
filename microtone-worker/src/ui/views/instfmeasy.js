@@ -37,6 +37,15 @@ import { setIconLabel } from "../icons.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
+/** The chip an FM operator row shows while `S $Apsd` gives a sounding note's
+ *  operator a vibrato of its own (fmVibratoLiveFrame fills it). */
+export function fmVibratoChip() {
+  const chip = document.createElement("span");
+  chip.className = "badge-sm fm-vib-live";
+  chip.hidden = true;
+  return chip;
+}
+
 /** The classic feedback depths, as the selector spells them. */
 const FB_RADIANS = ["0", "π/16", "π/8", "π/4", "π/2", "π", "2π", "4π"];
 
@@ -110,6 +119,9 @@ export function renderFmEasyTab(view, inst) {
   // The operator whose envelope is open below, kept across redraws.
   const sel = Math.min(Math.max(view._easyOp ?? 0, 0), model.ops.length - 1);
   view._easyOp = sel;
+  // What S $Apsd gives a sounding note's operator shows beside its number
+  // (the view's fmVibratoLiveFrame); a row's label IS its $p, entry p + 1.
+  view._fmVibLive = { slot, chips: new Map(), shown: null };
 
   view.panel.appendChild(toolbar(view, slot, inst, model, commit));
 
@@ -396,7 +408,11 @@ function operatorTable(view, slot, model, label, sel, commit) {
   const tbody = el("tbody");
   model.ops.forEach((o, i) => {
     const tr = el("tr", i === sel ? "fm-easy-sel" : "");
-    tr.append(el("td", "idxCell", label(i)));
+    const idx = el("td", "idxCell", label(i));
+    const chip = fmVibratoChip();
+    idx.append(chip);
+    view._fmVibLive?.chips.set(model.labels[i] + 1, { chip, p: model.labels[i] });
+    tr.append(idx);
 
     const lv = el("td");
     lv.append(view.levelInput(o.mixOctet, (octet) => commit(easyPatchOp(model, i, { mixOctet: octet })),

@@ -143,7 +143,8 @@ export function showPanner(store, target) {
       // source already is however it was written.
       az = cell.azimuth;
       el = spatial ? cell.elevation : 0;
-    } else if (cell && cell.effect === EffectOp.OP_Z && (cell.effectArg & 0xfff) !== 0) {
+    } else if (cell && cell.effect === EffectOp.OP_Z && (cell.effectArg & 0xfff) !== 0 &&
+               (cell.effectArg & 0xf000) !== 0xe000 && (cell.effectArg & 0xf000) !== 0xf000) {
       zSpeed = cell.effectArg & 0xfff;
     }
 

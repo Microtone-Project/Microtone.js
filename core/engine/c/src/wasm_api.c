@@ -444,6 +444,12 @@ void tw_get_sample_mod(const TaudEngine *e, int slot, double *out) { te_get_samp
 TW_EXPORT(tw_get_psg_state)
 int tw_get_psg_state(const TaudEngine *e, int slot, int *out) { return te_get_psg_state(e, slot, out); }
 
+TW_EXPORT(tw_get_fadeout_state)
+int tw_get_fadeout_state(const TaudEngine *e, int slot, int *out, int cap) { return te_get_fadeout_state(e, slot, out, cap); }
+
+TW_EXPORT(tw_get_fm_vibrato_state)
+int tw_get_fm_vibrato_state(const TaudEngine *e, int slot, int *out, int cap) { return te_get_fm_vibrato_state(e, slot, out, cap); }
+
 TW_EXPORT(tw_get_formant_state)
 int tw_get_formant_state(const TaudEngine *e, int slot, double *voices, int *extra, int *lyric, int lyricCap, int *counts)
 {

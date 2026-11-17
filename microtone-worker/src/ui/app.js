@@ -45,7 +45,7 @@ import { showImportProgress } from "./popups/importlog.js";
 import { showProgress } from "./popups/progress.js";
 import { fetchDemo } from "./demos.js";
 import { getSoundfont, getBundledSoundfont, pickUserSoundfont } from "./soundfont.js";
-import { setShowLibrary } from "./sflibrary.js";
+import { setShowLibrary, librarySoundfonts, loadSoundfont } from "./sflibrary.js";
 import { resolveBanks, rememberBank } from "./adlibbank.js";
 import { decodeHandoff, handoffArmed } from "./handoff.js";
 import { presetForNotation } from "../../core/tuning/pitchtables.js";
@@ -446,7 +446,7 @@ async function loadBytes(name, bytes, { sf2 = null, bank = null, saveToOpfs = fa
   }
   updateStatus();
   if (openedVersion < 3 && !foreign) {
-    showNotice({ title: t("fmt3.title"), body: t("fmt3.body", { name, ver: openedVersion }) });
+    showNotice({ title: t("fmt3.title"), body: t("fmt3.body", { name, ver: openedVersion }), clickAnywhere: true });
   }
   warnImixProblems(store.doc);
 }
@@ -664,6 +664,10 @@ async function importMidiInteractive({ toOpfs = false, folder = "" } = {}) {
   const file = await pickFile(".mid,.midi");
   if (!file) return;
   const bundledAvail = (await getBundledSoundfont()) !== null;
+  // The File view's soundfont library (item 265) offers its fonts here too:
+  // each is stored already converted, so a MIDI imports through one as it
+  // would through the bundled GeneralUser GS.
+  const library = await librarySoundfonts().catch(() => []);
   const choice = await showModal({
     title: t("midi.title", { name: file.name }),
     body: t("midi.body"),
@@ -677,6 +681,7 @@ async function importMidiInteractive({ toOpfs = false, folder = "" } = {}) {
       value: bundledAvail ? "bundled" : "own",
       options: [
         ...(bundledAvail ? [{ value: "bundled", label: t("midi.bundled") }] : []),
+        ...library.map((sf) => ({ value: `lib:${sf.file}`, label: t("midi.library", { name: sf.title }) })),
         { value: "own", label: t("midi.chooseSf2") },
       ],
     }, {
@@ -762,7 +767,9 @@ async function importMidiInteractive({ toOpfs = false, folder = "" } = {}) {
     }
     realign = bpm;
   }
-  const sf2 = choice.sf === "bundled" ? await getBundledSoundfont() : await pickUserSoundfont();
+  const sf2 = choice.sf === "bundled" ? await getBundledSoundfont()
+    : choice.sf.startsWith("lib:") ? await loadSoundfont(choice.sf.slice(4)).catch(() => null)
+    : await pickUserSoundfont();
   if (!sf2) { $("stFile").textContent = t("midi.cancelled"); return; }
   await loadBytes(file.name, new Uint8Array(await file.arrayBuffer()),
     {
@@ -1470,11 +1477,11 @@ function refreshFx2Btn() {
   const btn = $("tbFx2");
   const wide = store.doc?.wideCells === true;
   btn.hidden = !wide;
-  const on = wide && store.fx2Any();
+  const on = wide && store.fx2AllShown();
   btn.textContent = t(on ? "toolbox.fx2On" : "toolbox.fx2Off");
   btn.classList.toggle("active", on);
 }
-$("tbFx2").addEventListener("click", () => store.setAllFx2(!store.fx2Any()));
+$("tbFx2").addEventListener("click", () => store.setAllFx2(!store.fx2AllShown()));
 store.on("fx2", () => refreshFx2Btn());
 // Surround radar (#998.6): expands every Timeline lane header into a
 // top-down dial. Collapsed, the pan strip already shows that dial's horizontal

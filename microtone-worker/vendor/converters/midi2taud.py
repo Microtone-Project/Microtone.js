@@ -34,6 +34,9 @@ Behaviour (per midi2taud.md):
     curves are simplified via --bend-epsilon (cents). RPN 0,0 pitch-bend
     range messages are honoured; bend values are computed as floats from
     the full 14-bit word (MIDIs that only drive the MSB work transparently).
+    The percussion channel's bends are ignored: a GM drum kit plays every key
+    at its own pitch, so a synth does not bend it, and a file that sends one
+    there (by accident or for a part played elsewhere) would detune the kit.
   * Both MIDI key-off idioms — real note-off messages and note-on with
     velocity 0 — are translated into Taud KEY_OFF. Percussion-channel
     key-offs are dropped by default (GM percussion ignores note-off, and
@@ -75,7 +78,8 @@ Behaviour (per midi2taud.md):
     every instrument (drum kits included) gets NNA = Note Fade, so a voice
     column is reusable the moment its note releases — the release/fade tail
     moves to a background ghost on the next trigger and dies over its own
-    release time. Voice budget defaults to 16 columns (--max-voices); overflow
+    release time. Voice budget defaults to 64 columns (--max-voices) — the
+    song only becomes a 64-lane one when it needs more than 32; overflow
     releases the oldest pedal-held or soonest-ending note early, not cut.
   * SF2 exclusiveClass (gen 57) is honoured on the percussion channel: a new note
     in a class chokes any ringing note of the same class (e.g. a closed hi-hat
@@ -543,6 +547,11 @@ def extract_song(division, merged, rpb: int, speed: int) -> Song:
 
         elif kind == 'bend':
             _, ch, val14 = ev
+            if ch == 9:
+                # GM percussion: a drum kit sounds every key at its own pitch,
+                # and a synth does not bend it — a bend sent here would detune
+                # the whole kit (PM3 M006.MID sends one, +2 semitones).
+                continue
             st = chs[ch]
             # MUST be float maths: 14-bit word (or MSB-only 7-bit source,
             # which simply leaves the low 7 bits zero) → ±range semitones.
@@ -4591,8 +4600,8 @@ def main():
                          'default each instrument/patch gets a Volume Fadeout '
                          'reproducing its SF2 release segment (the full '
                          'releaseVolEnv), played out via NNA Note Fade')
-    ap.add_argument('--max-voices', type=int, default=32,
-                    help='Voice-column budget, 1..64 (default 32). NNA '
+    ap.add_argument('--max-voices', type=int, default=64,
+                    help='Voice-column budget, 1..64 (default 64). NNA '
                          'background ghosts carry release/ring tails, so '
                          'few foreground voices are needed; songs exceeding '
                          'the budget release the oldest pedal-held or '

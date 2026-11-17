@@ -302,6 +302,105 @@ export function planCutCue(song, row, opts = {}) {
 }
 
 /**
+ * LENGTHEN the whole song ×`factor` — the Patterns view's Lengthen, applied to
+ * every cue at once and without dropping anything: song row r moves to row
+ * r × factor, with blank rows between. A pattern holds 64 rows, so a cue that
+ * no longer fits becomes several: the fewest that divide the factor and hold
+ * the cue's rows at an equal length each (a 32-row cue ×2 is one 64-row cue, a
+ * 64-row cue ×2 two of them, a 48-row cue ×2 two 48-row ones). A jump aimed at
+ * a cue lands on the first of them; its end — HALT, flow — stays with the
+ * last. One undo step, like every outline.
+ */
+export function planLengthenSong(song, factor, opts = {}) {
+  const n = clampInt(factor | 0, 1, PATTERN_ROWS);
+  const { tail, map } = baseOutline(song);
+  if (n < 2 || map.entries.length === 0) return null;
+  const out = [];
+  for (const e of map.entries) {
+    const L = e.rowLimit;
+    const rows = [];
+    for (let r = 0; r < L; r++) {
+      rows.push(e.startRow + r);
+      for (let k = 1; k < n; k++) rows.push(-1);
+    }
+    // k = n always fits (each part is the cue's own length), so this ends.
+    let k = 1;
+    while (n % k !== 0 || (L * n) / k > PATTERN_ROWS) k++;
+    const len = (L * n) / k;
+    for (let i = 0; i < k; i++) {
+      out.push({
+        inherit: e.cue, limit: len, srcLimit: L, start: e.startRow,
+        rows: rows.slice(i * len, (i + 1) * len), noEnd: i < k - 1,
+      });
+    }
+  }
+  return planRowOutline(song, [...out, ...tail], opts);
+}
+
+/**
+ * SHORTEN the whole song ÷`factor` — the Patterns view's Shorten, applied to
+ * every cue at once and closing the gaps it leaves: every factor-th row is
+ * kept, the rows between dropped, and the music runs on without the blank
+ * tails a per-pattern Shorten would leave. Cues merge back into one the way
+ * Lengthen split them: a run of k cues of EQUAL length, k dividing the factor,
+ * becomes one cue — the largest such run that divides evenly, else the cue
+ * alone — so a song lengthened and then shortened by the same factor reads as
+ * it did, on the grid it had. The rows kept are counted from the start of each
+ * merged run. A cue a jump lands on always starts a run, and one that ends with
+ * a HALT or a flow instruction always ends one, so where the song goes is
+ * unchanged.
+ */
+export function planShortenSong(song, factor, opts = {}) {
+  const n = clampInt(factor | 0, 1, PATTERN_ROWS);
+  const { tail, map } = baseOutline(song);
+  const entries = map.entries;
+  if (n < 2 || entries.length === 0) return null;
+  const infos = new Map(entries.map((e) => [e.cue, cueInfo(song.cues[e.cue])]));
+  const targets = new Set();
+  for (const e of entries) {
+    const f = infos.get(e.cue).flow;
+    if (!f) continue;
+    if (f.type === INST_JUMP) targets.add(f.arg);
+    else if (f.type === INST_GOBACK) targets.add(e.cue - f.arg);
+    else if (f.type === INST_SKIP) targets.add(e.cue + f.arg);
+  }
+  const ends = (e) => infos.get(e.cue).isHalt || infos.get(e.cue).flow !== null;
+  /** Can entries[i … i+k−1] merge? Equal lengths that divide evenly, no jump
+   *  landing inside, nothing ending before the last. */
+  const mergeable = (i, k) => {
+    if (i + k > entries.length) return false;
+    const len = entries[i].rowLimit;
+    if ((len * k) % n !== 0) return false;
+    for (let j = i + 1; j < i + k; j++) {
+      if (entries[j].rowLimit !== len || targets.has(entries[j].cue) || ends(entries[j - 1])) return false;
+    }
+    return true;
+  };
+  const out = [];
+  for (let i = 0; i < entries.length;) {
+    let k = n;
+    while (k > 1 && (n % k !== 0 || !mergeable(i, k))) k--;
+    const group = entries.slice(i, i + k);
+    const j = i + k;
+    const rows = [];
+    let x = 0;
+    for (const e of group) {
+      for (let r = 0; r < e.rowLimit; r++, x++) if (x % n === 0) rows.push(e.startRow + r);
+    }
+    const last = group[group.length - 1];
+    out.push({
+      // The LAST cue's place: its end is the group's end, and a jump aimed at
+      // any of the others resolves down to it (planRowOutline's newOf).
+      inherit: last.cue, limit: rows.length, srcLimit: last.rowLimit,
+      start: group[0].startRow, rows,
+      absorbs: group.slice(0, -1).map((e) => e.cue),
+    });
+    i = j;
+  }
+  return planRowOutline(song, [...out, ...tail], opts);
+}
+
+/**
  * Lay a new row sequence back onto the cue grid: each cue keeps its length and
  * takes the next slice of `srcRows`. A cue whose rows are still exactly its own
  * comes out unchanged (a delete at the very end only shortens the last cue's
@@ -395,12 +494,16 @@ export function planRowOutline(song, outline, {
   const recyclable = new Set();
   for (const o of outline) {
     if (o.inherit === null) continue;
-    const words = song.cues[o.inherit];
-    if (!words) continue;
-    const into = o.rows === null ? kept : recyclable;
-    for (let ch = 0; ch < MAX_VOICES; ch++) {
-      const p = words[ch] & PAT_MASK;
-      if (p !== PAT_MASK && song.patterns[p]) into.add(p);
+    // `absorbs`: cues merged INTO this one (planShortenSong), whose patterns
+    // are as rebuilt as its own.
+    for (const c of [o.inherit, ...(o.rows !== null ? o.absorbs ?? [] : [])]) {
+      const words = song.cues[c];
+      if (!words) continue;
+      const into = o.rows === null ? kept : recyclable;
+      for (let ch = 0; ch < MAX_VOICES; ch++) {
+        const p = words[ch] & PAT_MASK;
+        if (p !== PAT_MASK && song.patterns[p]) into.add(p);
+      }
     }
   }
   for (const p of kept) recyclable.delete(p);

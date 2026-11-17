@@ -197,6 +197,50 @@ int te_get_psg_state(const TaudEngine *e, int slot, int *out)
  * indices its notes are singing, ascending, each once (up to lyricCap).
  * counts[0] = voices written, counts[1] = syllables written. Returns 0 for
  * any other instrument. */
+/* The fadeouts `Z $Exxx` has given sounding notes of instrument `slot` (item
+ * 345): up to `cap` pairs {step, released} into `out`, one per voice — the
+ * lanes', the jam bank's and the background's — whose own fadeout it is.
+ * Returns the count. */
+int te_get_fadeout_state(const TaudEngine *e, int slot, int *out, int cap)
+{
+    int i, n = 0;
+    for (i = 0; i < TOTAL_VOICES + e->bgCount && n < cap; i++) {
+        const TaudVoice *v = i < TOTAL_VOICES ? &e->voices[i] : e->bg[i - TOTAL_VOICES];
+        /* A layer child counts for its metainstrument (displayInst) as well
+         * as for its own record. */
+        if (!v->active || !v->fadeoutOwn || (v->instrumentId != slot && v->displayInst != slot)) continue;
+        out[n * 2] = v->activeFadeoutStep;
+        out[n * 2 + 1] = v->keyOff || v->noteFading;
+        n++;
+    }
+    return n;
+}
+
+/* The auto-vibratos `S $Apsd` has given the operators of sounding notes of
+ * FM rack `slot`: up to `cap` records {entry, speed, depth, released} into
+ * `out` — entry the operator's place in the rack's TABLE — one per operator
+ * voice that has one, over every rack note (the lanes', the jam bank's and
+ * the background's). Returns the count. */
+int te_get_fm_vibrato_state(const TaudEngine *e, int slot, int *out, int cap)
+{
+    int i, k, n = 0;
+    for (i = 0; i < TOTAL_VOICES + e->bgCount && n < cap; i++) {
+        const TaudVoice *v = i < TOTAL_VOICES ? &e->voices[i] : e->bg[i - TOTAL_VOICES];
+        const TaudFmRig *rig = v->fmRig;
+        if (!v->active || rig == NULL || rig->voices[0] != v || v->displayInst != slot) continue;
+        for (k = 0; k < rig->count && n < cap; k++) {
+            const TaudVoice *op = rig->voices[k];
+            if (op == NULL || !op->active || !op->vibratoOwn) continue;
+            out[n * 4] = k;
+            out[n * 4 + 1] = op->activeVibratoSpeed;
+            out[n * 4 + 2] = op->activeVibratoDepth;
+            out[n * 4 + 3] = v->keyOff || v->noteFading;
+            n++;
+        }
+    }
+    return n;
+}
+
 int te_get_formant_state(const TaudEngine *e, int slot, double *voices, int *extra, int *lyric, int lyricCap,
                          int *counts)
 {

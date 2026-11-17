@@ -23,6 +23,7 @@ import {
   transposeAllPatterns,
 } from "../../../core/tuning/pitchtables.js";
 import { transposeFields, parseTransposeFields, applyHarmonicTranspose } from "../blocktools.js";
+import { resizeSongDialog } from "../rowtools.js";
 import { defToPreset } from "../../doc/notation.js";
 import { CENTS_DIGITS } from "../spinmaps.js";
 import { Song } from "../../doc/document.js";
@@ -463,7 +464,9 @@ export class ProjectView {
     globBar.append(
       hbtn(t("glob.transpose"), t("glob.transposeTitle"), () => this.transposeGlobal()),
       hbtn(t("glob.changeInst"), t("glob.changeInstTitle"), () => this.changeInstrumentGlobal()),
-      hbtn(t("toolbox.retune"), t("proj.remapNotes"), () => this.openRetune(preset))
+      hbtn(t("toolbox.retune"), t("proj.remapNotes"), () => this.openRetune(preset)),
+      hbtn(t("ctx.songLengthen"), t("ctx.songLengthenTitle"), () => this.resizeSongGlobal("lengthen")),
+      hbtn(t("ctx.songShorten"), t("ctx.songShortenTitle"), () => this.resizeSongGlobal("shorten")),
     );
     this.root.appendChild(globBar);
     // 85.00: every global operation stops at the current song's edge.
@@ -473,6 +476,18 @@ export class ProjectView {
     this.root.appendChild(globNote);
 
     this.restoreFieldFocus(keep);
+  }
+
+  /** Lengthen or Shorten the whole current song — the Timeline row trough's
+   *  menu offers the same — keeping the cursor inside the song it leaves. */
+  async resizeSongGlobal(kind) {
+    const store = this.store;
+    if (!store.doc || !store.song) return;
+    if (!(await resizeSongDialog(store, kind))) return;
+    const total = store.song.songMap()?.totalRows ?? 0;
+    store.cursor.row = Math.min(Math.max(0, store.cursor.row), Math.max(0, total - 1));
+    store.emit("doc"); // the order list changed shape: grids drop selections and maps
+    this.refresh();
   }
 
   /** Percussion slots (their pitch selects the drum, so note edits skip them) —
@@ -800,6 +815,7 @@ export class ProjectView {
     }
     doc.meta.songMeta = newMeta;
     doc.smetEdited = true;
+    doc.removeSongLanes(idx); // …and so is sLan (lane settings, §9.19)
     doc.dirty = true;
     // Keep the viewer on the same song where possible.
     const select = idx === cur ? Math.min(idx, doc.songs.length - 1)

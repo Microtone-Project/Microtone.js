@@ -1667,6 +1667,14 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   font-kerning: none; font-variant-ligatures: none; letter-spacing: 0;
 }
 .note-glyph .ng-note { display: inline-block; min-width: 4ch; color: var(--fg); }
+/* A wide (format-3) cell: the ¾-cell pitch prefix, a Kite tick centred in it
+   as the grids paint it (a flex box, so a sign wider than the prefix spills
+   evenly both ways instead of starting at its left edge). */
+.note-glyph .ng-note.ng-wide { min-width: 4.75ch; }
+.note-glyph .ng-prefix {
+  display: inline-flex; justify-content: center; width: 0.75ch; vertical-align: baseline;
+}
+.note-glyph .ng-prefix.ng-octave { font-family: var(--transport-font); }
 .note-glyph .ng-offGrid { color: var(--accent); }
 .note-glyph .ng-sentinel { color: var(--fg2); }
 .note-glyph .ng-dim, .note-glyph .ng-sep { color: var(--dim); }
@@ -1697,6 +1705,8 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .meta-table .fm-unused {
   margin-left: 0.4rem; opacity: 0.75; font-style: italic;
 }
+/* What S $Apsd gave a sounding note's operator, while it sounds. */
+.meta-table .fm-vib-live { margin-left: 0.4rem; color: var(--accent); white-space: nowrap; }
 
 /* An unverified rack. The banner says which of the two states it is in — an
    edit being held out of the document, or a rack in the document that plays

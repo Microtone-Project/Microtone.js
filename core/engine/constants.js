@@ -28,7 +28,7 @@ export let SAMPLING_RATE = 48000;
 // AudioWorklet must finish each render inside one ~2.67 ms quantum, and a 512-
 // frame (16 ms) block renders in one burst that overruns the callback on slower
 // devices (iPad: 5–14 ms/block → xruns); 128 spreads it evenly under budget.
-export const TRACKER_CHUNK = 128;
+export const TRACKER_CHUNK = 512; // change the TAUD_CHUNK in taudplay.h as well
 
 // Per-voice soundscope ring-buffer length. Power of two so wrap-around is a single AND.
 export const SCOPE_BUFFER_SIZE = 2048;

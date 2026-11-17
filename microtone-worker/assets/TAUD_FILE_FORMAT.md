@@ -1830,6 +1830,27 @@ An entry with a reserved flag bit set has a size a reader cannot know: it **MUST
 
 **What an extended pitch may be.** A range bound, the pitch-pan centre and a formant reference note are compared with a trigger's pitch or measured against it, and mean what they say at any value. A detune — and a fixed pitch — is added into the pitch a voice *sounds*, which may then lie outside the sixteen octaves a note value holds; how a player sounds such a pitch is the [Engine Specification's §5.5](TAUD_ENGINE_SPEC.md#5-5-metainstruments). The sentinel space of a pattern cell (`$0000`…`$001F`) has no meaning in an instrument field once it is extended: a fixed pitch whose value falls there is that pitch.
 
+### 9.19 `sLan` — lane settings
+
+Per-song, per-lane settings of the editor — how a lane is shown, never how it plays. A player **MUST** ignore it. Repetition of:
+
+| Type | Field |
+|---|---|
+| `U8` | Song index |
+| `U32` | Size of the remainder of this entry |
+| `U16` | Lane count *n*, at most 256 |
+| `U16` | Record size *s*, at least 1 |
+| `Byte[n × s]` | One record per lane, lane 0 first |
+
+A record:
+
+| Offset | Type | Field |
+|---|---|---|
+| 0 | `U8` | Flags: bit 0 = the second effect column is shown on this lane; bits 1…7 **RESERVED** |
+| 1 | `Byte[s − 1]` | **RESERVED** |
+
+The count and the record size are the room to grow: a later version gives every lane more fields by writing a larger *s*, and a song more lanes by writing a larger *n*. A reader **MUST** read a field beyond *s*, and a lane beyond *n*, as zero, and **MUST** skip an entry whose *n* × *s* does not fit in its size. An editor that rewrites a record **SHOULD** keep the bytes it does not know. A writer **SHOULD** write *s* = 16 and *n* = the song's lane count, and **SHOULD** omit an entry whose records are all zero, and the section when every entry is.
+
 ## 10. Validity checklist
 
 A writer producing a file that any conforming reader will accept must satisfy all of the following.
@@ -1897,3 +1918,4 @@ A writer producing a file that any conforming reader will accept must satisfy al
 | 2026-11-13 | A pitch range runs through the whole of its last unit ([§9.11](#9-11-ixmp-patch-records)): a trigger between two 4096-TET units, which a wide cell can write, no longer falls between two zones that meet. `IPit` — pitch extensions ([§9.18](#9-18-ipit-pitch-extensions)): one more byte for each sixteen-bit pitch field of an instrument (four bits of fraction, four of octave, two's complement), in a guarded entry per instrument; the sixth Project-Data section a player must honour. A file without the section is unchanged |
 | 2026-11-13 | Easy Mode: an operator's **multiplier** is written into its ratio with the `IPit` extension, `4096 × log₂ m` to the sixteenth of a unit, and read back as the nearest multiplier plus a detune; the oscillator's **harmonic** stays readable but is no longer written |
 | 2026-11-14 | Reorganised, no byte changing meaning: pitch is described as 65536-TET throughout — a note word is a pitch's top sixteen bits, and a sixteen-bit pitch field or effect argument counts in note-word units, sixteen steps each; the 16-byte cell is [§5.1](#5-1-the-pattern-cell), "The pattern cell" (it was "Format version 3 — the wide cell"), and the 8-byte cell of versions 1 and 2 is [§5.2](#5-2-legacy-format-the-8-byte-cell), the legacy format |
+| 2026-11-17 | `sLan` — lane settings ([§9.19](#9-19-slan-lane-settings)): per-song, per-lane editor settings in self-sized records (a lane count up to 256 and a record size), the first field whether a lane shows its second effect column. A player ignores it |

@@ -174,6 +174,8 @@ class TaudProcessor extends AudioWorkletProcessor {
           mod: eng.getInstrumentSampleMod(m.slot), modMask: modBuf,
           psg: eng.getInstrumentPsgState(m.slot),
           formant: eng.getInstrumentFormantState(m.slot),
+        fadeout: eng.getInstrumentFadeoutState(m.slot),
+        fmVibrato: eng.getInstrumentFmVibratoState(m.slot),
         }, [buf, modBuf]);
         break;
       }

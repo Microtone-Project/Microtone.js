@@ -18,7 +18,7 @@ import { t } from "./i18n.js";
 import { showModal } from "./components/modal.js";
 import {
   planInsertRows, planDeleteRows, planInsertCue, planSplitCue, planCutCue,
-  splitPointAt,
+  planLengthenSong, planShortenSong, splitPointAt,
 } from "../doc/songrows.js";
 import { remapPatternsOp } from "../doc/ops.js";
 import { encodeNameTable } from "../doc/cleanup.js";
@@ -76,17 +76,30 @@ export function canSplitAt(song, row) {
   return !!song && splitPointAt(song, row) !== null;
 }
 
-/** …and its third: the beat/bar divisions (item 136.1). The Project tab has the
- *  same two numbers — this is the one that is where you are looking when you
- *  notice the banding is wrong. */
+/** …and its third: the beat/bar divisions (item 136.1) — the Project tab has
+ *  the same two numbers; this is the one that is where you are looking when you
+ *  notice the banding is wrong — beside songItems() below. */
 export function beatItems() {
   return [{ id: "beats", label: t("ctx.beats"), icon: ICON.beats, title: t("ctx.beatsTitle") }];
 }
 
-const ROW_TOOLS = ["rowsAbove", "rowsBelow", "rowsDelete",
-  "patsAbove", "patsBelow", "patsSplit", "patsCut", "beats"];
+/** The whole song at once — the Patterns view's Lengthen and Shorten, run on
+ *  every cue and re-laid through the cue grid so nothing is dropped off a
+ *  pattern's end and no blank tails are left behind. In the trough menu's third
+ *  row, and under Project → Global Operations (resizeSongDialog). */
+export function songItems() {
+  return [
+    { id: "songLengthen", label: t("ctx.songLengthen"), icon: ICON.songLengthen,
+      title: t("ctx.songLengthenTitle") },
+    { id: "songShorten", label: t("ctx.songShorten"), icon: ICON.songShorten,
+      title: t("ctx.songShortenTitle") },
+  ];
+}
 
-/** True when `id` came from one of the three rows above. */
+const ROW_TOOLS = ["rowsAbove", "rowsBelow", "rowsDelete",
+  "patsAbove", "patsBelow", "patsSplit", "patsCut", "beats", "songLengthen", "songShorten"];
+
+/** True when `id` came from one of the rows above. */
 export function isRowTool(id) { return ROW_TOOLS.includes(id); }
 
 /**
@@ -103,6 +116,8 @@ export async function runRowTool(id, ctx) {
     case "patsSplit": return splitCue(ctx);
     case "patsCut": return cutCue(ctx);
     case "beats": return beatsDialog(ctx.store);
+    case "songLengthen": return resizeSong(ctx, "lengthen");
+    case "songShorten": return resizeSong(ctx, "shorten");
   }
   return false;
 }
@@ -196,6 +211,28 @@ function cutCue(ctx) {
   const { store, row0 } = ctx;
   if (!canSplitAt(store.song, row0)) return false; // the boundary is already there
   return applyPlan(store, planCutCue(store.song, row0, planOpts(store)), "rows.noRoom");
+}
+
+/**
+ * Lengthen or shorten the whole song by a factor (the Patterns view's pair,
+ * song-wide): doc/songrows.js planLengthenSong / planShortenSong, one undo step.
+ */
+/** Lengthen (`kind` "lengthen") or shorten the current song, asking for the
+ *  factor; resolves true when the document changed. */
+export function resizeSongDialog(store, kind) { return resizeSong({ store }, kind); }
+
+async function resizeSong(ctx, kind) {
+  const { store } = ctx;
+  const result = await showModal({
+    title: t(`rows.${kind}Title`),
+    body: t(`rows.${kind}Body`),
+    fields: [{ name: "factor", label: t("pat.factor"), type: "number", value: 2, min: 2, max: 16 }],
+    okLabel: t("common.apply"),
+  });
+  if (!result) return false;
+  const n = Math.min(16, Math.max(2, parseInt(result.factor || "2", 10) | 0));
+  const plan = kind === "lengthen" ? planLengthenSong : planShortenSong;
+  return applyPlan(store, plan(store.song, n, planOpts(store)), "rows.noRoom");
 }
 
 /**

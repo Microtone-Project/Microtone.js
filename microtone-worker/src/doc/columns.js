@@ -136,8 +136,9 @@ export function applyPanColumnWide(ts, voice, row) {
   }
 }
 
-/** Does this row arm a Z slide (in either effect slot)? */
+/** Does this row arm a Z slide (in either effect slot)? The twin of
+ *  trigger.c row_slides_spatially: `Z $Exxx` is the fadeout, not a slide. */
+const zSlides = (op, arg) => op === EffectOp.OP_Z && (arg & 0xfff) !== 0 && (arg & 0xf000) !== 0xe000;
 function rowSlidesSpatially(row) {
-  return (row.effect === EffectOp.OP_Z && (row.effectArg & 0xfff) !== 0) ||
-         (row.effect2 === EffectOp.OP_Z && (row.effectArg2 & 0xfff) !== 0);
+  return zSlides(row.effect, row.effectArg) || zSlides(row.effect2, row.effectArg2);
 }

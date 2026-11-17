@@ -264,7 +264,8 @@ function fxLayout(effect, arg, pairedOp = 0) {
     case 35:
       // Z: $F multiplexes to funk repeat, whose argument is TWO fields — item
       // 163's walk selector and the ladder speed it drives. Every other
-      // selector is the spatial slide's 12-bit speed, one field.
+      // selector is one 12-bit field: $E's the note's fadeout (item 345), the
+      // rest the spatial slide's speed.
       return (arg & 0xf000) === 0xf000 ? "o122" : "o111";
     case 29: {
       // T: a zero high byte means "tempo slide" and moves everything into the

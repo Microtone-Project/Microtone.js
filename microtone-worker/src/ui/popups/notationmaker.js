@@ -187,7 +187,8 @@ export function showNotationMaker(store) {
     // ── glyph preview cell: the degree spelled as the grids spell it ──
     function previewGlyph(def, idx) {
       const note = Math.min(Math.max(defBase(def) + def.table[idx], 0x20), 0xffff);
-      const g = noteGlyph(note, finePreset(defToPreset(def)));
+      // As a format-3 grid cell spells it: Kite's tick in the ¾-cell prefix.
+      const g = noteGlyph(note, finePreset(defToPreset(def)), { wide: true });
       g.classList.add("nota-preview");
       return g;
     }

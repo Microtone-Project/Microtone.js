@@ -341,7 +341,7 @@ export function fx2Items(store, ch) {
   ];
   // The all-lanes cell always offers the OTHER state, so the pair never
   // reads as two ways to do the same thing.
-  items.push(store.fx2Any()
+  items.push(store.fx2AllShown()
     ? { id: "fx2HideAll", label: t("ctx.fx2HideAll"), icon: ICON.fx2HideAll,
         title: t("ctx.fx2HideAllTitle") }
     : { id: "fx2ShowAll", label: t("ctx.fx2ShowAll"), icon: ICON.fx2ShowAll,
@@ -349,7 +349,8 @@ export function fx2Items(store, ch) {
   return items;
 }
 
-/** Run an fx2 cell. View state, so no undo step. True when `id` was one. */
+/** Run an fx2 cell. No undo step: the lane's own Show/Hide is saved with the
+ *  song (sLan), but as a view setting, like the notation. True when `id` was one. */
 export function runFx2Item(store, id, ch) {
   switch (id) {
     case "fx2Show": case "fx2Hide": store.toggleFx2Chan(ch); return true;
