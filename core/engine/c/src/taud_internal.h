@@ -1576,6 +1576,12 @@ typedef struct TaudEngine {
     unsigned pendingInterrupts;
     uint16_t interruptArgs[NUM_INTERRUPTS];
     float mixLeft[TRACKER_CHUNK], mixRight[TRACKER_CHUNK];
+    /* Frames in the span last rendered (te_render_frames): 1…TRACKER_CHUNK.
+     * TRACKER_CHUNK is the buffers' CAPACITY and the planar buses' stride;
+     * this is how much of them the last render filled. Tick and row timing
+     * are per sample, so the span length only batches the work — a native
+     * host renders as much as its device asks for. */
+    int spanFrames;
     /* The mix as it goes INTO the mastering chain, kept only while a host's
      * meter asks for it (preTap): the Mastering view reads both sides. */
     bool preTap;
@@ -1713,6 +1719,11 @@ void te_silence_song_voices(TaudEngine *e, bool ramp);
 void te_reset_sample_fx_state(TaudEngine *e);
 unsigned te_drain_interrupts(TaudEngine *e);
 bool te_render_chunk(TaudEngine *e);
+/** Render `frames` (1…TRACKER_CHUNK, clamped) into mixLeft/mixRight[0…frames).
+ *  te_render_chunk is this with TRACKER_CHUNK. The same song rendered in
+ *  spans of any length is the same audio, up to a halt cue: the song's voices
+ *  are ended at the close of the span the halt fell in. */
+bool te_render_frames(TaudEngine *e, int frames);
 void te_set_bus_mastering(TaudEngine *e, const TaudMastering *params);
 void te_pcm32f_to_pcm8(TaudEngine *e, uint8_t *out);
 /** The device's dither over any pair of buffers, its state passed in: the
@@ -2101,7 +2112,7 @@ int te_funk_walk_step(int funkMode, int walk, int loopStart, int loopLen, int sa
 int te_funk_walk_pointer(TaudEngine *e, int funkMode, int walk, int loopStart, int loopLen, int sampleLen);
 
 /* mixer.c */
-bool te_generate_tracker_audio(TaudEngine *e);
+bool te_generate_tracker_audio(TaudEngine *e, int frames);
 
 /* ── format layer (taud-parse.js) ──────────────────────────────────────── */
 

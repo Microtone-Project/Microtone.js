@@ -192,6 +192,14 @@
       "u8": "b67f36c813dfee1d52e6c706232a71ef0aff70b0a1a5fc2c63a13f7b01a1cf5e",
       "notes": "7364b0bc620ad22d0cfd6ec4ec453abebd5cc355d6cfe869b778040e0df5daee",
       "peak": 0.944
+    },
+    "device-sized spans: play, jam over it, stop, spin down": {
+      "file": "assets/demo_projects/Huygens_clock.taud",
+      "chunks": 801,
+      "f32": "c55779b39fe1f5ac85768811a0b2ffa71bfe6a304e9c0d8f3319a07f997429ba",
+      "u8": "ee6b4e52e645b048c456af8307477adecb05933646948b2365631e18b4787db0",
+      "notes": "3a42e79f9debe08cd98c1f08c9996bc6fc063f39e768d09b7979676d5547bcaa",
+      "peak": 0.668
     }
   }
 }

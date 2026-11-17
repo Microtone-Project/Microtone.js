@@ -858,18 +858,20 @@ unsigned te_drain_interrupts(TaudEngine *e)
     return m;
 }
 
-/* Render one chunk; then a multichannel export's chain runs over its bus and
- * the meters take the chunk in. Not on a chunk the song halted before. */
-bool te_render_chunk(TaudEngine *e)
+/* Render a span; then a multichannel export's chain runs over its bus and the
+ * meters take the span in. Not on a span the song halted before. */
+bool te_render_frames(TaudEngine *e, int frames)
 {
-    if (!te_generate_tracker_audio(e)) return false;
+    if (!te_generate_tracker_audio(e, frames)) return false;
     if (e->busMastering != NULL && e->spatial != NULL &&
         te_master_chain_channels(e->busMastering) == e->spatial->numChannels) {
-        te_master_chain_process_planar(e->busMastering, e->spatial->data, TRACKER_CHUNK, TRACKER_CHUNK);
+        te_master_chain_process_planar(e->busMastering, e->spatial->data, TRACKER_CHUNK, e->spanFrames);
     }
     if (e->analysisTap != NULL || e->masterMeter != NULL) te_meters_after_render(e);
     return true;
 }
+
+bool te_render_chunk(TaudEngine *e) { return te_render_frames(e, TRACKER_CHUNK); }
 
 /* Master the render target's bus instead of the pair (a multichannel export,
  * engine spec §12.3): `params` engaged = a chain as wide as the bus as it now
@@ -912,6 +914,7 @@ TaudEngine *te_engine_new(int rate)
     int i;
     if (e == NULL) return NULL;
     e->rate = rate;
+    e->spanFrames = TRACKER_CHUNK;
     e->rampOutSamples = (int)js_round(RAMP_OUT_SEC * rate);
     e->volRampSamples = (int)js_round(VOL_RAMP_SEC * rate);
     e->attackRampSamples = (int)js_round(ATTACK_RAMP_SEC * rate);

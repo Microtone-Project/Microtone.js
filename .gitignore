@@ -32,3 +32,6 @@ microtone-worker/index_kaputt.html
 /OoT_musical_experiments/
 *.icls
 /design-system/fonts/build/
+
+# the Qt desktop build tree
+desktop-qt/build/

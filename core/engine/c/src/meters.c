@@ -621,18 +621,19 @@ int te_master_meter_depth(const TaudMasterMeter *t) { return t->bitDepth; }
 
 /* ── the engine's side ────────────────────────────────────────────────── */
 
-/* After a chunk is rendered (te_render_chunk): the mix into the chain was
+/* After a span is rendered (te_render_frames): the mix into the chain was
  * kept in preLeft/Right, the finished pair is mixLeft/Right. */
 void te_meters_after_render(TaudEngine *e)
 {
     TaudMasterMeter *mm = e->masterMeter;
-    if (mm != NULL) te_master_meter_push(mm, MM_TAP_PRE, e->preLeft, e->preRight, TRACKER_CHUNK);
+    const int frames = e->spanFrames;
+    if (mm != NULL) te_master_meter_push(mm, MM_TAP_PRE, e->preLeft, e->preRight, frames);
     if (e->analysisTap != NULL) {
         te_analysis_finish(e->analysisTap, e->analysisBus != NULL ? e->analysisBus->data : NULL,
-                           e->mixLeft, e->mixRight, TRACKER_CHUNK);
+                           e->mixLeft, e->mixRight, frames);
     }
     if (mm != NULL) {
-        te_master_meter_push(mm, MM_TAP_POST, e->mixLeft, e->mixRight, TRACKER_CHUNK);
+        te_master_meter_push(mm, MM_TAP_POST, e->mixLeft, e->mixRight, frames);
         mm->compGrDb = te_master_chain_comp_gr(e->mastering);
         mm->limGrDb = te_master_chain_lim_gr(e->mastering);
     }

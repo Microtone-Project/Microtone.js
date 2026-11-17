@@ -466,6 +466,16 @@ void tw_get_active_note_counts(const TaudEngine *e, int32_t *out) { te_get_activ
 TW_EXPORT(tw_render_chunk)
 int tw_render_chunk(TaudEngine *e) { return te_render_chunk(e) ? 1 : 0; }
 
+/** Mix `frames` (1…TRACKER_CHUNK) instead: a host whose device asks for less
+ *  than a chunk renders exactly that, rather than a whole chunk every few
+ *  callbacks. The same audio as whole chunks, up to a halt cue (te_render_frames). */
+TW_EXPORT(tw_render_frames)
+int tw_render_frames(TaudEngine *e, int frames) { return te_render_frames(e, frames) ? 1 : 0; }
+
+/** Frames the last render filled. */
+TW_EXPORT(tw_span_frames)
+int tw_span_frames(const TaudEngine *e) { return e->spanFrames; }
+
 TW_EXPORT(tw_mix_left)
 const float *tw_mix_left(const TaudEngine *e) { return e->mixLeft; }
 
@@ -568,7 +578,7 @@ int tw_sounding_voices(const TaudEngine *e)
     return n;
 }
 
-/** The chunk just mixed as the device plays it: noise-shaped, dithered
- *  unsigned 8-bit, interleaved stereo, 2 × TRACKER_CHUNK bytes into `out`. */
+/** The span just mixed as the device plays it: noise-shaped, dithered
+ *  unsigned 8-bit, interleaved stereo, 2 × tw_span_frames bytes into `out`. */
 TW_EXPORT(tw_pcm8)
 void tw_pcm8(TaudEngine *e, uint8_t *out) { te_pcm32f_to_pcm8(e, out); }

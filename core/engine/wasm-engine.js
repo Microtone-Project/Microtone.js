@@ -854,6 +854,25 @@ export class WasmTaudEngine {
   }
 
   /**
+   * Mix `frames` (1…TRACKER_CHUNK) instead of a whole chunk, for a host whose
+   * device asks for less. Tick and row timing are per sample, so this is the
+   * same audio as renderChunk, up to a halt cue (the song's voices end at the
+   * close of the span the halt fell in). Returns the first 2 × frames bytes of
+   * `out` holding the device's 8-bit stereo, or null when the song has halted;
+   * the float bus is mixLeft / mixRight [0, frames).
+   */
+  renderFrames(ph, frames, out = new Uint8Array(TRACKER_CHUNK * 2)) {
+    const x = this._x;
+    if (!x.tw_render_frames(this._e, frames)) return null;
+    const n = x.tw_span_frames(this._e);
+    x.tw_pcm8(this._e, this._chunkPtr);
+    const view = out.subarray(0, n * 2);
+    view.set(this._u8().subarray(this._chunkPtr, this._chunkPtr + n * 2));
+    if (this._stemBus !== null) this._feedStems();
+    return view;
+  }
+
+  /**
    * Stem-export tap: an object with `add(voice, lane, frame, sample)`, or null.
    * While one is set the engine logs every voice's pre-pan mono contribution
    * to each frame of a chunk, and after the chunk they are handed to `add` in

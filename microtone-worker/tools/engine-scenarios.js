@@ -78,6 +78,26 @@ class Run {
     }
   }
 
+  /** Render `count` spans through renderFrames, their lengths cycling through
+   *  `spans` — a native host's device asking for what it asks for. Recorded
+   *  like render's chunks, a span at a time. */
+  renderSpans(spans, count) {
+    const eng = this.eng;
+    const ts = eng.playheads[0].trackerState;
+    for (let i = 0; i < count; i++) {
+      const got = eng.renderFrames(0, spans[i % spans.length], this.chunk);
+      const n = got.length / 2;
+      this.u8.push(got.slice());
+      const f = new Float32Array(n * 2);
+      f.set(ts.mixLeft.subarray(0, n), 0);
+      f.set(ts.mixRight.subarray(0, n), n);
+      this.f32.push(f);
+      this.notes.push(n, (eng.isPlaying(0) ? 1 : 0) | (eng.playheads[0].jamActive ? 2 : 0),
+        eng.getCuePosition(0), eng.getTrackerRow(0));
+      if ((this.f32.length & 3) === 0) this.snapshot();
+    }
+  }
+
   snapshot() {
     const eng = this.eng;
     const f = this.snap;
@@ -657,6 +677,29 @@ export const SCENARIOS = {
       eng.resetSampleFxState(0);
       playFromTop(r);
       r.render(300);
+    },
+  },
+  // tw_render_frames: a native host renders what its device asks for. That
+  // the spans make whole chunks' audio is renderframes.test.js; this pins
+  // the host-side sequence — playback in 64-frame spans, a jam over it in
+  // ragged ones, a stop, and the jam spinning down on its own.
+  "device-sized spans: play, jam over it, stop, spin down": {
+    file: DEMO("Huygens_clock"),
+    script(r) {
+      const { eng } = r;
+      const insts = r.usedInstruments();
+      playFromTop(r);
+      r.renderSpans([64], 600);
+      eng.jamNote(0, eng.jamVoice(0), 0x5000, insts[0], false);
+      eng.jamNote(0, eng.jamVoice(1), 0x5555, insts[Math.min(1, insts.length - 1)], true);
+      r.renderSpans([1, 63, 128, 7, TRACKER_CHUNK, 300, 11, 97], 160);
+      eng.stop(0);
+      r.renderSpans([256], 40);
+      eng.jamKeyOff(0, eng.jamVoice(0));
+      eng.jamRelease(0, eng.jamVoice(1));
+      let spins = 0;
+      while (eng.playheads[0].jamActive && spins < 4000) { r.renderSpans([96], 1); spins++; }
+      r.note(spins);
     },
   },
 };

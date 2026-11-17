@@ -134,9 +134,9 @@ void te_dither_u8(uint32_t *xs, float err[4], const float *left, const float *ri
 
 void te_pcm32f_to_pcm8(TaudEngine *e, uint8_t *out)
 {
-    te_dither_u8(&e->xorshift, e->ditherError, e->mixLeft, e->mixRight, TRACKER_CHUNK, out);
+    te_dither_u8(&e->xorshift, e->ditherError, e->mixLeft, e->mixRight, e->spanFrames, out);
     /* The Mastering view's census counts the codes delivered. */
-    if (e->masterMeter != NULL) te_master_meter_bin(e->masterMeter, out, e->mixLeft, e->mixRight, TRACKER_CHUNK);
+    if (e->masterMeter != NULL) te_master_meter_bin(e->masterMeter, out, e->mixLeft, e->mixRight, e->spanFrames);
 }
 
 static inline double attack_gain(const TaudEngine *e, int attackRampSamples)
@@ -272,8 +272,9 @@ static void stem_push(TaudEngine *e, int frame, int lane, const TaudVoice *v, do
     it->value = value;
 }
 
-/* Render one TRACKER_CHUNK into mixLeft/mixRight. */
-bool te_generate_tracker_audio(TaudEngine *e)
+/* Render `frames` (1…TRACKER_CHUNK) into mixLeft/mixRight. The planar buses
+ * keep their TRACKER_CHUNK stride; only [0, frames) of each row is used. */
+bool te_generate_tracker_audio(TaudEngine *e, int frames)
 {
     bool advancing = e->isPlaying;
     TaudSpatialBus *spatial = e->spatial;
@@ -281,13 +282,19 @@ bool te_generate_tracker_audio(TaudEngine *e)
     double srate = e->rate;
     int n, vi, i, n0 = 0;
 
+    if (frames < 1) frames = 1;
+    if (frames > TRACKER_CHUNK) frames = TRACKER_CHUNK;
+    e->spanFrames = frames;
     if (spatial != NULL) {
         int c;
-        for (c = 0; c < spatial->numChannels * TRACKER_CHUNK; c++) spatial->data[c] = 0.0;
+        for (c = 0; c < spatial->numChannels; c++) memset(spatial->data + c * TRACKER_CHUNK, 0, sizeof(double) * (size_t)frames);
     }
     /* The master strip's analysis bus (item 98): an accumulator like the
      * monitor's, fed with the same sources. */
-    if (abus != NULL) memset(abus->data, 0, sizeof(double) * (size_t)(abus->numChannels * TRACKER_CHUNK));
+    if (abus != NULL) {
+        int c;
+        for (c = 0; c < abus->numChannels; c++) memset(abus->data + c * TRACKER_CHUNK, 0, sizeof(double) * (size_t)frames);
+    }
     e->stemCount = 0;
 
     if (advancing && e->firstRow) {
@@ -300,7 +307,7 @@ bool te_generate_tracker_audio(TaudEngine *e)
      * every change to any of them). */
     if (e->imixSyncedGen != e->imixGen) te_sync_imix_routes(e);
 
-    for (n = 0; n < TRACKER_CHUNK; n++) {
+    for (n = 0; n < frames; n++) {
         double spt = (srate * 2.5) / e->bpm;
         double gvol, mvol, master, globalGain;
 
@@ -540,22 +547,22 @@ bool te_generate_tracker_audio(TaudEngine *e)
             }
         }
     }
-    finish_span(e, n0, TRACKER_CHUNK);
+    finish_span(e, n0, frames);
 
     if (e->preTap) {
-        memcpy(e->preLeft, e->mixLeft, sizeof e->preLeft);
-        memcpy(e->preRight, e->mixRight, sizeof e->preRight);
+        memcpy(e->preLeft, e->mixLeft, sizeof(float) * (size_t)frames);
+        memcpy(e->preRight, e->mixRight, sizeof(float) * (size_t)frames);
     }
-    if (e->mastering != NULL) te_master_chain_process(e->mastering, e->mixLeft, e->mixRight, TRACKER_CHUNK);
+    if (e->mastering != NULL) te_master_chain_process(e->mastering, e->mixLeft, e->mixRight, frames);
     /* The OPL chip clock (item 209) counts the frames this playhead has mixed. */
-    e->oplFrame += TRACKER_CHUNK;
-    for (n = 0; n < TRACKER_CHUNK; n++) {
+    e->oplFrame += frames;
+    for (n = 0; n < frames; n++) {
         float fl = e->mixLeft[n], fr = e->mixRight[n];
         if (fl < -1.0f) e->mixLeft[n] = -1.0f; else if (fl > 1.0f) e->mixLeft[n] = 1.0f;
         if (fr < -1.0f) e->mixRight[n] = -1.0f; else if (fr > 1.0f) e->mixRight[n] = 1.0f;
     }
 
-    /* A halt cue clears isPlaying mid-chunk: end the song's voices here —
+    /* A halt cue clears isPlaying mid-span: end the song's voices here —
      * ramped while an audition keeps the mix running. */
     if (advancing && !e->isPlaying) te_silence_song_voices(e, e->jamActive);
 
