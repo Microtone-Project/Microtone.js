@@ -256,6 +256,34 @@ html:has(.about-page) { scroll-padding-top: 5rem; }
 .ab-code .n { color: var(--code-num); }
 .ab-nowrap { white-space: nowrap; }
 
+/* ── customer stories ─────────────────────────────────────────────────── */
+/* The genre's case-study cards, ruled like the plan cards: a heavy top rule,
+   the format as the badge, then Challenge / Solution / Result as a list. */
+.ab-stories .ab-lead { max-width: 56ch; }
+.ab-cases {
+  list-style: none; margin: 2.4rem 0 2rem; padding: 0;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: 24px;
+}
+.ab-case {
+  border: 1px solid var(--border);
+  border-top: 4px solid var(--fg);
+  background: var(--panel);
+  padding: 1.4rem 1.4rem 1.2rem;
+}
+.ab-case h3 { font-family: "Geist", sans-serif; font-weight: 800; font-size: 1.35rem; }
+.ab-case-by { color: var(--dim); font-size: 0.9rem; margin: 0.2rem 0 1rem; }
+.ab-case dl { margin: 0; }
+.ab-case dt {
+  font-family: var(--mono-font); font-size: var(--ab-small);
+  text-transform: uppercase; letter-spacing: 0.04em; color: var(--dim);
+  border-top: 1px solid var(--border); padding-top: 0.6rem;
+}
+.ab-case dd { margin: 0.25rem 0 0.9rem; }
+.ab-case dd:last-child { margin-bottom: 0; font-family: "Geist", sans-serif; font-weight: 600; }
+.ab-stories > p:not(.ab-lead) { max-width: 62ch; }
+.about-page .ab-stories-close { font-family: "Geist", sans-serif; font-weight: 800; font-size: var(--ab-h2); line-height: 1.05; letter-spacing: -0.025em; max-width: 24ch; margin-top: 2rem; }
+
 /* ── Microtone Intelligence ───────────────────────────────────────────── */
 .ab-ai-body .ab-display { max-width: 14ch; }
 .ab-ai-body .ab-lead { max-width: 56ch; margin-bottom: 2.4rem; }

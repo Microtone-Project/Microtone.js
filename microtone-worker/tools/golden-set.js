@@ -28,6 +28,9 @@ const ROOT = fileURLToPath(new URL("../", import.meta.url));
 export const GOLDEN_SET = {
   "4THSYM": { file: "test/corpus/4THSYM.taud" },
   "changing_waves": { file: "test/corpus/changing_waves.taud" },
+  // First Adlib Attempt (Skaven): an .s3m with nothing but AdLib instruments,
+  // so the set pins the OPL instruments (type 8) as converted by s3m2taud.
+  "adlib": { file: "test/corpus/adlib.taud" },
   "Circus galop": { file: "test/corpus/Circus galop.taud" },
   "flourish": { file: "test/corpus/flourish.taud" },
   "Insaniq2": { file: "test/corpus/Insaniq2.taud" },

@@ -76,6 +76,11 @@ stage.style.setProperty("--u", String(W / 1600));
 const sceneName = (params.get("scene") ?? "eighth").replace(/[^\w-]/g, "");
 const scene = (await import(`./${sceneName}.js`)).default;
 document.documentElement.dataset.theme = scene.theme ?? "dark";
+// A scene of acts rehearses an act at a time, not a bar.
+if (scene.acts) {
+  document.querySelector('label[for="fromBar"]').textContent = "Start at act";
+  $("fromBar").max = String(scene.acts.length);
+}
 
 const fmtChecks = (list) => {
   $("checks").replaceChildren(...list.map(({ good, text }) => {

@@ -11,6 +11,11 @@
 // Time: before the song plays, the clock is seconds since the sync cue; once it
 // plays, the scene is keyed to the PLAYHEAD (bars), read from the engine every
 // frame, so a slow frame never lets the pictures drift off the music.
+//
+// A scene with `acts` (works.js) is several songs in one take instead: each act
+// loads its own song, plays an excerpt of it and fades out, and its events are
+// keyed to SECONDS since its Play (`at`) — an excerpt of a module has no bar
+// grid worth keying to (patterns of any length, jumps, breaks).
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const easeInOut = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
@@ -66,21 +71,36 @@ export class Director {
     this.setState("loading", "loading the tracker…");
     this._snapshotStorage();
     try { localStorage.setItem("microtone-lang", this.scene.lang ?? "en"); } catch { /* private mode */ }
-    const song = new URL(this.scene.song, this.scene.base).pathname;
+    const song = new URL(this.scene.song ?? this.scene.acts[0].song, this.scene.base).pathname;
     const app = new URL("../../microtone-worker/index.html", import.meta.url);
     app.searchParams.set("load", song);
     app.searchParams.set("theme", this.scene.theme ?? "dark");
     this.frame.src = app.pathname + app.search;
+    this.loadedSong = song;
     await new Promise((r) => this.frame.addEventListener("load", r, { once: true }));
     await this.until(() => this.store?.doc && !this.$("#splash"), 30000, "the song to load");
     await this.until(() => this.doc.fonts.status === "loaded", 10000, "the fonts");
     await sleep(300);
+    // Every act's song, looked for now: a missing build is a red line in the
+    // strip, not a take that dies half-way through.
+    this.songChecks = await Promise.all((this.scene.acts ?? []).map(async (a) => {
+      const url = new URL(a.song, this.scene.base).pathname;
+      const ok = await fetch(url, { method: "HEAD" }).then((r) => r.ok, () => false);
+      return { good: ok, text: ok ? `Act song: ${url.split("/").pop()}` : `Missing ${url} (run make in tools/promo)` };
+    }));
     await this.prepare();
     this.setState("ready", this.preflight());
   }
 
   /** The state every take starts from — whatever a rehearsal left behind. */
   async prepare() {
+    await this.resetApp();
+    this.showStandby(true);
+  }
+
+  /** The app's side of prepare(): the views as a take expects to find them.
+   *  Also run between acts, after each act's song is in. */
+  async resetApp() {
     const { store } = this;
     store.audio?.stop?.(0);
     this.tabNow("timeline");
@@ -98,7 +118,6 @@ export class Director {
     // app's top bar, so the Play button stays in view while the cursor goes to it.
     const top = this.$(".topbar")?.getBoundingClientRect();
     this.overlay.style.setProperty("--chrome-top", `${Math.round(top?.bottom ?? 0)}px`);
-    this.showStandby(true);
   }
 
   /** Things worth fixing before recording, as lines for the control strip. */
@@ -111,6 +130,7 @@ export class Director {
     const zoom = this.$("#zoomDisp")?.textContent?.trim();
     ok(zoom === "100%", `App zoom ${zoom ?? "?"} (100% is what the scene was laid out at)`);
     ok(this.win.crossOriginIsolated, "Cross-origin isolated (the render-worker audio path)");
+    out.push(...(this.songChecks ?? []));
     return out;
   }
 
@@ -145,6 +165,14 @@ export class Director {
         this.log(`warning: the app's audio is ${this.store.audio?.context?.state}`);
       }
       this._loop();
+      if (this.scene.acts) {
+        await this._runActs({ fromAct: fromBar, sync: beepCtx });
+        if (this.aborted) return;
+        this.marks.end = performance.now();
+        this.log("end card done — stop the recorder");
+        this.setState("done", this.cutCommand());
+        return;
+      }
       if (fromBar <= 1) {
         await sleep(400);
         if (beepCtx) await this.syncCue(beepCtx);
@@ -193,6 +221,8 @@ export class Director {
         this.setState("failed", e.message);
       }
     } finally {
+      this.act = null;
+      this.store?.audio?.setMasterVolume?.(0, 255);
       beepCtx?.close();
       this.shield.classList.remove("on");
       this._restoreStorage();
@@ -231,6 +261,113 @@ export class Director {
     store.audio.play(0);
   }
 
+  // ── acts ────────────────────────────────────────────────────────────────
+  /**
+   * The take of an `acts` scene. Each act: its song in (behind its card), its
+   * intro (the card, then Play), its events by seconds since Play, then a fade
+   * at `play` seconds (or the song's own end). `fromAct` > 1 is a rehearsal of
+   * that act and those after it, with no sync cue and no scene intro.
+   * @param {{fromAct: number, sync: AudioContext|null}} opts
+   */
+  async _runActs({ fromAct, sync }) {
+    const acts = this.scene.acts;
+    const first = Math.min(Math.max(1, Math.floor(fromAct) || 1), acts.length) - 1;
+    // Behind the slate: the act's song, unless it is already open (a second
+    // take starts where the last act left the app).
+    if (this.loadedSong !== new URL(acts[first].song, this.scene.base).pathname) await this.loadSong(acts[first].song);
+    if (first === 0 && sync) {
+      await sleep(400);
+      await this.syncCue(sync);
+    } else {
+      this.marks.flash = performance.now();
+    }
+    this.showStandby(false);
+    this.log(first === 0 ? "lead-in" : `rehearsal from act ${first + 1}`);
+    if (first === 0) {
+      const intro = this.scene.intro?.(this);
+      if (sync) {
+        await sleep(Math.max(0, 120 - (performance.now() - this.flashShownAt)));
+        this.flash.classList.remove("on");
+      }
+      await intro;
+    }
+    for (let i = first; i < acts.length && !this.aborted; i++) {
+      const act = acts[i];
+      if (i > first) await this.loadSong(act.song);
+      if (this.aborted) return;
+      this.act = act;
+      this.ended = false;
+      this._resetPlay = true;
+      this.actStart = 0;
+      this.sectionShown = "";
+      this.setGain(act.gain ?? 1);
+      this.log(`act ${i + 1}: ${act.title}`);
+      await (act.intro ?? this.scene.actIntro)?.(this, act, i);
+      await this.until(() => this.pos?.playing, 8000, "the act's song to start");
+      this.actStart = performance.now();
+      this.marks.songStart ||= this.actStart;
+      for (const ev of [...(act.events ?? [])].sort((a, b) => a.at - b.at)) {
+        await this.untilAct(ev.at);
+        if (this.aborted || this.ended) break;
+        try { await ev.run(this); } catch (e) {
+          if (this.aborted) return;
+          this.log(`act ${i + 1}, event at ${ev.at} s failed: ${e.message}`);
+        }
+      }
+      await this.untilAct(act.play ?? 30);
+      if (this.aborted) return;
+      this.hideCaption();
+      if (!this.ended) await this.fadeOut(act.fade ?? 2.5, act.gain ?? 1);
+      this.store.audio?.stop?.(0);
+      this.act = null;
+      this.sectionEl.classList.remove("on");
+      this.sectionShown = "";
+    }
+    if (this.aborted) return;
+    this.marks.songEnd = performance.now();
+    this.log("last act over");
+    await this.scene.outro?.(this);
+  }
+
+  /** Open a song in the app, as a link does (a module would be converted on
+   *  the way in; the scene's are built ahead, so this is instant), and reset
+   *  the views. The open project is marked clean first, so the app never asks
+   *  whether to discard it. */
+  async loadSong(song) {
+    const url = new URL(song, this.scene.base).pathname;
+    const bytes = new Uint8Array(await (await fetch(url)).arrayBuffer());
+    const { store } = this;
+    store.audio?.stop?.(0);
+    if (store.doc) store.doc.dirty = false;
+    const before = store.doc;
+    await this.app.loadBytes(url.split("/").pop(), bytes, { quietUpgrade: true });
+    await this.until(() => store.doc && store.doc !== before, 30000, `${url} to load`);
+    await sleep(300);
+    await this.resetApp();
+    this.loadedSong = url;
+    this.log(`loaded ${url.split("/").pop()}`);
+  }
+
+  /** The engine's master volume (0…1) — what an act plays at. */
+  setGain(g) { this.store.audio?.setMasterVolume?.(0, Math.round(255 * Math.max(0, Math.min(1, g)))); }
+
+  /** Fade the master volume from `from` to silence over `s` seconds, on a
+   *  squared curve (an even fade by ear); the engine glides between steps. */
+  async fadeOut(s, from = 1) {
+    const t0 = performance.now();
+    for (;;) {
+      const k = Math.min(1, (performance.now() - t0) / (s * 1000));
+      this.setGain(from * (1 - k) ** 2);
+      if (k >= 1 || this.aborted || this.ended) break;
+      await frame();
+    }
+  }
+
+  /** Seconds since the current act pressed Play (0 before). */
+  actT() { return this.actStart ? (performance.now() - this.actStart) / 1000 : 0; }
+  /** Resolves `s` seconds into the act, or when its song ends. */
+  untilAct(s) { return this.until(() => this.ended || this.actT() >= s, 600000, `${s} s into the act`); }
+
   // ── clocks ──────────────────────────────────────────────────────────────
   /** Seconds since the sync flash. */
   t() { return this.marks.flash ? (performance.now() - this.marks.flash) / 1000 : 0; }
@@ -263,6 +400,13 @@ export class Director {
     let wasPlaying = false, jumpFrames = 0;
     this.pos = { playing: false, bar: 0 };
     while (!this.aborted && this.state === "running") {
+      if (this._resetPlay) {
+        // A new act: its song has not played yet, whatever the last one did.
+        this._resetPlay = false;
+        wasPlaying = false;
+        jumpFrames = 0;
+        this.pos = { playing: false, bar: 0 };
+      }
       const a = this.store?.audio;
       const playing = !!a?.isPlaying?.();
       const { cueBars = 4, barRows = 16 } = this.scene;
@@ -379,19 +523,27 @@ export class Director {
   }
 
   _section(bar) {
+    // An act names itself: its title, and who wrote it and in what.
+    if (this.act) return this._tag(this.act.title, this.act.tag ?? "");
     // With no sections, the tag is the site's address alone.
     const s = (this.scene.sections ?? []).find(([, a, b]) => bar >= a && bar < b + 1);
+    return s ? this._tag(s[0], `bars ${s[1]}–${s[2]}`) : this._tag("", "");
+  }
+
+  /** The tag in the lower right: a name over a smaller line, then the site. */
+  _tag(name, sub) {
+    const s = name ? [name, sub] : null;
     const key = s ? s[0] : this.scene.site ? "site" : "";
     if (key === this.sectionShown) return;
     this.sectionShown = key;
     if (!key) { this.sectionEl.classList.remove("on"); return; }
     this.sectionEl.replaceChildren();
     if (s) {
-      const name = document.createElement("b");
-      name.textContent = s[0];
-      const range = document.createElement("span");
-      range.textContent = `bars ${s[1]}–${s[2]}`;
-      this.sectionEl.append(name, range);
+      const title = document.createElement("b");
+      title.textContent = s[0];
+      const line = document.createElement("span");
+      line.textContent = s[1];
+      this.sectionEl.append(title, line);
     }
     const site = document.createElement("i");
     site.textContent = this.scene.site ?? "";

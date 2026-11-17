@@ -97,5 +97,39 @@ The director (`d`) offers:
 | `d.app`, `d.store`, `d.$(sel)`, `d.$$(sel)` | the app itself (`window.__microtone`), and queries in its document |
 
 A new song is a new scene module: `?scene=name` loads `name.js` beside the
-page. Captions are public text, so follow the docs' wording rules: a part of a
+page.
+
+## The second scene: several songs in one take
+
+`works.js` (`?scene=works`) is **It plays what people actually wrote**: four
+files that ask a lot of a player, an act each. Changing Waves (4mat, `.mod`,
+Invert Loop), Fourth Symmetriad (Skaven, `.it`, filters, envelopes and
+new-note actions), First Adlib Attempt (Skaven, `.s3m`, nothing but OPL
+instruments) and the GeneralUser GS SoundFont, heard through Huygens' Clock.
+The take runs to about 3:40.
+
+    make works        # converts the three modules into build/
+    make serve        # then open http://127.0.0.1:8950/tools/promo/?scene=works
+
+The modules are not in the repository. `make works` converts them from
+`MODS` (by default the TSVM checkout beside this one: `make works
+MODS=/elsewhere`), using the converters the app runs when it imports a module,
+so the film plays what an import plays. **They are not our songs**: publishing
+a take needs their composers' leave.
+
+A scene with `acts` instead of `song` + `events` works like this:
+
+- Each act is `{ song, title, by, tag, kicker, gain, play, fade, events, intro }`.
+  The director loads the act's song (behind the act's card, without asking
+  about the open project), runs `intro` (or the scene's `actIntro`), and runs
+  `events` keyed to **seconds since that act pressed Play** (`at`). At `play`
+  seconds it fades the engine's master volume out over `fade` seconds.
+- `gain` is the engine's master volume for the act (0…1). The four are matched
+  to about −15 dBFS RMS by measurement; two also need it lowered so they
+  don't clip.
+- `intro` runs once, under the sync flash; `outro` runs after the last act.
+- *Start at act* rehearses from that act on, with no sync cue.
+
+It adds `d.loadSong(path)`, `d.setGain(g)`, `d.fadeOut(s, from)`, `d.actT()`
+and `d.untilAct(s)` to the table above. Captions are public text, so follow the docs' wording rules: a part of a
 song is a *lane*, and effects are written as the manual writes them.

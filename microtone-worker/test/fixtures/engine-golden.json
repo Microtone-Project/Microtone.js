@@ -140,6 +140,12 @@
       "frames": 960000,
       "u8": "cbbb6d904692e532aebc87a2dbe17554801200c991f4299587c2b7666591f979",
       "f32": "53860340c7c72496f8751a2193d5120f3c3658bdfef18464e29618cfc16ed53f"
+    },
+    "adlib": {
+      "file": "test/corpus/adlib.taud",
+      "frames": 960000,
+      "u8": "2e7f41d1d9b90e82dec8f40592d14313b745d265b894a761019c176290bc49a9",
+      "f32": "84b3cdb8199c1b87b6195b1a9f411c462110716a6c7a1e12ea3cc61573e5d9d9"
     }
   }
 }

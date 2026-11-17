@@ -52,6 +52,43 @@ to date.
   lattice — Bosanquet–Wilson, Wicki–Hayden, Harmonic Table and more — fitted to
   whatever tuning the song is in.
 
+### It plays what people actually wrote
+
+Putting a format on a feature list is the easy half. `.mod`, `.s3m` and `.it`
+were never really specifications; they are decades of musicians finding
+out what their tracker would let them get away with, and the songs worth
+opening are the ones that got away with the most. Lots of programs say they
+open these formats. Ask whether they play these four:
+
+- ***Changing Waves*** by 4mat (`.mod`). It uses ProTracker's Invert Loop
+  (`E $Fx`) in 377 cells: the effect rewrites the looping sample a byte at a
+  time *while it plays*, so the sound keeps turning into something else. A
+  player that skips the effect plays you a different song. Microtone steps
+  through it byte by byte, and paints each byte as it goes (the orange in
+  the sample bin [below](#a-look-around)).
+- ***Fourth Symmetriad*** by Skaven (`.it`). It has 66 instruments, 63 of them
+  through Impulse Tracker's resonant filter, nearly all of them with envelopes,
+  and it uses every new-note action the format has (cut, continue, note-off,
+  fade), so old notes keep ringing under the ones that replaced them. If a
+  player gets any one of those wrong, the mix falls apart.
+- ***First Adlib Attempt*** by Skaven (`.s3m`). It has no samples at all, just
+  29 AdLib instruments written for the OPL2 FM chip, which a player without a
+  chip of its own can only play as silence. Microtone imports them as OPL
+  instruments of its own and plays them on an emulated chip, register for
+  register. To quote the song's own message: *"Seems to work fine. Didn't even
+  need any samples…!"*
+- ***GeneralUser GS***, the SoundFont that ships as Microtone's MIDI bank. It
+  sounds as good as it does at its size by leaning on the corners of the SF2
+  standard: per-instrument velocity curves, layers on different curves stacked
+  under one key, and loops only a few samples long that must stay in tune when
+  they are resampled. Each of those is carried through the conversion, so the
+  drums keep their dynamics and the marimba stays in tune.
+
+The first three are in the engine's golden set. Every change to the engine
+renders them again and has to match bit for bit, so "it works" cannot quietly
+stop being true. We don't just support the format; we support what people
+actually did with it.
+
 ## A look around
 
 ![](Screenshot2.png)

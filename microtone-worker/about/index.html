@@ -42,6 +42,7 @@
   <nav class="ab-nav-links" aria-label="Sections">
     <a href="#family">Products</a>
     <a href="#features">Features</a>
+    <a href="#stories">Customer stories</a>
     <a href="#intelligence">AI</a>
     <a href="#plans">Plans &amp; pricing</a>
     <a href="#why">Why Microtone?</a>
@@ -249,9 +250,64 @@
   </dl>
 </section>
 
-<section class="ab-section ab-grid ab-feature">
+<!-- ── customer stories: the files we hold ourselves to ─────────────── -->
+<section class="ab-section ab-grid" id="stories">
   <header class="ab-sec-head">
     <p class="ab-sec-no">08</p>
+    <h2 class="ab-h2">Customer stories.<br>Our customers are files.<a class="ab-ref" href="#fine-6">6</a></h2>
+  </header>
+  <div class="ab-stories">
+    <p class="ab-lead">Putting a format on a feature list is the easy half. A tracker format is a specification plus three decades of musicians finding out what it would let them get away with, and the songs worth opening are the ones that got away with the most. These are the files we hold ourselves to.</p>
+    <ul class="ab-cases">
+      <li class="ab-case">
+        <p class="ab-badge">Case study · .mod</p>
+        <h3>Changing Waves</h3>
+        <p class="ab-case-by">4mat</p>
+        <dl>
+          <dt>Challenge</dt><dd>Invert Loop (<code>E $Fx</code>) in 377 cells. The effect rewrites the looping sample a byte at a time while it plays, so the sound never settles. A player that skips the effect plays a different song.</dd>
+          <dt>Solution</dt><dd>Microtone steps through the loop byte by byte, as ProTracker does, and paints each inverted byte in the sample bin as it goes. The file itself is never touched.</dd>
+          <dt>Result</dt><dd>It sounds like <i>Changing Waves</i>.</dd>
+        </dl>
+      </li>
+      <li class="ab-case">
+        <p class="ab-badge">Case study · .it</p>
+        <h3>Fourth Symmetriad</h3>
+        <p class="ab-case-by">Skaven</p>
+        <dl>
+          <dt>Challenge</dt><dd>66 instruments, 63 of them through Impulse Tracker’s resonant filter and nearly all with envelopes, using every new-note action the format has: cut, continue, note-off, fade. Old notes keep ringing under the ones that replaced them. Get one of those wrong and the mix falls apart.</dd>
+          <dt>Solution</dt><dd>Filters, envelopes and new-note actions follow Impulse Tracker’s lineage, checked against the source code of the trackers that kept it.</dd>
+          <dt>Result</dt><dd>66 instruments, each one where Skaven left it.</dd>
+        </dl>
+      </li>
+      <li class="ab-case">
+        <p class="ab-badge">Case study · .s3m</p>
+        <h3>First Adlib Attempt</h3>
+        <p class="ab-case-by">Skaven</p>
+        <dl>
+          <dt>Challenge</dt><dd>No samples at all: 29 instruments written for the OPL2 FM chip on an AdLib card, which a player without a chip of its own can only play as silence.</dd>
+          <dt>Solution</dt><dd>Each one becomes an OPL instrument of Microtone’s own, register for register, played on an emulated chip.</dd>
+          <dt>Result</dt><dd>In the song’s own message: “Seems to work fine. Didn’t even need any samples…!”</dd>
+        </dl>
+      </li>
+      <li class="ab-case">
+        <p class="ab-badge">Case study · .sf2</p>
+        <h3>GeneralUser GS</h3>
+        <p class="ab-case-by">S. Christian Collins</p>
+        <dl>
+          <dt>Challenge</dt><dd>A SoundFont that sounds far better than its size, because it leans on the corners of the standard: velocity curves rewritten instrument by instrument, layers on different curves stacked under one key, loops only a few samples long.</dd>
+          <dt>Solution</dt><dd>The conversion carries each curve through to the volume column, gives a layer on a curve of its own a level of its own, and keeps every loop in tune when its sample is resampled.</dd>
+          <dt>Result</dt><dd>The drums keep their dynamics, and the marimba is in tune. It ships with Microtone as the MIDI bank.</dd>
+        </dl>
+      </li>
+    </ul>
+    <p>Three of these files are rendered again on every change to the engine, and have to come out the same to the bit.</p>
+    <p class="ab-lead ab-stories-close">We don’t just support the format. We support what people actually did with it.</p>
+  </div>
+</section>
+
+<section class="ab-section ab-grid ab-feature">
+  <header class="ab-sec-head">
+    <p class="ab-sec-no">09</p>
     <h2 class="ab-h2">Songs as programs.<br>Same source, same bytes.</h2>
   </header>
   <div class="ab-feature-copy">
@@ -277,7 +333,7 @@
 
 <section class="ab-section ab-grid ab-feature ab-feature-text">
   <header class="ab-sec-head">
-    <p class="ab-sec-no">09</p>
+    <p class="ab-sec-no">10</p>
     <h2 class="ab-h2">Immersive audio.<br>Now in three dimensions.</h2>
   </header>
   <div class="ab-feature-copy">
@@ -294,7 +350,7 @@
 
 <section class="ab-section ab-grid ab-feature">
   <header class="ab-sec-head">
-    <p class="ab-sec-no">10</p>
+    <p class="ab-sec-no">11</p>
     <h2 class="ab-h2">Any tuning.<br>Including that one.</h2>
   </header>
   <div class="ab-feature-copy">
@@ -312,7 +368,7 @@
 <!-- ── the AI section ────────────────────────────────────────────────── -->
 <section class="ab-section ab-ai ab-grid" id="intelligence">
   <header class="ab-sec-head">
-    <p class="ab-sec-no">11</p>
+    <p class="ab-sec-no">12</p>
     <p class="ab-label">New</p>
   </header>
   <div class="ab-ai-body">
@@ -334,7 +390,7 @@
 <!-- ── plans ─────────────────────────────────────────────────────────── -->
 <section class="ab-section ab-grid" id="plans">
   <header class="ab-sec-head">
-    <p class="ab-sec-no">12</p>
+    <p class="ab-sec-no">13</p>
     <h2 class="ab-h2">Plans &amp; pricing.<br>Find the one that is free.</h2>
   </header>
   <div class="ab-plans">
@@ -459,7 +515,7 @@
 <!-- ── the FAQ (why_microtone.md) ────────────────────────────────────── -->
 <section class="ab-section ab-grid" id="why">
   <header class="ab-sec-head">
-    <p class="ab-sec-no">13</p>
+    <p class="ab-sec-no">14</p>
     <h2 class="ab-h2">Why Microtone?</h2>
   </header>
   <div class="ab-faq">
@@ -470,7 +526,7 @@
     <details open><summary>Does Microtone support modern audio effects?</summary>
       <p>Yes. You can build mixing chains, tweak your instruments, and route audio in all sorts of interesting ways. We even support ambisonics, in case you want your music to be weird in three dimensions.</p></details>
     <details open><summary>Can I import my existing tracker modules?</summary>
-      <p>Probably. We support several familiar module formats, namely IT, S3M, MOD and XM, down to minute details. If your module uses an obscure feature from an obscure tracker released by three people in 1997, please consider preserving that tracker as a virtual machine. Invert Loop (PT 1.2+) and Funk Repeat (~PT 1.1), however, work identically to <i>ProTracker</i>, so there’s that.</p></details>
+      <p>Probably. We support several familiar module formats, namely IT, S3M, MOD and XM, down to minute details. If your module uses an obscure feature from an obscure tracker released by three people in 1997, please consider preserving that tracker as a virtual machine. Invert Loop (PT 1.2+) and Funk Repeat (~PT 1.1), however, work identically to <i>ProTracker</i>, so there’s that. For the modules we hold ourselves to, see the <a href="#stories">customer stories</a>.</p></details>
     <details open><summary>Can I make chiptune with it?</summary>
       <p>Yes. Draw a waveform, play a sound chip, or open a module from 1992 and carry on where its author stopped. Every sample is eight-bit anyway; you are halfway there.</p></details>
     <details open><summary>Can I use it to make music in any tuning system?</summary>
@@ -517,6 +573,7 @@
     <li id="fine-3">Studio not included.</li>
     <li id="fine-4">Among people who picked a plan on this page. No plan is required to use any of the apps.</li>
     <li id="fine-5">The proprietary licence is offered beside the GNU GPL and LGPL, never instead of them: it covers only versions already published under them, so everything stays free for everyone else, and there is no proprietary-only edition. It covers the code and its English text only. Translations, demo songs, the Motif fonts (their own licence already lets you ship them) and third-party components keep their own terms and are not included.</li>
+    <li id="fine-6">The files were not paid for their testimonials. The songs belong to their composers and are not included with Microtone: bring your own copy and open it. GeneralUser GS ships with the app, under its author’s licence.</li>
   </ol>
 </section>
 
