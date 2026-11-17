@@ -4002,6 +4002,131 @@ function lyricEntryBytes(instId, syllables, recipes) {
   return out;
 }
 
+// ── what crosses to an engine, and what comes back ──
+// Shared with the desktop's native audio host (core/audio/native-engine.js),
+// which hands the same arguments to the same C over a socket: one conversion,
+// one decoder, whichever side of the socket the engine is on.
+
+/** The project's lyrics as the `ILyr` section the engine reads: the first
+ *  entry for an instrument wins; one without syllables is none. */
+function engineLyricsSection(entries) {
+  const seen = new Set();
+  const parts = [];
+  let total = 0;
+  for (const e of entries ?? []) {
+    const id = e.instId & 0x3ff;
+    if (seen.has(id) || !e.syllables || e.syllables.length === 0) continue;
+    seen.add(id);
+    const part = lyricEntryBytes(id, e.syllables, e.recipes ?? []);
+    parts.push(part);
+    total += part.length;
+  }
+  const section = new Uint8Array(total);
+  let o = 0;
+  for (const part of parts) { section.set(part, o); o += part.length; }
+  return section;
+}
+
+/** jamSample's spec as the twelve words tw_jam_sample reads. */
+function engineJamSampleSpec(spec) {
+  const w = new Int32Array(12);
+  w[0] = spec.ptr >>> 0;
+  w[1] = spec.len | 0;
+  w[2] = spec.rate | 0;
+  w[3] = spec.playStart | 0;
+  w[4] = spec.loopStart | 0;
+  w[5] = spec.loopEnd | 0;
+  w[6] = spec.loopMode | 0;
+  w[7] = spec.detune | 0;
+  w[8] = spec.chanPtr2 ? spec.chanPtr2 >>> 0 : 0;
+  w[9] = spec.chanMode | 0;
+  return w;
+}
+
+/** setAnalysis's target as tw_set_analysis's (kind, layout): -1 off, 0 the
+ *  pair, 1 the field, 2 a speaker layout (1… in speakers.js's order; a name
+ *  that is none of them meters the field). */
+function engineAnalysisArgs(target) {
+  if (target === ANALYSIS_OFF || target === undefined) return [-1, 0];
+  if (target === ANALYSIS_STEREO) return [0, 0];
+  if (target === ANALYSIS_AMBISONIC) return [1, 0];
+  return [2, SPEAKER_LAYOUT_NAMES.indexOf(target) + 1];
+}
+
+/** setMasterMeter's arguments as tw_set_master_meter's (on, scramble, depth,
+ *  span): a depth of 8 or 16, a span the engine knows. */
+function engineMasterMeterArgs(on, scramble = false, bitDepth = DEFAULT_BIT_DEPTH, histSpan = HIST_SPAN_ALL) {
+  if (!on) return [0, 0, DEFAULT_BIT_DEPTH, 0];
+  const depth = bitDepth === 8 ? 8 : 16;
+  const s = histSpan | 0;
+  const span = s === HIST_SPAN_LONG || s === HIST_SPAN_SHORT ? s : HIST_SPAN_ALL;
+  return [1, scramble ? 1 : 0, depth, span];
+}
+
+/** tw_get_sample_mod's 25 doubles, under the instrument's own field names. */
+function decodeEngineSampleMod(d) {
+  return {
+    modOp: d[0], modInvert: d[1] !== 0, modFrom: d[2], modTo: d[3],
+    modCombBits: d[4], modCombOdd: d[5] !== 0,
+    modRot: d[6], modSub: d[7], modOn: d[8] !== 0,
+    modScatter: d[9], modSeed: d[10], modEpoch: d[11],
+    modOpExt: d[12], modF: d[13], modStepIndex: d[14],
+    modXor: d[15], modBitRot: d[16],
+    modBitPermIdx: d[17], modBitPermOn: d[18] !== 0,
+    modExtSwapA: d[19], modExtSwapB: d[20], modExtMirror: d[21] !== 0,
+    modFunkWalk: d[22], modFunkPos: d[23], modFunkLen: d[24],
+  };
+}
+
+/** tw_get_psg_state's eight words (when it said there was a PSG). */
+function decodeEnginePsgState(w) {
+  return {
+    rtAdvance: [w[0], w[1]],
+    rtLevel: [w[2], w[3]],
+    rtMute: w[4],
+    wave: w[7] ? [w[5], w[6]] : null,
+  };
+}
+
+/** tw_get_fadeout_state's `n` pairs of words. */
+function decodeEngineFadeoutState(w, n) {
+  const out = [];
+  for (let i = 0; i < n; i++) out.push({ step: w[i * 2], released: w[i * 2 + 1] !== 0 });
+  return out;
+}
+
+/** tw_get_fm_vibrato_state's `n` quads of words. */
+function decodeEngineFmVibratoState(w, n) {
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    out.push({ entry: w[i * 4], speed: w[i * 4 + 1], depth: w[i * 4 + 2], released: w[i * 4 + 3] !== 0 });
+  }
+  return out;
+}
+
+/** The formant state's sizes, as tw_get_formant_state is called with them. */
+const ENGINE_FORMANT_VOICES = 8;
+const ENGINE_FORMANT_DOUBLES = 13;
+
+/** tw_get_formant_state's output: 13 doubles and 2 words per voice, the
+ *  lyric's syllable indices, and the two counts. */
+function decodeEngineFormantState(d, extra, lyric, counts) {
+  const voices = [];
+  for (let i = 0; i < counts[0]; i++) {
+    const o = i * ENGINE_FORMANT_DOUBLES;
+    voices.push({
+      own: d[o] !== 0,
+      front: d[o + 1], open: d[o + 2], round: d[o + 3],
+      toFront: d[o + 4], toOpen: d[o + 5], toRound: d[o + 6],
+      nasal: d[o + 7] !== 0 ? { v: d[o + 8], to: d[o + 9] } : null,
+      rhotic: d[o + 10] !== 0 ? { v: d[o + 11], to: d[o + 12] } : null,
+      glide: extra[i * 2],
+      coda: extra[i * 2 + 1] !== 0,
+    });
+  }
+  return { voices, lyric: [...lyric.subarray(0, counts[1])] };
+}
+
 /** The one playhead's readable state, in the shape callers reach for
  *  (`eng.playheads[0].trackerState.mixLeft`). */
 class WasmTrackerState {
@@ -4262,20 +4387,7 @@ class WasmTaudEngine {
   /** The project's lyrics: decoded `ILyr` entries, replacing what was there.
    *  The first entry for an instrument wins; one without syllables is none. */
   setLyrics(entries) {
-    const seen = new Set();
-    const parts = [];
-    let total = 0;
-    for (const e of entries ?? []) {
-      const id = e.instId & 0x3ff;
-      if (seen.has(id) || !e.syllables || e.syllables.length === 0) continue;
-      seen.add(id);
-      const part = lyricEntryBytes(id, e.syllables, e.recipes ?? []);
-      parts.push(part);
-      total += part.length;
-    }
-    const section = new Uint8Array(total);
-    let o = 0;
-    for (const p of parts) { section.set(p, o); o += p.length; }
+    const section = engineLyricsSection(entries);
     if (this._x.tw_set_lyrics(this._e, this._put(section), section.length) < 0) {
       throw new Error("taud engine: out of memory");
     }
@@ -4328,17 +4440,9 @@ class WasmTaudEngine {
     const x = this._x;
     const ts = this.playheads[0].trackerState;
     ts.analysisTarget = target;
-    if (target === ANALYSIS_OFF || target === undefined) {
-      x.tw_set_analysis(this._e, -1, 0);
-      ts.analysis = null;
-      return;
-    }
-    // 0 the pair, 1 the field, 2 a speaker layout (1… in speakers.js's order;
-    // a name that is none of them meters the field).
-    if (target === ANALYSIS_STEREO) x.tw_set_analysis(this._e, 0, 0);
-    else if (target === ANALYSIS_AMBISONIC) x.tw_set_analysis(this._e, 1, 0);
-    else x.tw_set_analysis(this._e, 2, SPEAKER_LAYOUT_NAMES.indexOf(target) + 1);
-    ts.analysis = new WasmAnalysisTap(this, target);
+    const [kind, layout] = engineAnalysisArgs(target);
+    x.tw_set_analysis(this._e, kind, layout);
+    ts.analysis = kind < 0 ? null : new WasmAnalysisTap(this, target);
   }
   getAnalysis(ph) { return this.playheads[0].trackerState.analysisTarget; }
 
@@ -4346,15 +4450,12 @@ class WasmTaudEngine {
    *  new all-pass choice or census depth is a new tap; the span carries. */
   setMasterMeter(ph, on, scramble = false, bitDepth = DEFAULT_BIT_DEPTH, histSpan = HIST_SPAN_ALL) {
     const ts = this.playheads[0].trackerState;
+    const [onArg, scrambleArg, depth, span] = engineMasterMeterArgs(on, scramble, bitDepth, histSpan);
+    this._x.tw_set_master_meter(this._e, onArg, scrambleArg, depth, span);
     if (!on) {
-      this._x.tw_set_master_meter(this._e, 0, 0, DEFAULT_BIT_DEPTH, 0);
       ts.masterMeter = null;
       return;
     }
-    const depth = bitDepth === 8 ? 8 : 16;
-    const s = histSpan | 0;
-    const span = s === HIST_SPAN_LONG || s === HIST_SPAN_SHORT ? s : HIST_SPAN_ALL;
-    this._x.tw_set_master_meter(this._e, 1, scramble ? 1 : 0, depth, span);
     if (ts.masterMeter === null || ts.masterMeter.scramble !== !!scramble || ts.masterMeter.bitDepth !== depth) {
       ts.masterMeter = new WasmMasterMeter(this, !!scramble, depth, span);
     }
@@ -4442,18 +4543,8 @@ class WasmTaudEngine {
    *  { ptr, len, rate, playStart?, loopStart, loopEnd, loopMode, detune?,
    *  chanPtr2?, chanMode? }. */
   jamSample(ph, vi, note, spec) {
-    const p = this._put(new Uint8Array(48));
-    const w = new Int32Array(this._x.memory.buffer, p, 12);
-    w[0] = spec.ptr >>> 0;
-    w[1] = spec.len | 0;
-    w[2] = spec.rate | 0;
-    w[3] = spec.playStart | 0;
-    w[4] = spec.loopStart | 0;
-    w[5] = spec.loopEnd | 0;
-    w[6] = spec.loopMode | 0;
-    w[7] = spec.detune | 0;
-    w[8] = spec.chanPtr2 ? spec.chanPtr2 >>> 0 : 0;
-    w[9] = spec.chanMode | 0;
+    const w = engineJamSampleSpec(spec);
+    const p = this._put(new Uint8Array(w.buffer));
     this._x.tw_jam_sample(this._e, vi, note, p);
   }
 
@@ -4520,31 +4611,14 @@ class WasmTaudEngine {
   getInstrumentSampleMod(slot) {
     const p = this._put(new Uint8Array(25 * 8));
     this._x.tw_get_sample_mod(this._e, slot, p);
-    const d = new Float64Array(this._x.memory.buffer, p, 25);
-    return {
-      modOp: d[0], modInvert: d[1] !== 0, modFrom: d[2], modTo: d[3],
-      modCombBits: d[4], modCombOdd: d[5] !== 0,
-      modRot: d[6], modSub: d[7], modOn: d[8] !== 0,
-      modScatter: d[9], modSeed: d[10], modEpoch: d[11],
-      modOpExt: d[12], modF: d[13], modStepIndex: d[14],
-      modXor: d[15], modBitRot: d[16],
-      modBitPermIdx: d[17], modBitPermOn: d[18] !== 0,
-      modExtSwapA: d[19], modExtSwapB: d[20], modExtMirror: d[21] !== 0,
-      modFunkWalk: d[22], modFunkPos: d[23], modFunkLen: d[24],
-    };
+    return decodeEngineSampleMod(new Float64Array(this._x.memory.buffer, p, 25));
   }
 
   /** A PSG instrument's live state, or null for any other instrument. */
   getInstrumentPsgState(slot) {
     const p = this._put(new Uint8Array(8 * 4));
     if (!this._x.tw_get_psg_state(this._e, slot, p)) return null;
-    const w = new Int32Array(this._x.memory.buffer, p, 8);
-    return {
-      rtAdvance: [w[0], w[1]],
-      rtLevel: [w[2], w[3]],
-      rtMute: w[4],
-      wave: w[7] ? [w[5], w[6]] : null,
-    };
+    return decodeEnginePsgState(new Int32Array(this._x.memory.buffer, p, 8));
   }
 
   /** The fadeouts `Z $Exxx` has given sounding notes of instrument `slot`
@@ -4553,10 +4627,7 @@ class WasmTaudEngine {
     const CAP = 16;
     const p = this._put(new Uint8Array(CAP * 2 * 4));
     const n = this._x.tw_get_fadeout_state(this._e, slot, p, CAP);
-    const w = new Int32Array(this._x.memory.buffer, p, CAP * 2);
-    const out = [];
-    for (let i = 0; i < n; i++) out.push({ step: w[i * 2], released: w[i * 2 + 1] !== 0 });
-    return out;
+    return decodeEngineFadeoutState(new Int32Array(this._x.memory.buffer, p, CAP * 2), n);
   }
 
   /** The auto-vibratos `S $Apsd` has given operators of sounding notes of FM
@@ -4566,19 +4637,14 @@ class WasmTaudEngine {
     const CAP = 32;
     const p = this._put(new Uint8Array(CAP * 4 * 4));
     const n = this._x.tw_get_fm_vibrato_state(this._e, slot, p, CAP);
-    const w = new Int32Array(this._x.memory.buffer, p, CAP * 4);
-    const out = [];
-    for (let i = 0; i < n; i++) {
-      out.push({ entry: w[i * 4], speed: w[i * 4 + 1], depth: w[i * 4 + 2], released: w[i * 4 + 3] !== 0 });
-    }
-    return out;
+    return decodeEngineFmVibratoState(new Int32Array(this._x.memory.buffer, p, CAP * 4), n);
   }
 
   /** A formant instrument's live state, or null for any other instrument:
    *  { voices: [{own, front, open, round, toFront, toOpen, toRound, nasal,
    *  rhotic, glide, coda}], lyric: [syllable indices] }. */
   getInstrumentFormantState(slot) {
-    const VOICES = 8, DOUBLES = 13, LYRIC = TOTAL_VOICES;
+    const VOICES = ENGINE_FORMANT_VOICES, DOUBLES = ENGINE_FORMANT_DOUBLES, LYRIC = TOTAL_VOICES;
     const bytes = VOICES * DOUBLES * 8 + VOICES * 2 * 4 + LYRIC * 4 + 2 * 4;
     const p = this._put(new Uint8Array(bytes));
     const pExtra = p + VOICES * DOUBLES * 8;
@@ -4586,23 +4652,8 @@ class WasmTaudEngine {
     const pCounts = pLyric + LYRIC * 4;
     if (!this._x.tw_get_formant_state(this._e, slot, p, pExtra, pLyric, LYRIC, pCounts)) return null;
     const buf = this._x.memory.buffer;
-    const d = new Float64Array(buf, p, VOICES * DOUBLES);
-    const extra = new Int32Array(buf, pExtra, VOICES * 2);
-    const counts = new Int32Array(buf, pCounts, 2);
-    const voices = [];
-    for (let i = 0; i < counts[0]; i++) {
-      const o = i * DOUBLES;
-      voices.push({
-        own: d[o] !== 0,
-        front: d[o + 1], open: d[o + 2], round: d[o + 3],
-        toFront: d[o + 4], toOpen: d[o + 5], toRound: d[o + 6],
-        nasal: d[o + 7] !== 0 ? { v: d[o + 8], to: d[o + 9] } : null,
-        rhotic: d[o + 10] !== 0 ? { v: d[o + 11], to: d[o + 12] } : null,
-        glide: extra[i * 2],
-        coda: extra[i * 2 + 1] !== 0,
-      });
-    }
-    return { voices, lyric: [...new Int32Array(buf, pLyric, counts[1])] };
+    return decodeEngineFormantState(new Float64Array(buf, p, VOICES * DOUBLES), new Int32Array(buf, pExtra, VOICES * 2),
+      new Int32Array(buf, pLyric, LYRIC), new Int32Array(buf, pCounts, 2));
   }
 
   getActiveNoteCounts(ph) {

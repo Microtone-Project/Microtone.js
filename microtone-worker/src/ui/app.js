@@ -116,7 +116,8 @@ async function ensureAudio({ resume = true } = {}) {
   }
   if (store.audio.running) {
     const badge = $("audioBadge");
-    setBadgeText(badge, `audio @ ${store.audio.context.sampleRate} Hz`);
+    const api = store.audio.outputApi;
+    setBadgeText(badge, `audio @ ${store.audio.outputRate} Hz${api ? ` · ${api}` : ""}`);
     badge.classList.add("on");
   }
 }

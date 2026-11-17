@@ -5,6 +5,7 @@
 #pragma once
 
 #include <QByteArray>
+#include <QJsonObject>
 #include <QMainWindow>
 #include <QPointer>
 #include <QUrl>
@@ -80,8 +81,11 @@ class Shell : public QObject {
   Q_OBJECT
  public:
   /** `origin` is http://microtone.localhost/; the profile keeps its data in
-   *  `dataDir`. */
-  Shell(QUrl origin, const QByteArray &token, const QString &dataDir, QObject *parent = nullptr);
+   *  `dataDir`. `nativeEngine` (empty = none) is the native audio host's
+   *  socket, given to every page with `nativeStatus`: the page's
+   *  AudioSystem talks to it instead of starting a worklet. */
+  Shell(QUrl origin, const QByteArray &token, const QString &dataDir, const QString &nativeEngine = {},
+        const QJsonObject &nativeStatus = {}, QObject *parent = nullptr);
   ~Shell() override;
 
   QWebEngineProfile *profile() const { return profile_; }

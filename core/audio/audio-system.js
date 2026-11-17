@@ -46,6 +46,7 @@ import {
   PATTERN_BYTES, PATTERN_BYTES_WIDE, NUM_INTERRUPTS,
 } from "../engine/constants.js";
 import { AR_SAB_BYTES, AR_CTRL_LEN, AR_DOORBELL } from "./audio-ring.js";
+import { NativeEngineLink } from "./native-engine.js";
 import { ANALYSIS_OFF, SCOPE_FRAMES, SCOPE_CHANNELS } from "../engine/analysis.js";
 import { DEFAULT_BIT_DEPTH } from "../engine/loudness.js";
 
@@ -83,6 +84,8 @@ export class AudioSystem {
     this.worker = null;         // Tier 2 render Worker (isolated hosts); null in render mode
     this.usingWorker = false;   // engine renders off the audio thread (Tier 2)
     this.usingPort = false;     // …and posts its audio to the worklet, having no shared memory
+    this.native = null;         // the desktop's native audio host (native-engine.js), where there is one
+    this.usingNative = false;   // the engine runs there, on the audio device's own callback
     this.workerDoorbell = null; // Int32Array over the audio ring's control words —
                                 // AR_DOORBELL there wakes the worker (_postWorker)
     this._cueHighWater = 0;     // highest cue index+1 ever uploaded to the engine
@@ -140,6 +143,16 @@ export class AudioSystem {
     }
     this.context = ctx;
 
+    // The desktop app's native audio host: the engine in the shell, on the
+    // audio device's callback (desktop-qt). The page keeps its AudioContext
+    // for what plays through Web Audio itself (a sample preview), but builds
+    // no worklet. No host, or one without a device, and nothing changes.
+    const nativeHost = offThread && !forceBundle ? globalThis.__MICROTONE_NATIVE__ : undefined;
+    if (nativeHost?.engine) {
+      const link = await NativeEngineLink.connect(nativeHost.engine);
+      if (link !== null) return this._startNative(link, snapshotIntervalMs, profile);
+    }
+
     if (forceBundle) {
       await ctx.audioWorklet.addModule(WORKLET_BUNDLE);
       this.usedBundleFallback = true;
@@ -190,6 +203,34 @@ export class AudioSystem {
     }
     this.profiling = profile;
     return this;
+  }
+
+  /** The native host takes the engine commands the worklet or the Worker
+   *  would have (it lowers them itself: native-engine.js) and sends back the
+   *  snapshot's current ranges and the replies. */
+  _startNative(link, snapshotIntervalMs, profile) {
+    this.native = link;
+    this.usingNative = true;
+    this.engineTarget = link;
+    link.onSnapshot = (s) => this._onNativeSnapshot(s);
+    link.onMessage = (m) => this._onEngineMessage(m, null);
+    link.onClose = () => console.warn("audio: the native audio host went away");
+    link.postMessage({ t: CMD.INIT, snapshotIntervalMs });
+    this.profiling = profile;
+    if (profile) link.postMessage({ t: CMD.SET_PROFILE, on: true });
+    return this;
+  }
+
+  /** A native snapshot: its interrupts merged as a posted one's are, and the
+   *  ranges that are current copied in — a meter that is off sent nothing,
+   *  and its block stays as it was, as the engine leaves it. */
+  _onNativeSnapshot({ mask, args, ranges }) {
+    this.interruptMask |= mask;
+    for (let n = 0; mask >>> n; n++) {
+      if (mask & (1 << n)) this.interruptArgs[n] = args[n];
+    }
+    for (const r of ranges) this.snapshot.set(r.floats, r.from);
+    if (this.onSnapshot) this.onSnapshot(this.snapshot);
   }
 
   /** Tier 2 over shared memory: the snapshots in `snapSab`, the audio in a
@@ -266,12 +307,13 @@ export class AudioSystem {
    *  the Worker's report is joined onto the audio thread's (`profile`). */
   setProfiling(on) {
     on = !!on;
-    if (!this.node) return;
+    if (!this.node && !this.usingNative) return;
     this.profiling = on;
     this.profile = null;
     this.workerProfile = null;
-    this.node.port.postMessage({ t: CMD.SET_PROFILE, on });
+    if (this.node) this.node.port.postMessage({ t: CMD.SET_PROFILE, on });
     if (this.usingWorker) this._postWorker({ t: CMD.SET_PROFILE, on });
+    if (this.usingNative) this.native.postMessage({ t: CMD.SET_PROFILE, on });
   }
 
   /** Messages from whichever thread hosts the engine (worklet port in render
@@ -313,6 +355,7 @@ export class AudioSystem {
       m.usingSab = this.usingSab;
       m.usingWorker = this.usingWorker;
       m.usingPort = this.usingPort;
+      m.usingNative = this.usingNative;
       m.bundleFallback = this.usedBundleFallback;
       m.contextSampleRate = this.context.sampleRate;
       // …and with the render Worker's, while it is current: it reports only
@@ -325,7 +368,14 @@ export class AudioSystem {
     }
   }
 
-  get running() { return this.context?.state === "running"; }
+  get running() { return this.usingNative ? this.native.open : this.context?.state === "running"; }
+
+  /** The rate the sound leaves at: the native host's device's, else the
+   *  AudioContext's. */
+  get outputRate() { return this.usingNative ? this.native.hello.rate : this.context?.sampleRate; }
+
+  /** The native host's audio API (PulseAudio, ALSA, WASAPI…), or null. */
+  get outputApi() { return this.usingNative ? this.native.hello.api : null; }
 
   /** Call from a user gesture (pointerdown/keydown). */
   async resume() {

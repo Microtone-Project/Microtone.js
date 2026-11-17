@@ -7,8 +7,10 @@
 //   appserver   the loopback HTTP server the app is served from
 //   shell       the profile, the windows, downloads, closing
 //   links       where a link goes
+//   nativeaudio the native audio host: the C engine (enginehost.c) on the
+//               device's callback, driven by the page over a WebSocket
 //
-// Usage: microtone [--root <dir>] [--open <path?query>]
+// Usage: microtone [--root <dir>] [--open <path?query>] [--web-audio]
 //   --root  serve the web app from <dir> (default: the staged copy beside the
 //           binary, else the working tree a dev build was configured from)
 //   --open  the page to open instead of index.html, e.g.
@@ -25,8 +27,10 @@
 #include <QMessageBox>
 #include <QRandomGenerator>
 #include <QStandardPaths>
+#include <QWebSocket>
 
 #include "appserver.h"
+#include "nativeaudio.h"
 #include "shell.h"
 
 using namespace microtone;
@@ -84,7 +88,9 @@ int main(int argc, char **argv) {
   cli.addVersionOption();
   QCommandLineOption rootOption(QStringLiteral("root"), QStringLiteral("Serve the web app from <dir>."), QStringLiteral("dir"));
   QCommandLineOption openOption(QStringLiteral("open"), QStringLiteral("Open <page> instead of index.html."), QStringLiteral("page"));
-  cli.addOptions({rootOption, openOption});
+  QCommandLineOption webAudioOption(QStringLiteral("web-audio"),
+                                    QStringLiteral("Play through the page's own Web Audio, not the native host."));
+  cli.addOptions({rootOption, openOption, webAudioOption});
   cli.parse(QCoreApplication::arguments());  // not process(): Chromium's switches are not ours
   if (cli.isSet(QStringLiteral("help"))) cli.showHelp();
   if (cli.isSet(QStringLiteral("version"))) cli.showVersion();
@@ -111,9 +117,26 @@ int main(int argc, char **argv) {
   flags += " --host-resolver-rules=\"MAP " + QByteArray(kAppHost) + " 127.0.0.1:" + QByteArray::number(server.port()) + '"';
   qputenv("QTWEBENGINE_CHROMIUM_FLAGS", flags.trimmed());
 
+  // The native audio host: the engine on the device's own callback. Without
+  // a device (or with --web-audio) the page plays through Web Audio as in a
+  // browser, and the socket refuses.
+  NativeAudio native;
+  QString nativeEngine;
+  if (!cli.isSet(webAudioOption)) {
+    QString why;
+    if (native.start(&why)) {
+      server.setEngineSockets([&native](std::unique_ptr<QWebSocket> socket) { native.attach(std::move(socket)); });
+      nativeEngine = QStringLiteral("ws://") + QLatin1String(kAppHost) + QStringLiteral("/engine?t=") +
+                     QString::fromLatin1(token);
+    } else {
+      qWarning("microtone: no native audio (%s); the page plays through Web Audio", qUtf8Printable(why));
+    }
+  }
+
   const QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
   QDir().mkpath(dataDir);
-  Shell shell(QUrl(QStringLiteral("http://") + QLatin1String(kAppHost) + u'/'), token, dataDir);
+  Shell shell(QUrl(QStringLiteral("http://") + QLatin1String(kAppHost) + u'/'), token, dataDir, nativeEngine,
+              nativeEngine.isEmpty() ? QJsonObject() : native.status());
 
   QLocalServer instances;
   QLocalServer::removeServer(instanceName());  // a crashed run's socket

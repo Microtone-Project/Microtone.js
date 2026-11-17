@@ -21,9 +21,13 @@
 #include <QObject>
 #include <QString>
 
+#include <functional>
+#include <memory>
+
 class QTcpServer;
 class QHttpServerRequest;
 class QHttpServerResponder;
+class QWebSocket;
 
 namespace microtone {
 
@@ -43,6 +47,11 @@ class AppServer : public QObject {
   quint16 port() const;
   const QString &root() const { return root_; }
 
+  /** Accept the page's connection to the native audio host at
+   *  ws://microtone.localhost/engine?t=<token> and hand it to `sink`. Until
+   *  this is called (no device, or --web-audio) the endpoint refuses. */
+  void setEngineSockets(std::function<void(std::unique_ptr<QWebSocket>)> sink);
+
  private:
   void handle(const QHttpServerRequest &request, QHttpServerResponder &responder) const;
 
@@ -50,7 +59,11 @@ class AppServer : public QObject {
   QByteArray token_;
   QHttpServer http_;
   QTcpServer *tcp_ = nullptr;
+  std::function<void(std::unique_ptr<QWebSocket>)> engineSockets_;
 };
+
+/** The origin the page is served from, as its requests' Origin header says it. */
+inline constexpr char kAppOrigin[] = "http://microtone.localhost";
 
 /** The Content-Type a file is served with, by its extension. */
 QByteArray mimeTypeFor(const QString &path);

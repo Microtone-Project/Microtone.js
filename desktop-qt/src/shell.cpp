@@ -7,6 +7,7 @@
 #include <QDir>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QJsonDocument>
 #include <QMenu>
 #include <QMessageBox>
 #include <QPushButton>
@@ -223,7 +224,8 @@ void AppWindow::askThePage() {
 
 // ── Shell ──
 
-Shell::Shell(QUrl origin, const QByteArray &token, const QString &dataDir, QObject *parent)
+Shell::Shell(QUrl origin, const QByteArray &token, const QString &dataDir, const QString &nativeEngine,
+             const QJsonObject &nativeStatus, QObject *parent)
     : QObject(parent), origin_(std::move(origin)) {
   profile_ = new QWebEngineProfile(QStringLiteral("microtone"), this);
   profile_->setPersistentStoragePath(dataDir + QStringLiteral("/webengine"));
@@ -242,6 +244,21 @@ Shell::Shell(QUrl origin, const QByteArray &token, const QString &dataDir, QObje
   glue.setWorldId(QWebEngineScript::ApplicationWorld);
   glue.setRunsOnSubFrames(false);
   profile_->scripts()->insert(glue);
+
+  // The native audio host, where there is one: the page's own world must see
+  // it (core/audio/audio-system.js reads it), before any of its scripts run.
+  if (!nativeEngine.isEmpty()) {
+    QJsonObject native = nativeStatus;
+    native.insert(QStringLiteral("engine"), nativeEngine);
+    QWebEngineScript script;
+    script.setName(QStringLiteral("microtone-native"));
+    script.setSourceCode(QStringLiteral("window.__MICROTONE_NATIVE__ = Object.freeze(%1);")
+                             .arg(QString::fromUtf8(QJsonDocument(native).toJson(QJsonDocument::Compact))));
+    script.setInjectionPoint(QWebEngineScript::DocumentCreation);
+    script.setWorldId(QWebEngineScript::MainWorld);
+    script.setRunsOnSubFrames(false);
+    profile_->scripts()->insert(script);
+  }
 
   connect(profile_, &QWebEngineProfile::downloadRequested, this, &Shell::onDownload);
 }
