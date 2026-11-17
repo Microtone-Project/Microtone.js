@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>two-pane split — visual</title>
+  <title>split panes — visual</title>
   <style>
     html, body { margin: 0; padding: 0; overflow: hidden; background: #2f3134; }
     iframe { display: block; border: 0; width: 100vw; height: 100vh; }
@@ -21,7 +21,8 @@
        …gives the side-by-side form, and --window-size=820,1100 the stacked
        one. ?second=<view> chooses what the new pane opens on (default: what
        the split button picks), ?load=<file> the corpus song, and
-       ?theme=dark|dim|light the palette. The pending /hang image holds the
+       ?theme=dark|dim|light the palette, ?panes=3|4 splits a half or both
+       across (item 335). The pending /hang image holds the
        load event open for --timeout, so the song is in and both panes have
        been laid out before the frame is grabbed. -->
   <img src="/hang" hidden alt="" />
@@ -39,9 +40,12 @@
     await sleep(400);            // the panes measure themselves first
     win.__microtone.split.split();
     await sleep(400);
+    const panes = Number(p.get("panes") ?? 2);
+    if (panes >= 3) { win.__microtone.split.split(0); await sleep(300); }
+    if (panes >= 4) { win.__microtone.split.split(1); await sleep(300); }
     const second = p.get("second");
     if (second) {
-      win.document.querySelectorAll(".pane")[1]
+      win.document.querySelector('.pane[data-pane="1"]')
         .querySelector(`.tabs button[data-view="${second}"]`)?.click();
     }
   </script>

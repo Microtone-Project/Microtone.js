@@ -47,7 +47,7 @@ import {
 import {
   CELLS_FULL, CELLS_ONE, EL_NOTE, EL_FX, EL_FX2, EL_VOL, EL_PAN, EL_INST, SLOT_A_CHARS,
   narrowCellChars, cellPresence, narrowShown, narrowOrigins, narrowWalk, narrowResolve,
-  narrowCaret, narrowCharToSub,
+  narrowCaret, narrowCharToSub, narrowParts, narrowPartOf, narrowPartCols, narrowPartChars,
 } from "../narrowcell.js";
 import { t } from "../i18n.js";
 import { lyricContinues } from "../../doc/lyrics.js";
@@ -89,7 +89,7 @@ export class TimelineView {
     this.map = null;      // songMap cache
     this.needsRedraw = true;
     this.lastPlayRow = -1; // remembered so resize() can repaint synchronously
-    this.sel = null;       // block selection {aRow, aCh, row, ch} (absolute rows/lanes)
+    this.sel = null;       // block selection {aRow, aCh, aSub, row, ch, sub, whole?} (absolute rows/lanes)
     this._drag = null;     // active pointer-drag anchor {aRow, aCh}
     this._troughDrag = null; // active row-band drag down the trough {aRow}
     this._ghosts = new Map(); // per-frame memos, replaced at the top of draw()
@@ -512,8 +512,8 @@ export class TimelineView {
       // Shift+click extends a FULL-column block from the current cursor.
       const c = this.store.cursor;
       const end = lastSub(this.fx2On(hit.ch));
-      if (!this.sel) this.sel = { aRow: c.row, aCh: c.ch, aSub: 0, row: hit.row, ch: hit.ch, sub: end };
-      else { this.sel.row = hit.row; this.sel.ch = hit.ch; this.sel.aSub = 0; this.sel.sub = end; }
+      if (!this.sel) this.sel = { aRow: c.row, aCh: c.ch, aSub: 0, row: hit.row, ch: hit.ch, sub: end, whole: true };
+      else Object.assign(this.sel, { row: hit.row, ch: hit.ch, aSub: 0, sub: end, whole: true });
     } else {
       // Mouse-drag carries sub-column granularity (the hit's sub-position).
       this.sel = null;
@@ -553,7 +553,7 @@ export class TimelineView {
   /** Select a row band from `a` to `b`, every lane, every sub-column. */
   selectRowBand(a, b) {
     const last = (this.store.doc?.channelCount ?? 1) - 1;
-    this.sel = { aRow: a, aCh: 0, aSub: 0, row: b, ch: last, sub: lastSub(this.fx2On(last)) };
+    this.sel = { aRow: a, aCh: 0, aSub: 0, row: b, ch: last, sub: lastSub(this.fx2On(last)), whole: true };
   }
 
   troughPointerDown(e, y) {
@@ -1016,7 +1016,7 @@ export class TimelineView {
     if (!map) return;
     const ch = this.store.cursor.ch;
     this.sel = { aRow: 0, aCh: ch, aSub: 0, row: map.totalRows - 1, ch,
-      sub: lastSub(this.fx2On(ch)) };
+      sub: lastSub(this.fx2On(ch)), whole: true };
     this.invalidate();
     this.store.emit("cursor");
   }
@@ -1044,7 +1044,7 @@ export class TimelineView {
     s.aRow = 0; s.row = map.totalRows - 1;
     // The edge lane's own last sub-column: a hidden second effect stays
     // outside the block here exactly as it does everywhere else.
-    s.aSub = 0; s.sub = lastSub(this.fx2On(ch));
+    s.aSub = 0; s.sub = lastSub(this.fx2On(ch)); s.whole = true;
     // The cursor rides the moving edge — that is what scrolls the new column
     // into view, and what the status line reads.
     const c = this.store.cursor;
@@ -1057,26 +1057,43 @@ export class TimelineView {
 
   /** Normalised inclusive bounds {r0,r1,c0,c1,colLo,colHi}, or null. colLo/colHi
    *  are the logical-column band (all columns when the selection has no sub
-   *  span, e.g. keyboard selections). */
+   *  span, e.g. keyboard selections). In a narrow cell (item 337) the band is
+   *  of PARTS instead — partLo/partHi, narrowcell.js — and colLo/colHi are
+   *  the lowest and highest column those stand for. */
   selBounds() {
     const s = this.sel;
     if (!s) return null;
-    // A narrow cell has no sub-column geometry to draw a band in, so its
-    // blocks are whole cells (item 254).
-    const narrow = this.narrow();
-    const aSub = narrow ? 0 : s.aSub ?? 0;
-    const sub = narrow ? SUB_FX2_ARG : s.sub ?? SUB_FX_ARG;
-    return {
+    const aSub = s.aSub ?? 0, sub = s.sub ?? SUB_FX_ARG;
+    const b = {
       r0: Math.min(s.aRow, s.row), r1: Math.max(s.aRow, s.row),
       c0: Math.min(s.aCh, s.ch), c1: Math.max(s.aCh, s.ch),
       colLo: subToCol(Math.min(aSub, sub)), colHi: subToCol(Math.max(aSub, sub)),
     };
+    if (this.narrow()) {
+      [b.partLo, b.partHi] = this.selParts();
+      const cols = this.selCols();
+      b.colLo = cols[0]; b.colHi = cols[cols.length - 1];
+    }
+    return b;
+  }
+
+  /** A narrow cell's block as [lo, hi] parts (item 337). A selection made to
+   *  mean whole cells (`whole`: Ctrl+A, Shift+click, the row trough, a paste)
+   *  is every part; any other runs between the parts its two ends stand in. */
+  selParts() {
+    const s = this.sel, mode = this.cellMode();
+    if (s.whole) return [0, narrowParts(mode) - 1];
+    const a = narrowPartOf(mode, s.aSub ?? 0), b = narrowPartOf(mode, s.sub ?? SUB_FX_ARG);
+    return [Math.min(a, b), Math.max(a, b)];
   }
 
   /** Logical columns the selection covers (for partial copy/paste/clear). */
   selCols() {
     const s = this.sel;
-    if (s && this.narrow()) return colsForSubs(0, lastSub(this.fx2On(s.ch)));
+    if (s && this.narrow()) {
+      const [lo, hi] = this.selParts();
+      return narrowPartCols(this.cellMode(), lo, hi, this.fx2On(s.ch));
+    }
     return s ? colsForSubs(s.aSub ?? 0, s.sub ?? SUB_FX_ARG) : ALL_COLS;
   }
 
@@ -1101,7 +1118,7 @@ export class TimelineView {
     c.ch = clampInt(c.ch + dCh, 0, chans - 1);
     this.clampCursorSub(); // the lane we landed on may show fewer columns
     this.seatCursor();
-    this.sel.row = c.row; this.sel.ch = c.ch; this.sel.sub = c.sub;
+    this.sel.row = c.row; this.sel.ch = c.ch; this.sel.sub = c.sub; this.sel.whole = false;
     this.keepCursorVisible();
     this.store.emit("cursor");
   }
@@ -1115,7 +1132,7 @@ export class TimelineView {
     this._ensureSel();
     const c = this.store.cursor;
     this.stepSubCursor(dir);
-    this.sel.ch = c.ch; this.sel.sub = c.sub; this.sel.row = c.row;
+    this.sel.ch = c.ch; this.sel.sub = c.sub; this.sel.row = c.row; this.sel.whole = false;
     this.keepCursorVisible();
     this.store.emit("cursor");
   }
@@ -1235,7 +1252,7 @@ export class TimelineView {
     const map = this.getMap();
     const chans = this.store.doc.channelCount;
     this.sel = {
-      aRow: a.row, aCh: a.ch, aSub: 0, sub: lastSub(this.fx2On(a.ch)),
+      aRow: a.row, aCh: a.ch, aSub: 0, sub: lastSub(this.fx2On(a.ch)), whole: true,
       row: Math.min(a.row + block.rows - 1, map.totalRows - 1),
       ch: Math.min(a.ch + block.chans - 1, chans - 1),
     };
@@ -2004,8 +2021,12 @@ export class TimelineView {
         }
         if (sb && absRow >= sb.r0 && absRow <= sb.r1 && ch >= sb.c0 && ch <= sb.c1) {
           ctx.fillStyle = C.sel;
-          if (narrow || (sb.colLo === 0 && sb.colHi >= this.lastColFor(ch))) {
+          if (narrow ? sb.partLo === 0 && sb.partHi === narrowParts(cellMode) - 1
+            : sb.colLo === 0 && sb.colHi >= this.lastColFor(ch)) {
             ctx.fillRect(x - 2, y, colW - 2, ROW_H); // whole cell
+          } else if (narrow) { // a band of slots (item 337)
+            const [cs, ce] = narrowPartChars(cellMode, this.panW(), sb.partLo, sb.partHi);
+            ctx.fillRect(x + 2 + cs * CHAR_W - 1, y, (ce - cs) * CHAR_W + 2, ROW_H);
           } else { // partial column band
             const ccr = colCharRange(this.wide(), fx2, this.surround());
             const cs = ccr[sb.colLo][0], ce = ccr[Math.min(sb.colHi, this.lastColFor(ch))][1];

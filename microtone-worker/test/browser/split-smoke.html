@@ -1,4 +1,4 @@
-<!doctype html><meta charset="utf-8"><title>two-pane split (item 148)</title>
+<!doctype html><meta charset="utf-8"><title>split panes (items 148, 335)</title>
 <pre id="out">running… (~10s)</pre>
 <!-- Everything here waits on ResizeObserver deliveries, which are starved by
      --virtual-time-budget: run this page in REAL time
@@ -30,8 +30,10 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
   const { store, split } = M;
   const $ = (id) => doc.getElementById(id);
   const host = $("splitHost");
-  const panes = [...host.querySelectorAll(".pane")];
-  const paneBtn = (i) => panes[i].querySelector(".pane-btn");
+  // Pane by NUMBER: in the DOM they sit in their halves, 0 2 | 1 3 (item 335).
+  const panes = [0, 1, 2, 3].map((i) => host.querySelector(`.pane[data-pane="${i}"]`));
+  const paneBtn = (i) => panes[i].querySelector(".pane-btn:not(.pane-sub-btn)");
+  const subBtn = (i) => panes[i].querySelector(".pane-sub-btn");
   const tab = (i, v) => panes[i].querySelector(`.tabs button[data-view="${v}"]`);
   const rect = (el) => el.getBoundingClientRect();
   // Each pane owns its own COPY of a view (item 148.1), so the host element is
@@ -40,8 +42,8 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
   const objOf = (i, name) => M.paneViews[i].get(name)?.obj ?? null;
 
   // ── 1. it starts as one pane ──────────────────────────────────────────────
-  check(panes.length === 2 && panes[1].hidden && rect(panes[1]).width === 0,
-    "the second pane starts closed", `${panes.length} panes`);
+  check(panes.every(Boolean) && panes.slice(1).every((p) => p.hidden && rect(p).width === 0),
+    "the other three panes start closed", `${host.querySelectorAll(".pane").length} panes`);
   check(!split.isSplit && store.views.length === 1 && store.view === "timeline",
     "one pane, showing the Timeline", store.views.join());
   // The strip is whatever VIEWS says it is (item 178 made it eight), and both
@@ -327,6 +329,125 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
   await sleep(200);
   check(store.views.join() === "timeline" && !hostOf(0, "timeline").hidden && !strip.hidden,
     "one pane, Timeline, master strip out");
+
+
+  // ── 10. three and four panes (item 335) ──────────────────────────────────
+  // Each half of the split can be split once more, across it: a pair, a pair
+  // with one half divided, a two-by-two grid.
+  {
+    const key = (code, mods = {}) => win.dispatchEvent(
+      new win.KeyboardEvent("keydown", { code, bubbles: true, ...mods }));
+    const near = (a, b, tol = 2) => Math.abs(a - b) < tol;
+    check(subBtn(0).hidden, "a lone pane offers no second split (its ⊞ IS the split)");
+    paneBtn(0).click();
+    await sleep(250);
+    check(!subBtn(0).hidden && !subBtn(1).hidden, "two panes: each offers to split its half");
+    subBtn(0).click();
+    await sleep(300);
+    check(split.count === 3 && !panes[2].hidden && split.focus === 2,
+      "the half-split opens pane 2, which takes the keyboard", store.views.join());
+    check(store.views.join() === "timeline,pattern,cues",
+      "…on something not yet on screen", store.views.join());
+    check(near(rect(panes[2]).left, rect(panes[0]).left) && rect(panes[2]).top >= rect(panes[0]).bottom - 1 &&
+      near(rect(panes[1]).height, rect(host).height, 3),
+      "side by side halves split top-bottom: pane 2 under pane 0, pane 1 the whole height",
+      `${Math.round(rect(panes[2]).top)} vs ${Math.round(rect(panes[0]).bottom)}`);
+    check(subBtn(0).hidden && subBtn(2).hidden && !subBtn(1).hidden,
+      "…and only the undivided half still offers it");
+    check(hostOf(2, "cues")?.parentElement === $("viewStage3") && !hostOf(2, "cues").hidden &&
+      rect(hostOf(2, "cues")).width > 10, "pane 2's view is built and drawn in its own stage");
+
+    split.setFocus(1);
+    key("F8", { ctrlKey: true, shiftKey: true });
+    await sleep(300);
+    check(split.count === 4 && !panes[3].hidden && split.focus === 3 &&
+      store.views.join() === "timeline,pattern,cues,files",
+      "Ctrl+Shift+F8 splits the other half: four panes", store.views.join());
+    const R = panes.map(rect);
+    check(near(R[0].top, R[1].top) && near(R[2].top, R[3].top) && near(R[0].left, R[2].left) &&
+      near(R[1].left, R[3].left) && R[0].right <= R[1].left + 1 && R[0].bottom <= R[2].top + 1,
+      "a two-by-two grid", R.map((r) => `${Math.round(r.left)},${Math.round(r.top)}`).join(" "));
+    check([0, 1, 2, 3].every((i) => subBtn(i).hidden), "a full grid offers no more splits");
+    check(host.classList.contains("is-quad") && near(rect(strip).right, rect($("viewHost")).right) &&
+      rect(host).right <= rect(strip).left + 1, "the master strip keeps the right end beside the grid");
+
+    // A half's own seam moves only that half.
+    const sd = split.subDividers[0];
+    const h0 = R[0].height, h1 = R[1].height;
+    const yT = rect(split.groups[0]).top + rect(split.groups[0]).height * 0.3;
+    const xS = rect(sd).left + 20;
+    sd.dispatchEvent(new win.PointerEvent("pointerdown", { clientX: xS, clientY: rect(sd).top + 4, bubbles: true, pointerId: 5 }));
+    sd.dispatchEvent(new win.PointerEvent("pointermove", { clientX: xS, clientY: yT, bubbles: true, pointerId: 5 }));
+    sd.dispatchEvent(new win.PointerEvent("pointerup", { clientX: xS, clientY: yT, bubbles: true, pointerId: 5 }));
+    await sleep(200);
+    check(rect(panes[0]).height < h0 - 50 && near(rect(panes[1]).height, h1),
+      "a half's seam resizes its own two panes and not the other half's",
+      `${Math.round(h0)} → ${Math.round(rect(panes[0]).height)}`);
+    sd.dispatchEvent(new win.MouseEvent("dblclick", { bubbles: true }));
+    await sleep(150);
+    check(near(rect(panes[0]).height, rect(panes[2]).height, 12), "…and a double-click evens it up");
+
+    // Shift+F8 walks one half, then the other.
+    const walk = [];
+    for (let k = 0; k < 4; k++) { key("F8", { shiftKey: true }); walk.push(split.focus); }
+    check(walk.join() === "0,2,1,3", "Shift+F8 walks the panes half by half", walk.join());
+
+    // Closing pane 0 of the grid: pane 2 moves up into it, view and all.
+    tab(2, "timeline").click();
+    await sleep(250);
+    const kept = objOf(2, "timeline");
+    kept.scrollBy(40);
+    const keptRow = kept.scrollRow;
+    paneBtn(0).click();
+    await sleep(300);
+    check(split.count === 3 && store.views.join() === "timeline,pattern,files" && panes[2].hidden,
+      "closing pane 0 of the grid: its half's other pane takes its place", store.views.join());
+    check(objOf(0, "timeline") === kept && kept.scrollRow === keptRow &&
+      hostOf(0, "timeline").parentElement === $("viewStage") && split.focus === 0,
+      "…with its own Timeline, scrolled where it was, and the keyboard");
+    // Closing pane 1 now: pane 3 moves up.
+    paneBtn(1).click();
+    await sleep(300);
+    check(split.count === 2 && store.views.join() === "timeline,files" && panes[3].hidden &&
+      hostOf(1, "files")?.parentElement === $("viewStage2") && !hostOf(1, "files").hidden,
+      "closing pane 1: pane 3 moves up, and two panes are a pair again", store.views.join());
+    check(!host.classList.contains("is-quad") && split.subDividers.every((d) => d.hidden),
+      "…with no half-seams left");
+
+    // A half split, then the OTHER half closed: the divided half becomes the pair.
+    subBtn(0).click();
+    await sleep(250);
+    paneBtn(1).click();
+    await sleep(300);
+    check(split.count === 2 && !panes[1].hidden && panes[2].hidden &&
+      rect(panes[0]).right <= rect(panes[1]).left + 1,
+      "closing the undivided half turns the divided one into the two halves", store.views.join());
+
+    // Portrait: the halves stack, and a half splits side by side.
+    app.style.width = "700px";
+    app.style.height = "1100px";
+    await sleep(400);
+    split.split(1);
+    await sleep(300);
+    check(split.count === 3 && near(rect(panes[1]).top, rect(panes[3]).top) &&
+      rect(panes[1]).right <= rect(panes[3]).left + 1 && near(rect(panes[0]).width, rect(host).width, 3),
+      "stacked halves split left-right: pane 3 beside pane 1, pane 0 the whole width",
+      `${Math.round(rect(panes[1]).right)} vs ${Math.round(rect(panes[3]).left)}`);
+    check(split.subDividers[1].classList.contains("rows") === false && split.divider.classList.contains("rows"),
+      "…and the seams turned with them");
+    app.style.width = "1400px";
+    app.style.height = "900px";
+    await sleep(400);
+    check(!host.classList.contains("stacked") && rect(panes[3]).top >= rect(panes[1]).bottom - 1,
+      "back to landscape, the half stacks again");
+
+    // F8 closes the pane with the keyboard until one is left.
+    for (let k = 0; k < 3 && split.isSplit; k++) { key("F8"); await sleep(250); }
+    check(split.count === 1 && !split.isSplit && panes.slice(1).every((p) => p.hidden),
+      "F8 closes them one by one, back to a single pane", store.views.join());
+    tab(0, "timeline").click();
+    await sleep(200);
+  }
 
   // ── 9. splitting with nothing loaded ─────────────────────────────────────
   // Before a project is open the Timeline pane IS the welcome screen (item

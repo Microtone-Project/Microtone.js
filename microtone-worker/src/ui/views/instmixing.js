@@ -74,6 +74,21 @@ const METER_MAX_DB = 6;
 const GR_MAX_DB = 24;
 const PEAK_HOLD_MS = 1500;
 const PEAK_FALL_DB_S = 20;
+
+/** Which Mixing tab holds each of the engine's meter seats. The engine has
+ *  IMX_METER_SEATS (two) and the screen can hold four Instruments views (item
+ *  335), so a seat is LEASED to a tab while it meters and given back when it
+ *  stops; a tab that finds none free shows its meters at rest. */
+const seatHolders = new Array(IMX_METER_SEATS).fill(null);
+
+/** A free seat for `holder`, its copy's own first (copy 0 seat 0, copy 1 seat
+ *  1 — what they always had), or -1 when every seat is taken. */
+function leaseSeat(holder, prefer) {
+  const want = Math.min(prefer, IMX_METER_SEATS - 1);
+  const seat = seatHolders[want] === null ? want : seatHolders.indexOf(null);
+  if (seat >= 0) seatHolders[seat] = holder;
+  return seat;
+}
 const SPEC_MIN_DB = -96;
 const SPEC_MAX_DB = -6;
 const SPEC_ATTACK = 0.55;
@@ -132,9 +147,10 @@ export class MixingPanel {
     this._shape = "";
     this.stage = 1;          // the level meter's side: 0 pre, 1 post
     this.readout = makeImixMeterReadout();
-    // The engine's tap seat this copy meters through: each split pane's copy
-    // has its own, so two panes can meter two instruments at once.
-    this.seat = Math.min(view.copy ?? 0, IMX_METER_SEATS - 1);
+    // The engine's tap seat this copy meters through, while it meters
+    // (leaseSeat): each pane's copy takes its own, so two panes can meter two
+    // instruments at once. -1 = none held.
+    this.seat = -1;
     this.peakHold = [-144, -144, -144, -144];
     this.peakHoldUntil = [0, 0, 0, 0];
     this.clipUntil = [0, 0, 0, 0];
@@ -1308,7 +1324,10 @@ export class MixingPanel {
     if (!audio) return;
     const want = this.root?.isConnected && this.view.visible && this.view.tab === "mixing" && this.block
       ? this.slot : -1;
+    if (want >= 0 && this.seat < 0) this.seat = leaseSeat(this, this.view.copy ?? 0);
+    if (this.seat < 0) return;
     if (audio.imixMeterSlots[this.seat] !== want) audio.setImixMeter(0, want, this.seat);
+    if (want < 0) { seatHolders[this.seat] = null; this.seat = -1; }
   }
 
   ctxFor(canvas, cssHeight) {
@@ -1334,8 +1353,8 @@ export class MixingPanel {
     const now = performance.now();
     const dt = this._lastFrame ? Math.min(100, now - this._lastFrame) : 16;
     this._lastFrame = now;
-    const r = audio.readImixMeter(this.readout, this.seat);
-    const fresh = r.frames > 0 && r.slot === this.slot;
+    const r = this.seat >= 0 ? audio.readImixMeter(this.readout, this.seat) : null;
+    const fresh = !!r && r.frames > 0 && r.slot === this.slot;
     if (fresh) this.lastLive = now;
     // Change-driven: paint while the bus runs, and for a moment after so the
     // ballistics settle; a still picture is not repainted — unless a cursor

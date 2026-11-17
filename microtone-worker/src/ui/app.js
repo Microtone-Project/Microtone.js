@@ -21,7 +21,7 @@ import { ProjectView } from "./views/project.js";
 import { WelcomeView } from "./views/welcome.js";
 import { MotifView } from "./views/motif.js";
 import { MasterStrip } from "./views/masterstrip.js";
-import { SplitView, VIEWS } from "./splitview.js";
+import { SplitView, VIEWS, MAX_PANES } from "./splitview.js";
 import { JamKeyboard } from "./jam.js";
 import { InstLookup } from "./instlookup.js";
 import { SUB_NOTE } from "./edit.js";
@@ -946,8 +946,9 @@ const WELCOME_HOOKS = {
  * How each view is built: the host element it draws into — `id` names the one
  * index.html already declares, which the FIRST copy reuses (those ids are what
  * the smoke tests address) — and how to construct it. `copy` is 0 for the
- * first, 1 for the one in the other pane; only the Patterns view cares, since
- * its per-column second-effect flags live in the store, keyed by pane index.
+ * first and counts up through the copies the other panes build (up to three);
+ * the Patterns view cares, since its per-column second-effect flags live in the
+ * store keyed by pane index, and so does the Instruments view's Mixing tab.
  */
 const VIEW_SPEC = {
   timeline: {
@@ -1054,11 +1055,11 @@ function viewEnabled(name) { return !!store.doc || NO_DOC_VIEWS.includes(name); 
 
 /** paneViews[i] holds pane i's copy of each view it has ever shown, as
  *  {el, els, obj} (+ the welcome screen on a Timeline entry). */
-const paneViews = [new Map(), new Map()];
+const paneViews = Array.from({ length: MAX_PANES }, () => new Map());
 /** …and how many copies of each view exist, so a second one knows it is one. */
 const viewCopies = new Map();
 
-// The view area: one pane or two, each with its own tabs (item 148).
+// The view area: one to four panes, each with its own tabs (items 148, 335).
 const split = new SplitView($("splitHost"), {
   onChange: (how) => applyViews(how),
   // The rest of applyViews waits for the press to end (see _pressFocus).
@@ -1119,14 +1120,15 @@ function adoptPaneView(from, to, name) {
 }
 
 /** The copy of `name` the keyboard is talking to: the focused pane's when that
- *  pane is showing it, else the other pane's, else the first copy (which
- *  always exists — pane 0 builds all eight at boot, so the smoke tests can
- *  drive a view that is not on screen). */
+ *  pane is showing it, else the first other pane's that is, else the first
+ *  copy (which always exists — pane 0 builds all of them at boot, so the
+ *  smoke tests can drive a view that is not on screen). */
 function viewNamed(name) {
-  for (const i of [split.focus, 1 - split.focus]) {
-    if (split.paneView(i) === name) return paneViews[i].get(name).obj;
-  }
-  return paneViews[0].get(name)?.obj ?? paneViews[1].get(name)?.obj ?? null;
+  if (split.paneView(split.focus) === name) return paneViews[split.focus].get(name).obj;
+  const i = split.paneOf(name);
+  if (i >= 0) return paneViews[i].get(name).obj;
+  for (const map of paneViews) { const e = map.get(name); if (e) return e.obj; }
+  return null;
 }
 /** Every copy of `name` that exists, shown or not — invalidations, rebuilds. */
 function eachView(name, fn) {
@@ -1993,6 +1995,13 @@ window.addEventListener("keydown", (e) => {
     const v = selView();
     if (v?.openMenuAtCursor?.()) { e.preventDefault(); return; }
   }
+  // Ctrl+Shift+F8 — split the pane the keyboard is in across its half (item
+  // 335); plain F8 below splits a lone pane and closes a split one.
+  if (e.code === "F8" && e.shiftKey && (e.ctrlKey || e.metaKey) && !e.altKey) {
+    e.preventDefault();
+    split.split(split.focus);
+    return;
+  }
   if (e.ctrlKey || e.metaKey || e.altKey) return;
 
   // Selection mode: the plain navigation keys go to the views as their Shift
@@ -2053,10 +2062,11 @@ window.addEventListener("keydown", (e) => {
       return;
     }
     // F8 — split the view area in two / close the pane the keyboard is in
-    // (item 148). Shift+F8 walks the keyboard between the two panes.
+    // (item 148). Shift+F8 walks the keyboard round the panes (Ctrl+Shift+F8,
+    // splitting a half across, is above with the other chords).
     case "F8": {
       e.preventDefault();
-      if (e.shiftKey) split.setFocus(1 - split.focus);
+      if (e.shiftKey) split.focusNext();
       else if (split.isSplit) split.close(split.focus);
       else split.split();
       return;

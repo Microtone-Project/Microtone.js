@@ -37,7 +37,7 @@
 
 import {
   SUB_NOTE, SUB_INST, SUB_VOL, SUB_PAN, SUB_FX_OP, SUB_FX_ARG, SUB_FX2_OP, SUB_FX2_ARG,
-  NOTE_PREFIX_CHARS, subIsEmpty,
+  NOTE_PREFIX_CHARS, subIsEmpty, COL_NOTE, COL_INST, COL_VOL, COL_PAN, COL_FX, COL_FX2,
 } from "./edit.js";
 
 export const CELLS_FULL = 0;
@@ -196,4 +196,59 @@ export function narrowCharToSub(charX, shown, wide) {
     else break;
   }
   return [pick[0], pick[1]];
+}
+
+// ── block selections (item 337) ─────────────────────────────────────────────
+// A block in a narrow cell is chosen by SLOT, not by column: what a drag or
+// Shift+arrows can stand on is the field (slot A's note-or-effect), the
+// instrument and slot B (volume-or-panning) — the PARTS, left to right. A
+// part stands for every column it can show, so a block over the field takes
+// the notes AND the effects of its rows, whichever each row is showing, and
+// one over slot B takes the volumes and the pannings. A block over every part
+// of the cell is the whole cell, as it always was (the volume and panning
+// included in the one-slot mode, where nothing shows them).
+
+/** The parts of a narrow cell, left to right. */
+export const PART_FIELD = 0, PART_INST = 1, PART_B = 2;
+
+/** How many parts a mode's cell has. */
+export function narrowParts(mode) {
+  return mode === CELLS_TWO ? 3 : 2;
+}
+
+/** The part a sub-column is in. The one-slot mode has no slot B, and its
+ *  volume and panning go to slot A's field, as the cursor does (narrowResolve). */
+export function narrowPartOf(mode, sub) {
+  const el = elementOf(sub);
+  if (el === EL_INST) return PART_INST;
+  if (el === EL_VOL || el === EL_PAN) return mode === CELLS_TWO ? PART_B : PART_FIELD;
+  return PART_FIELD;
+}
+
+/** The logical columns (edit.js COL_*) parts `lo`…`hi` stand for, ascending.
+ *  `fx2` is whether the lane shows its second effect — a hidden one is never
+ *  in a block. All the parts = the whole cell. */
+export function narrowPartCols(mode, lo, hi, fx2) {
+  const a = Math.min(lo, hi), b = Math.max(lo, hi);
+  if (a === 0 && b >= narrowParts(mode) - 1) {
+    return fx2 ? [COL_NOTE, COL_INST, COL_VOL, COL_PAN, COL_FX, COL_FX2]
+      : [COL_NOTE, COL_INST, COL_VOL, COL_PAN, COL_FX];
+  }
+  const cols = [];
+  for (let p = a; p <= b; p++) {
+    if (p === PART_FIELD) cols.push(COL_NOTE, COL_FX, ...(fx2 ? [COL_FX2] : []));
+    else if (p === PART_INST) cols.push(COL_INST);
+    else cols.push(COL_VOL, COL_PAN);
+  }
+  return cols.sort((x, y) => x - y);
+}
+
+/** The characters parts `lo`…`hi` cover: `[start, end]`, each part running on
+ *  to the next one's start (the space after it included), as a full cell's
+ *  column band does (edit.js colCharRange). */
+export function narrowPartChars(mode, wide, lo, hi) {
+  const ends = mode === CELLS_TWO
+    ? [[0, INST_CHAR], [INST_CHAR, SLOT_B_CHAR], [SLOT_B_CHAR, SLOT_B_CHAR + panChars(wide)]]
+    : [[0, INST_CHAR], [INST_CHAR, SLOT_A_CHARS]];
+  return [ends[Math.min(lo, hi)][0], ends[Math.max(lo, hi)][1]];
 }

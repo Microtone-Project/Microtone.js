@@ -11,9 +11,9 @@ import { LANE_FLAG_FX2 } from "../../core/format/lane-section.js";
 
 /** Panes the Patterns view can hold — the fx2 flags are kept per pane INDEX so
  *  they survive the pane churn a viewport resize causes (pattern.js MAX_PANES).
- *  Twice that, because a split screen can hold TWO Patterns views (item 148.1)
- *  and the second one's columns index from the halfway mark (its fx2Base). */
-const FX2_PANES = 32;
+ *  Four times that, because a split screen can hold FOUR Patterns views (items
+ *  148.1, 335) and copy k's columns index from 16·k (its fx2Base). */
+const FX2_PANES = 64;
 
 export class Store {
   constructor() {
@@ -23,7 +23,7 @@ export class Store {
     this.audio = null;       // AudioSystem
     this.songIndex = 0;
     // The FOCUSED pane's view — what the keyboard is talking to. `views` is
-    // every open pane's view in pane order (item 148: one entry, or two).
+    // every open pane's view in pane order (items 148, 335: one to four).
     this.view = "timeline";
     this.views = ["timeline"];
     this.fileName = null;

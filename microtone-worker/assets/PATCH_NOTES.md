@@ -34,6 +34,17 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 
 - The notice that a project was converted to format 3 now also closes with a click anywhere.
 
+**Up to four views at once**: once the screen is split, each half can be split again across the first split, for three panes or a two-by-two grid.
+
+- A pane that has its half to itself shows a second split button beside its close button; Ctrl+Shift+F8 does the same from the keyboard.
+- Every seam can be dragged and double-clicked to even it up; the seam inside a half moves only that half.
+- Shift+F8 walks the keyboard through every pane, and closing one lets the others close up, each keeping its own view and scroll position.
+
+**Narrow Timeline cells select by slot**: a block in the narrow cells can now cover just the note-or-effect field, the instrument, or the volume-or-panning slot, instead of always whole cells.
+
+- A block over the field takes the notes and the effects of its rows, whichever each row is showing, and leaves the instruments beside them alone.
+- Ctrl+A, Shift+click and the row numbers still select whole cells.
+
 ## Version 5.0.4 (2026-11-15)
 
 **`K` and `L` volume slides move as far as the original song's did**: a fade under a vibrato or a portamento rises and falls at its proper pace again, and the grey volume ghosts in the Timeline show what you hear.

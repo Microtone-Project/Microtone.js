@@ -89,6 +89,41 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
       "…and a click past its five places, the instrument beside it", `sub ${hitInst?.sub}`);
     tl.draw(-1);
 
+    // ── a block in narrow cells is chosen by slot (item 337) ────────────
+    // The field stands for the note AND the effects, the instrument for
+    // itself, slot B for the volume and the panning.
+    const cellAt = (r) => store.doc.patternAt(store.songIndex, PAT)[r];
+    store.cursor.row = 0; store.cursor.sub = E.SUB_NOTE; store.cursor.nib = 0;
+    tl.clearSelection(); tl.moveCursor(0, 0);
+    tl.extendSelection(1, 0); // rows 0–1: a note, then an effect, in the field
+    let b = tl.selBounds();
+    check(b.partLo === 0 && b.partHi === 0 && tl.selCols().join() === [E.COL_NOTE, E.COL_FX].join(),
+      "Shift+↓ from the field selects the field: notes and effects", `${b.partLo}…${b.partHi} cols ${tl.selCols()}`);
+    tl.draw(-1);
+    const undoDepth = store.undo.undoStack.length;
+    tl.deleteSelection();
+    check(cellAt(0).note === 0, "Delete clears the field's note", `note ${cellAt(0).note}`);
+    check(cellAt(0).instrment === 1, "…and leaves the instrument beside it", `inst ${cellAt(0).instrment}`);
+    check(cellAt(1).effect === 0, "…and clears the effect the next row showed there", `effect ${cellAt(1).effect}`);
+    while (store.undo.undoStack.length > undoDepth) store.undo.undo();
+    check(cellAt(0).note === 0x5000 && cellAt(1).effect === 12, "undo brings both back");
+    // The caret walks on through the effect's digits into the instrument; the
+    // block stays the field until it gets there.
+    let steps = 0;
+    while (store.cursor.sub !== E.SUB_INST && steps < 8) {
+      tl.extendSelectionSub(1); steps++;
+      if (store.cursor.sub !== E.SUB_INST && tl.selBounds().partHi !== 0) break;
+    }
+    b = tl.selBounds();
+    check(b.partLo === 0 && b.partHi === 1 && tl.selCols().join() === [E.COL_NOTE, E.COL_INST, E.COL_FX].join(),
+      "Shift+→ widens the block to the instrument", `${b.partLo}…${b.partHi} cols ${tl.selCols()}`);
+    tl.selectColumn();
+    b = tl.selBounds();
+    check(b.partLo === 0 && b.partHi === 2 && tl.selCols().includes(E.COL_VOL) && tl.selCols().includes(E.COL_PAN),
+      "Ctrl+A is still the whole cell", `${b.partLo}…${b.partHi}`);
+    tl.draw(-1);
+    tl.clearSelection();
+
     btn.click(); await frames(win, 2);
     check(store.timelineCells === 2, "two clicks: one slot");
     check(tl.headerH() === fullH - 16, "one slot: the lane-state row goes", `${fullH} → ${tl.headerH()}`);

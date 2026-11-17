@@ -59,6 +59,7 @@ export default {
   "tab.motif": "Motif",
   "pane.splitTitle": "Split the view in two (F8)",
   "pane.closeTitle": "Close this pane (F8)",
+  "pane.splitHalfTitle": "Split this pane in two (Ctrl+Shift+F8)",
   "toolbox.retune": "Retune…",
   "toolbox.rawTitle": "Show note words as raw hex",
   "toolbox.rawOn": "Raw: on",

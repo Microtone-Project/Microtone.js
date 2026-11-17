@@ -249,8 +249,8 @@
       "name": "Tabs",
       "kind": "css",
       "summary": "The pane tab strip: uppercase labels on panel-2 keys rounded at the top; the active tab fills with bg and inks accent, joining the view below.",
-      "api": "<div class=pane-head><div class=tabs><button class=active>…</button>…</div><button class=pane-btn>…</button></div> · .subtabs for the smaller in-panel strip.",
-      "classes": ["pane-head", "tabs", "pane-btn", "subtabs"],
+      "api": "<div class=pane-head><div class=tabs><button class=active>…</button>…</div><button class='pane-btn pane-sub-btn' hidden>…</button><button class=pane-btn>…</button></div> (the sub button splits a half across, shown only while it can) · .subtabs for the smaller in-panel strip.",
+      "classes": ["pane-head", "tabs", "pane-btn", "pane-sub-btn", "subtabs"],
       "tokens": ["panel", "panel-2", "bg", "accent", "border", "radius-md"]
     },
     {

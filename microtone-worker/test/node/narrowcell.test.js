@@ -9,8 +9,9 @@ import {
   CELLS_TWO, CELLS_ONE, EL_NOTE, EL_FX, EL_FX2, EL_VOL, EL_PAN, EL_INST, SLOT_A_CHARS,
   narrowCellChars, cellPresence, narrowShown, narrowOrigins, narrowWalk, narrowResolve,
   narrowCharPos, narrowCaret, narrowCharToSub,
+  PART_FIELD, PART_INST, PART_B, narrowParts, narrowPartOf, narrowPartCols, narrowPartChars,
 } from "../../src/ui/narrowcell.js";
-import { cellGeom } from "../../src/ui/edit.js";
+import { cellGeom, COL_NOTE, COL_INST, COL_VOL, COL_PAN, COL_FX, COL_FX2 } from "../../src/ui/edit.js";
 import {
   SUB_NOTE, SUB_INST, SUB_VOL, SUB_PAN, SUB_FX_OP, SUB_FX_ARG, SUB_FX2_OP, SUB_FX2_ARG,
 } from "../../src/ui/edit.js";
@@ -147,4 +148,43 @@ test("the five rows the change was specified by (`G` under a note, a panning, an
   for (const c of rows) {
     assert.equal(narrowOrigins(shown(CELLS_ONE, c))[EL_INST], 5.75, "the instrument, on every row");
   }
+});
+
+// Item 337: a narrow block is chosen by part — the field, the instrument,
+// slot B — and a part stands for every column it can show.
+test("narrow blocks: parts, the columns they stand for, and where they are drawn", () => {
+  assert.equal(narrowParts(CELLS_TWO), 3);
+  assert.equal(narrowParts(CELLS_ONE), 2);
+  for (const sub of [SUB_NOTE, SUB_FX_OP, SUB_FX_ARG, SUB_FX2_OP, SUB_FX2_ARG]) {
+    assert.equal(narrowPartOf(CELLS_TWO, sub), PART_FIELD);
+    assert.equal(narrowPartOf(CELLS_ONE, sub), PART_FIELD);
+  }
+  assert.equal(narrowPartOf(CELLS_TWO, SUB_INST), PART_INST);
+  assert.equal(narrowPartOf(CELLS_TWO, SUB_VOL), PART_B);
+  assert.equal(narrowPartOf(CELLS_TWO, SUB_PAN), PART_B);
+  assert.equal(narrowPartOf(CELLS_ONE, SUB_VOL), PART_FIELD, "no slot B: the field, as the cursor");
+
+  // One part at a time; a hidden second effect is never taken.
+  assert.deepEqual(narrowPartCols(CELLS_TWO, PART_FIELD, PART_FIELD, false), [COL_NOTE, COL_FX]);
+  assert.deepEqual(narrowPartCols(CELLS_TWO, PART_FIELD, PART_FIELD, true), [COL_NOTE, COL_FX, COL_FX2]);
+  assert.deepEqual(narrowPartCols(CELLS_TWO, PART_INST, PART_INST, true), [COL_INST]);
+  assert.deepEqual(narrowPartCols(CELLS_TWO, PART_B, PART_B, true), [COL_VOL, COL_PAN]);
+  assert.deepEqual(narrowPartCols(CELLS_TWO, PART_B, PART_INST, false), [COL_INST, COL_VOL, COL_PAN], "either way round");
+  assert.deepEqual(narrowPartCols(CELLS_TWO, PART_FIELD, PART_INST, false), [COL_NOTE, COL_INST, COL_FX]);
+  // Every part = the whole cell, in both modes (the one-slot mode's volume and
+  // panning included, as a narrow block always took them).
+  const whole = [COL_NOTE, COL_INST, COL_VOL, COL_PAN, COL_FX];
+  assert.deepEqual(narrowPartCols(CELLS_TWO, PART_FIELD, PART_B, false), whole);
+  assert.deepEqual(narrowPartCols(CELLS_ONE, PART_FIELD, PART_INST, false), whole);
+  assert.deepEqual(narrowPartCols(CELLS_ONE, PART_FIELD, PART_INST, true), [...whole, COL_FX2]);
+  assert.deepEqual(narrowPartCols(CELLS_ONE, PART_INST, PART_INST, false), [COL_INST]);
+
+  // The band: each part runs on to the next one's start.
+  assert.deepEqual(narrowPartChars(CELLS_TWO, 4, PART_FIELD, PART_FIELD), [0, 5.75]);
+  assert.deepEqual(narrowPartChars(CELLS_TWO, 4, PART_INST, PART_INST), [5.75, 8.75]);
+  assert.deepEqual(narrowPartChars(CELLS_TWO, 4, PART_B, PART_B), [8.75, 12.75]);
+  assert.deepEqual(narrowPartChars(CELLS_TWO, false, PART_INST, PART_B), [5.75, 11.75]);
+  assert.deepEqual(narrowPartChars(CELLS_ONE, 4, PART_INST, PART_INST), [5.75, SLOT_A_CHARS]);
+  assert.equal(narrowPartChars(CELLS_TWO, 4, PART_FIELD, PART_B)[1], narrowCellChars(CELLS_TWO, 4));
+  assert.equal(narrowPartChars(CELLS_ONE, 4, PART_FIELD, PART_INST)[1], narrowCellChars(CELLS_ONE, 4));
 });

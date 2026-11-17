@@ -56,6 +56,7 @@ export default {
   "tab.motif": "모티프",
   "pane.splitTitle": "화면을 둘로 나누기 (F8)",
   "pane.closeTitle": "이 칸 닫기 (F8)",
+  "pane.splitHalfTitle": "이 칸을 둘로 나누기 (Ctrl+Shift+F8)",
   "toolbox.retune": "조율 변경…",
   "toolbox.rawTitle": "노트 워드를 16진수 원시값으로 표시",
   "toolbox.rawOn": "원시값: 켬",

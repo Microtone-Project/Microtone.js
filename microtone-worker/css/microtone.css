@@ -948,13 +948,15 @@ button.icon-btn:disabled:hover { border-color: var(--border); }
 
 .grow { flex: 1; }
 
-/* ── split panes (item 148) ───────────────────────────────────────────────
- * The view area holds one pane or two, and each pane carries its own tab strip
- * plus the button that splits it (or closes it again). Which WAY it splits
- * follows the shape of the area being split — side by side while it is wider
- * than tall, stacked otherwise; splitview.js measures and sets the class, the
- * stylesheet knows nothing about the threshold. The master strip is a sibling
- * of the whole split, so it keeps the right-hand edge either way. */
+/* ── split panes (items 148, 335) ─────────────────────────────────────────
+ * The view area holds one to four panes, and each pane carries its own tab
+ * strip plus the buttons that split it (or close it again). The panes sit in
+ * two HALVES (.pane-group): the halves split one way, and each half's two
+ * panes the other. Which way the halves go follows the shape of the area being
+ * split — side by side while it is wider than tall, stacked otherwise;
+ * splitview.js measures and sets the classes, the stylesheet knows nothing
+ * about the threshold. The master strip is a sibling of the whole split, so it
+ * keeps the right-hand edge either way. */
 .split-host {
   flex: 1;
   display: flex;
@@ -963,6 +965,14 @@ button.icon-btn:disabled:hover { border-color: var(--border); }
   min-height: 0;
 }
 .split-host.stacked { flex-direction: column; }
+.pane-group {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.split-host.stacked .pane-group { flex-direction: row; }
 .pane {
   flex: 1 1 0;
   display: flex;
@@ -972,9 +982,10 @@ button.icon-btn:disabled:hover { border-color: var(--border); }
 }
 /* …but a closed pane is closed: `display: flex` above would otherwise beat the
    UA stylesheet's [hidden] rule and leave the empty pane on screen. */
-.pane[hidden] { display: none; }
-/* The seam between the panes, and the grip that resizes them (like the master
-   strip's ms-split). Its 8px are what splitview.js budgets out of the ratio. */
+.pane[hidden], .pane-group[hidden], .pane-divider[hidden], .pane-sub-btn[hidden] { display: none; }
+/* The seam between two panes (or two halves), and the grip that resizes them
+   (like the master strip's ms-split). Its 8px are what splitview.js budgets
+   out of the ratio. A seam between panes one above the other is `.rows`. */
 .pane-divider {
   flex: 0 0 8px;
   background:
@@ -986,7 +997,7 @@ button.icon-btn:disabled:hover { border-color: var(--border); }
   opacity: 0.65;
   touch-action: none;
 }
-.split-host.stacked .pane-divider {
+.pane-divider.rows {
   background:
     linear-gradient(var(--dim), var(--dim)) center/28px 1px no-repeat,
     var(--panel);
@@ -1006,6 +1017,8 @@ button.icon-btn:disabled:hover { border-color: var(--border); }
   border-bottom: 1px solid var(--border);
 }
 .pane-btn { align-self: center; margin-left: 0.5rem; padding: 0.1rem 0.4rem; color: var(--dim); }
+/* The split-across button sits right beside the close button it precedes. */
+.pane-sub-btn + .pane-btn { margin-left: 2px; }
 .pane-btn:hover { color: var(--fg); }
 
 .tabs {

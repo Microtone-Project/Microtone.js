@@ -221,19 +221,22 @@ Every number field and dropdown in the panels is a value between two buttons:
 - **Pitch fields also take cents and ratios.** Wherever a field holds an interval or a detune — an instrument's detune, a layer's or an FM operator's, the notation maker's cents, the chord maker's raw offset — you can type it the way you think of it: `700c` for 700 cents, `3/2` (or `3:2`) for a just fifth, `-5/4` for a major third down, or `$100` / `0x100` in hex. A plain number still means whatever the box shows, cents in a cents box. These fields hold the 65536 steps per octave the note column does: hex counts those steps (`$095C0` is the fifth, `$100` a 256th of an octave), and cents and ratios go straight onto the nearest of them, so `5/4` lands within 0.002 cent of a just major third.
 - **Some fields read in one unit and step in another**, because the file stores something else. An envelope segment shows **seconds** and steps one storable length at a time; a metainstrument layer's mix shows **decibels** and steps one mix level, with the raw byte beside it; a layer's detune shows **cents** and steps a whole degree of the song's own notation; a layer's or a zone's volume range shows **note volumes** (0–255) but the file keeps it in steps of four, so the low end reads the first volume of its step, the high end the last, and ∓ moves a whole step. A **pitch** — a fixed pitch, a layer's or a zone's pitch range, the pitch-pan centre — reads as its count of 65536-TET steps in hex (`$50000` is C4, never with a point), takes the same count as a plain decimal (`327680`) or a note name (`C-4`), and steps a degree of the song's notation. The top of a range is the last step inside it: a note name or a step lands on the last of the sixteen steps its note word names (`C-4` as a top is `$5000F`), and a typed number is taken as it stands. An instrument's **detune** reads in **cents** and steps the same way; the **sample pointer** reads in hex; and in SoundFont filter mode the **cutoff** reads in **Hz** (and takes `1.2k`) and steps a semitone, while the **resonance** and an Advanced Edit zone's **attenuation** read in **dB**. Typing works in whatever the box shows, and the value settles on the nearest one the file can hold.
 
-### Two views at once
+### Several views at once
 
 **F8** (or the **⊞** button at the end of the tab strip) splits the screen in
 two, and every pane carries its own set of the nine tabs — Timeline against
 Patterns, a pattern against the instrument it plays, the Cues list against the
-song it orders.
+song it orders. Each half can then be split once more, across the first split,
+for three panes or four.
 
 - Which way it splits follows the shape of the screen: side by side while it is wider than tall, one above the other otherwise. Turning a tablet on its side re-splits it the other way by itself.
-- **Drag the seam** between the panes to give one more room; double-click it to even them up again.
-- The pane you last clicked in has the keyboard — its active tab is the one in the accent colour. **Shift+F8** moves to the other pane.
-- **Both panes can show the same view**: two Timelines scrolled to different bars of the song, two Patterns views, two of anything. Each is a copy of its own, with its own scroll position and its own selection, and both edit the one document — a change in either shows up in the other at once. (**F1**–**F7** and **F9** never open a second copy of something already on screen: they take you to the pane that has it. Clicking the tab is how you ask for a second one.)
-- **F8** again, or the pane's **✕**, closes it; the view in the other pane keeps the screen — including which bar it was scrolled to, so closing the pane you are working in leaves you where you were.
-- The master strip (see [Timeline](#timeline-f1)) stays where it is down the right-hand edge, beside both panes, and is on screen whenever *either* pane shows the Timeline.
+- **Splitting a half**: once the screen is split, each pane that has its half to itself shows a second **⊞** beside its **✕**; it (or **Ctrl+Shift+F8**) divides that half the other way. Side-by-side halves divide top and bottom, stacked halves left and right — so splitting both makes a two-by-two grid.
+- **Drag a seam** between panes to give one more room; double-click it to even them up again. The seam inside a half moves only that half's two panes.
+- The pane you last clicked in has the keyboard — its active tab is the one in the accent colour. **Shift+F8** moves to the next pane, going through one half and then the other.
+- **Any number of panes can show the same view**: two Timelines scrolled to different bars of the song, two Patterns views, two of anything. Each is a copy of its own, with its own scroll position and its own selection, and all of them edit the one document — a change in one shows up in the others at once. (**F1**–**F7** and **F9** never open a second copy of something already on screen: they take you to the pane that has it. Clicking the tab is how you ask for a second one.)
+- **F8** again, or the pane's **✕**, closes the pane the keyboard is in; the others close up to fill the gap, each keeping its view — including which bar it was scrolled to, so closing the pane you are working in leaves the others where they were. When a half loses its last pane, the other half's two panes become the two halves.
+- The master strip (see [Timeline](#timeline-f1)) stays where it is down the right-hand edge, beside every pane, and is on screen whenever *any* pane shows the Timeline.
+- The Instruments view's **Mixing** tab can meter two chains at once; with the tab open in more panes than that, the extra ones show their meters at rest until one of the others closes the tab.
 
 ## Timeline (F1)
 
@@ -326,7 +329,15 @@ They are made for watching, but you can still type into them: what you type
 goes to the column the slot is **showing** on that row, and into an empty slot
 it goes to the note, or to the volume. Arrow up and down and the cursor stands
 on whatever each row shows, then comes back to the column you put it on when a
-row shows that column again. A block selection is always whole cells here.
+row shows that column again.
+
+A block selection here is made of **slots**, not columns: drag across, or
+use Shift with the arrows, and the block covers the first slot's field (the
+note or effect), the instrument, or the second slot (the volume or panning),
+or any run of them. A slot stands for everything it can show, so a block over
+the first slot's field takes the notes **and** the effects of its rows — Delete
+clears both, and a copy carries both — while the instruments beside them stay.
+Ctrl+A, Shift+click and the row numbers still select whole cells.
 
 ### Navigation
 
@@ -3573,7 +3584,7 @@ centre of the scale.
 | Enter | Play from cursor / stop |
 | Shift+Enter | Play from start |
 | F1…F7 · F9 · Shift+F7 · Shift+F9 | Switch views (Shift+F7 is the Motif tab, Shift+F9 the Keymap tab) |
-| F8 · Shift+F8 | Split the view in two / close the pane · the other pane |
+| F8 · Shift+F8 · Ctrl+Shift+F8 | Split the view in two / close the pane · the next pane · split this pane's half across |
 | Space | Record mode on/off |
 | [ ] | Input step down / up (0–16 rows) |
 | Alt+← / Alt+→ | Previous / next instrument |
