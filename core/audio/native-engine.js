@@ -19,9 +19,11 @@
 //                one message, in order
 //   host → page  u8 kind, 3 pad, then per NATIVE_MSG below
 //
-// Besides the engine's commands the page asks the host itself for two things
-// (the desktop Settings tab): HOST_DEVICES, every audio API's output devices,
-// and HOST_CONFIGURE, another output (a JSON blob), answered by a STATUS.
+// Besides the engine's commands the page asks the host itself (the desktop
+// Settings tab): HOST_DEVICES, every audio API's output devices; HOST_CONFIGURE,
+// another output (a JSON blob), answered by a STATUS; HOST_PANEL, the open ASIO
+// driver's own settings window, unanswered. A STATUS also comes unasked when
+// the host reopened a device that went away (or whose driver asked for it).
 
 import { CMD, MSG } from "../worklet/protocol.js";
 import { engineSeed } from "../engine/rng.js";
@@ -262,21 +264,30 @@ export class NativeEngineLink {
    *  name, devices: [{ name, isDefault, rates, preferredRate }] }], current }. */
   requestDevices() { return this._ask("HOST_DEVICES", null, NATIVE_MSG.DEVICES); }
 
-  /** Another output: { api, device, rate, bufferFrames } (device "" and rate
-   *  0 = the defaults). Resolves to the host's status once the device is
+  /** Another output: { api, device, rate, bufferFrames, mode } (device ""
+   *  and rate 0 = the defaults; bufferFrames 0 = the driver's own size,
+   *  where it has one). Resolves to the host's status once the device is
    *  open again — the asked-for one, or, with `error` said, the one before. */
   configure(config) { return this._ask("HOST_CONFIGURE", config, NATIVE_MSG.STATUS); }
+
+  /** The open ASIO driver's settings window (status.driverPanel). Nothing
+   *  answers; a change made there reopens the output, and a STATUS says so. */
+  openDriverPanel() { this._request("HOST_PANEL", null); }
 
   _ask(name, json, replyKind) {
     return new Promise((resolve) => {
       this._waiting[replyKind].push(resolve);
-      const blobs = json === null ? [] : [UTF8.encode(JSON.stringify(json))];
-      this._queue.push({ name, ints: [], doubles: [], blobs });
-      if (!this._flushQueued) {
-        this._flushQueued = true;
-        queueMicrotask(() => this._flush());
-      }
+      this._request(name, json);
     });
+  }
+
+  _request(name, json) {
+    const blobs = json === null ? [] : [UTF8.encode(JSON.stringify(json))];
+    this._queue.push({ name, ints: [], doubles: [], blobs });
+    if (!this._flushQueued) {
+      this._flushQueued = true;
+      queueMicrotask(() => this._flush());
+    }
   }
 
   _flush() {

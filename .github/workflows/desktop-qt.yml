@@ -1,8 +1,9 @@
 # The Qt desktop build (desktop-qt/, item 336) for Windows: the shell, the C
-# engine and the WASAPI backend built with MSVC against Qt 6.8 LTS, packaged
-# with windeployqt and the staged web app, and kept as a build artifact.
-# Nothing here releases: the Tauri build (desktop.yml) still does that, until
-# the Qt build replaces it.
+# engine, the WASAPI backend and ASIO (RtAudio) built with MSVC against Qt 6.8
+# LTS, packaged with windeployqt, the C runtime and the staged web app, then
+# made into an installer (desktop-qt/installer/microtone.nsi). Both are kept as
+# build artifacts. Nothing here releases: the Tauri build (desktop.yml) still
+# does that, until the Qt build replaces it.
 name: Desktop (Qt)
 
 on:
@@ -14,6 +15,7 @@ on:
       - "core/**"
       - "microtone-worker/**"
       - "tools/stage-site.js"
+      - "COPYING"
       - ".github/workflows/desktop-qt.yml"
 
 concurrency:
@@ -59,15 +61,47 @@ jobs:
           $version = node -p "require('./microtone-worker/package.json').version"
           $out = "build/Microtone-$version-windows-x64"
           New-Item -ItemType Directory -Force -Path $out | Out-Null
-          Copy-Item build/microtone.exe, build/wasapi-probe.exe $out
-          # The Qt runtime, WebEngine's process and resources among it.
-          windeployqt --release --no-system-d3d-compiler --no-opengl-sw "$out/microtone.exe"
+          Copy-Item build/microtone.exe, build/wasapi-probe.exe, build/asio-probe.exe $out
+          # The Qt runtime, WebEngine's process and resources among it — but
+          # not vc_redist.x64.exe, which needs an administrator to run: the C
+          # runtime's own DLLs go beside the app instead (Microsoft's "local
+          # deployment"), so a per-user install needs nothing else.
+          windeployqt --release --no-compiler-runtime --no-system-d3d-compiler --no-opengl-sw "$out/microtone.exe"
+          $crt = Get-ChildItem "$env:VCToolsRedistDir\x64" -Directory -Filter "Microsoft.VC*.CRT" | Select-Object -First 1
+          if (-not $crt) { throw "no C runtime under '$env:VCToolsRedistDir'" }
+          Copy-Item "$($crt.FullName)\*.dll" $out
+          Copy-Item COPYING "$out/LICENSE.txt"
           # The web app, where the binary looks for it: www/ beside itself.
           node desktop-qt/tools/stage-frontend.js "$out/www"
           "version=$version" >> $env:GITHUB_ENV
+
+      # NSIS: on the runner image, or from Chocolatey where it is not.
+      - name: Installer
+        shell: pwsh
+        run: |
+          $makensis = (Get-Command makensis -ErrorAction SilentlyContinue).Source
+          if (-not $makensis) {
+            $makensis = "${env:ProgramFiles(x86)}\NSIS\makensis.exe"
+            if (-not (Test-Path $makensis)) { choco install nsis -y --no-progress }
+          }
+          $root = (Get-Location).Path
+          $stage = "$root\build\Microtone-$env:version-windows-x64"
+          node desktop-qt/tools/installer-files.js $stage build/installer-lists
+          $numeric = [regex]::Match($env:version, '^\d+\.\d+\.\d+').Value
+          & $makensis /V3 /INPUTCHARSET UTF8 "/DVERSION=$env:version" "/DFILEVERSION=$numeric.0" `
+            "/DSTAGE=$stage" "/DLISTS=$root\build\installer-lists" `
+            "/DOUTFILE=$root\build\Microtone-$env:version-windows-x64-setup.exe" desktop-qt/installer/microtone.nsi
+          if ($LASTEXITCODE -ne 0) { throw "makensis failed ($LASTEXITCODE)" }
 
       - uses: actions/upload-artifact@v4
         with:
           name: Microtone-${{ env.version }}-windows-x64
           path: build/Microtone-${{ env.version }}-windows-x64
           if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Microtone-${{ env.version }}-windows-x64-setup
+          path: build/Microtone-${{ env.version }}-windows-x64-setup.exe
+          if-no-files-found: error
+          compression-level: 0  # LZMA already

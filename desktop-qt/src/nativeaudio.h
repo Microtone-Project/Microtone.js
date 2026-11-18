@@ -21,12 +21,18 @@
 //   page → host  one or more frames: u8 name length, the name, u16 ints,
 //                u8 doubles, u8 blobs, then i32s, f64s and (u32 length, bytes)
 //                per blob. A CMD's name carries its C arguments, lowered by
-//                the page; HOST_DEVICES and HOST_CONFIGURE (a JSON blob) are
-//                the host's own.
+//                the page; HOST_DEVICES, HOST_CONFIGURE (a JSON blob) and
+//                HOST_PANEL (the ASIO driver's settings window) are the
+//                host's own.
 //   host → page  u8 kind + 3 pad, then: 0 STATUS (JSON: first as the hello,
 //                again after every HOST_CONFIGURE), 1 SNAPSHOT (interrupt
 //                mask + 16 args, ranges, floats), 2 INVERT_MASK (enginehost.c),
 //                3 PROFILE (JSON), 4 DEVICES (JSON)
+//
+// A device that goes away — unplugged, or an ASIO driver asking to be reset
+// because its own panel changed the buffer or the rate — is opened again with
+// the same setting (the defaults when that will not open), and the page is
+// told.
 #pragma once
 
 #include <QByteArray>
@@ -61,7 +67,9 @@ class NativeAudio : public QObject {
   /** An output setting. Empty api / device = the default; rate 0 = 48 kHz
    *  where the device has it, else its own. `device` is what the API names a
    *  device by: RtAudio's name, WASAPI's endpoint id. `mode` is WASAPI's:
-   *  "shared", "lowLatency" or "exclusive" (empty elsewhere). */
+   *  "shared", "lowLatency" or "exclusive" (empty elsewhere). bufferFrames 0
+   *  is the driver's own size (ASIO: what its panel is set to); elsewhere it
+   *  means 256. */
   struct Config {
     QString api;
     QString device;
@@ -86,6 +94,10 @@ class NativeAudio : public QObject {
   /** Every compiled API's output devices, and what is open now. */
   QJsonObject devices();
 
+  /** RtAudio's word that the open device went away, or that its driver asked
+   *  to be reset. Any thread: the GUI thread's pump opens it again. */
+  void deviceLost();
+
  private:
   static int callback(void *out, void *in, unsigned int frames, double time, unsigned int status, void *user);
   void process(float *out, unsigned int frames, unsigned int status);
@@ -94,8 +106,12 @@ class NativeAudio : public QObject {
   void requestRealtime(long tid);
 
   bool open(const Config &config, QString *error);
+  bool openDefaults(unsigned bufferFrames, QString *error);
   bool openRtAudio(const Config &config, QString *error);
   void closeDevice();
+  void reopenLost();
+  bool closerDone(unsigned ms);
+  void openDriverPanel();
 #if MICROTONE_WASAPI
   bool openWasapi(const Config &config, QString *error);
   static void wasapiRender(void *user, float *out, int frames);
@@ -120,8 +136,17 @@ class NativeAudio : public QObject {
   unsigned int bufferFrames_ = 256;
   unsigned int streamLatency_ = 0;
   double latencyMs_ = 0.0;   // where the API reports it whole (WASAPI)
-  QString format_;           // the device's sample format, where it is chosen (WASAPI exclusive)
+  QString format_;           // the device's sample format, where the host meets it (WASAPI exclusive, ASIO)
   bool running_ = false;
+  // ASIO: the open driver's buffer sizes (asiodriver.h), for the tab.
+  bool driverPanel_ = false;
+  long bufMin_ = 0, bufMax_ = 0, bufStep_ = 0, bufPreferred_ = 0;
+  // The open device went away (deviceLost); on Windows, the RtAudio thread
+  // still closing it, which the reopen waits for.
+  std::atomic<bool> lost_{false};
+  std::atomic<void *> closer_{nullptr};
+  unsigned long guiThread_ = 0;
+  qint64 lastReopenMs_ = 0;
   // The stream is set up: until then the callback plays silence. A WASAPI
   // stream starts inside its open, before the host has its rate.
   std::atomic<bool> live_{false};

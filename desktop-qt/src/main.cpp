@@ -29,6 +29,16 @@
 #include <QStandardPaths>
 #include <QWebSocket>
 
+#ifdef Q_OS_WIN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
+
 #include "appserver.h"
 #include "nativeaudio.h"
 #include "shell.h"
@@ -80,7 +90,10 @@ int main(int argc, char **argv) {
   QApplication app(argc, argv);
   // Both names: without an organisation QSettings reads and writes nothing
   // (the window's place, the audio output). Settings: <config>/Microtone/
-  // Microtone.conf; the browser profile: <data>/Microtone/Microtone.
+  // Microtone.conf (Windows: HKCU\Software\Microtone\Microtone); the browser
+  // profile — every project — below the app's LOCAL data folder (Windows:
+  // %LOCALAPPDATA%\Microtone\Microtone, not the roaming one: projects are
+  // big). The installer's uninstaller knows both (installer/microtone.nsi).
   QApplication::setOrganizationName(QStringLiteral("Microtone"));
   QApplication::setApplicationName(QStringLiteral("Microtone"));
   QApplication::setApplicationVersion(QStringLiteral(MICROTONE_VERSION));
@@ -100,6 +113,11 @@ int main(int argc, char **argv) {
   if (cli.isSet(QStringLiteral("version"))) cli.showVersion();
 
   if (handOverToRunningInstance()) return 0;
+#ifdef Q_OS_WIN
+  // Held for the app's life (Windows lets it go at exit): the installer asks
+  // by this name whether the app is running before it replaces or removes it.
+  CreateMutexW(nullptr, FALSE, L"Local\\microtone-desktop");
+#endif
 
   const QString root = findRoot(cli.value(rootOption));
   if (root.isEmpty()) {
@@ -137,7 +155,7 @@ int main(int argc, char **argv) {
     }
   }
 
-  const QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+  const QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
   QDir().mkpath(dataDir);
   Shell shell(QUrl(QStringLiteral("http://") + QLatin1String(kAppHost) + u'/'), token, dataDir, nativeEngine,
               nativeEngine.isEmpty() ? QJsonObject() : native.status());

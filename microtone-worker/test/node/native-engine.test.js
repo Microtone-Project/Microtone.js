@@ -205,10 +205,15 @@ test("the host's own requests: the device list and another output, each answered
   const devices = link.requestDevices();
   const config = { api: "alsa", device: "", rate: 44100, bufferFrames: 128 };
   const configured = link.configure(config);
+  link.openDriverPanel();
   await new Promise((r) => setTimeout(r, 0)); // the frames of one turn go as one message
   assert.equal(sent.length, 1);
   const frames = decodeFrames(sent[0]);
-  assert.deepEqual(frames.map((f) => f.name), ["HOST_DEVICES", "HOST_CONFIGURE"]);
+  assert.deepEqual(frames.map((f) => f.name), ["HOST_DEVICES", "HOST_CONFIGURE", "HOST_PANEL"]);
+  assert.equal(frames[2].blobs.length, 0);
+  // Each is the host's own (nativeaudio.cpp), not the engine's.
+  const host = readFileSync(new URL("../../../desktop-qt/src/nativeaudio.cpp", import.meta.url), "utf8");
+  for (const f of frames) assert.ok(host.includes(`"${f.name}"`), `${f.name} is handled in nativeaudio.cpp`);
   assert.deepEqual(JSON.parse(new TextDecoder().decode(frames[1].blobs[0])), config);
   // The host answers each by its kind.
   const reply = (kind, obj) => {
@@ -225,6 +230,11 @@ test("the host's own requests: the device list and another output, each answered
   assert.equal((await configured).rate, 44100);
   assert.equal(link.hello.apiId, "alsa", "the link keeps the newest status");
   assert.equal(statuses.length, 1);
+  // A STATUS the host sends unasked (it reopened a lost device) is kept too.
+  socket.onmessage({ data: reply(NATIVE_MSG.STATUS, { ok: true, apiId: "alsa", rate: 48000, error: "" }) });
+  assert.equal(link.hello.rate, 48000);
+  assert.equal(statuses.length, 2);
   assert.equal(nativeApiName("pulse"), "PulseAudio");
+  assert.equal(nativeApiName("asio"), "ASIO");
   assert.equal(nativeApiName("weird", "Weird"), "Weird");
 });

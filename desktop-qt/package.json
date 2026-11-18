@@ -1,0 +1,6 @@
+{
+  "name": "microtone-desktop-qt",
+  "private": true,
+  "type": "module",
+  "description": "Not an npm project: this file only tells Node that tools/*.js are ES modules. The app's version is microtone-worker/package.json's."
+}

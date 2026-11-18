@@ -10,7 +10,8 @@
 // device refuses puts the previous one back, and the tab says why.
 //
 //   Audio        the audio system (API), the device, WASAPI's mode, the sample
-//                rate, the buffer
+//                rate, the buffer (ASIO: the driver's own size, and its
+//                settings window)
 //   Performance  the device callback's load, the engine's, dropouts, and the
 //                real-time scheduling the thread was granted
 //
@@ -34,9 +35,12 @@ const CATEGORIES = [
 // WASAPI's three ways to play (desktop-qt/src/wasapi.h), in the host's words.
 const MODES = ["shared", "lowLatency", "exclusive"];
 
-/** The buffer sizes worth offering where a mode has limits: the usual ones
- *  inside them, the shortest it allows and the longest. */
-export function bufferChoices(limits) {
+/** The buffer sizes worth offering where a mode or a driver has limits: the
+ *  usual ones inside them, the shortest it allows and the longest. With
+ *  `driver` (an ASIO driver, which keeps a size of its own) 0 comes first:
+ *  "the driver's", whatever its settings window says. */
+export function bufferChoices(limits, driver = false) {
+  if (driver) return [0, ...bufferChoices(limits)];
   if (!limits) return BUFFERS;
   const min = limits.min || 0, max = limits.max || Infinity, step = limits.step || 1;
   const fits = (n) => n >= min && n <= max && n % step === 0;
@@ -186,7 +190,9 @@ export class SettingsView {
       b.disabled = this.busy;
       b.addEventListener("click", () => {
         if (a.id !== now.apiId) {
-          this._apply({ api: a.id, device: "", rate: 0, bufferFrames: now.bufferFrames, mode: a.modes ? "lowLatency" : "" });
+          // An ASIO driver plays at its own size until told otherwise.
+          const bufferFrames = a.driverBuffer ? 0 : now.bufferFrames;
+          this._apply({ api: a.id, device: "", rate: 0, bufferFrames, mode: a.modes ? "lowLatency" : "" });
         }
       });
       apiSeg.append(b);
@@ -201,7 +207,9 @@ export class SettingsView {
     };
     const devSel = el("select", "set-select");
     const def = api?.devices.find((d) => d.isDefault);
-    devSel.append(new Option(def ? t("settings.deviceDefaultIs", { name: def.name }) : t("settings.deviceDefault"), ""));
+    // ASIO has no system default: RtAudio takes the first driver.
+    const defLabel = api?.driverBuffer ? "settings.deviceFirstIs" : "settings.deviceDefaultIs";
+    devSel.append(new Option(def ? t(defLabel, { name: def.name }) : t("settings.deviceDefault"), ""));
     for (const d of api?.devices ?? []) devSel.append(new Option(d.name, d.id ?? d.name));
     devSel.value = asked.device;
     devSel.disabled = this.busy;
@@ -244,13 +252,17 @@ export class SettingsView {
       section.append(this._row(t("settings.rate"), rateSel));
     }
 
-    // The buffer: the usual sizes, or those the mode allows on this device;
-    // the latency each costs is read below.
+    // The buffer: the usual sizes, or those the mode (WASAPI) or the open
+    // driver (ASIO) allows on this device; the latency each costs is read
+    // below. An ASIO driver's own size comes first, and its window beside.
+    const isOpen = api?.id === now.apiId;  // the device shown is the open one
+    const limits = modeLimits ?? (api?.driverBuffer && isOpen ? now.bufferLimits ?? null : null);
     const bufSeg = el("div", "mst-seg");
-    for (const n of bufferChoices(modeLimits)) {
-      const b = el("button", n === asked.bufferFrames ? "active" : "", String(n));
+    for (const n of bufferChoices(limits, !!api?.driverBuffer)) {
+      const b = el("button", n === asked.bufferFrames ? "active" : "", n === 0 ? t("settings.bufferDriver") : String(n));
       b.type = "button";
       b.disabled = this.busy;
+      if (n === 0) b.title = t("settings.bufferDriverTitle");
       b.addEventListener("click", () => {
         if (n !== asked.bufferFrames) this._apply({ ...asked, bufferFrames: n });
       });
@@ -258,17 +270,26 @@ export class SettingsView {
     }
     const bufCell = el("div", "set-inline");
     bufCell.append(bufSeg, el("span", "set-unit", t("settings.frames")));
+    if (api?.driverPanel && isOpen && now.driverPanel) {
+      const panel = el("button", "", t("settings.driverPanel"));
+      panel.type = "button";
+      panel.disabled = this.busy;
+      panel.addEventListener("click", () => link.openDriverPanel());
+      bufCell.append(panel);
+    }
     section.append(this._row(t("settings.buffer"), bufCell));
+    if (api?.driverPanel) section.append(el("p", "set-note set-indent", t("settings.driverNote")));
 
     // What is open now, in words.
     if (this.busy) {
       section.append(el("p", "set-note", t("settings.applying")));
     } else {
-      // "WASAPI, exclusive, 24-bit PCM in 32": the mode and the sample format
+      // "WASAPI, exclusive, 24-bit PCM in 32", "ASIO, 32-bit PCM": the mode
+      // and the device's own sample format (where nothing mixes before it)
       // are part of what is open.
       const how = [nativeApiName(now.apiId, now.api)];
       if (now.mode) how.push(t(`settings.mode.${now.mode}`).toLocaleLowerCase());
-      if (now.format && now.mode === "exclusive") how.push(now.format);
+      if (now.format && (now.mode === "exclusive" || !now.mode)) how.push(now.format);
       section.append(el("p", "set-note", t("settings.now", {
         device: now.device, api: how.join(", "), rate: now.rate,
         ms: ms(now.bufferMs, 1), latency: ms(now.latencyMs, 1),

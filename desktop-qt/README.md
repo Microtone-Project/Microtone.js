@@ -52,14 +52,36 @@ an "x64 Native Tools" prompt:
 ```bat
 cmake -S desktop-qt -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build
-windeployqt --release build\microtone.exe
+windeployqt --release --no-compiler-runtime build\microtone.exe
+copy "%VCToolsRedistDir%\x64\Microsoft.VC143.CRT\*.dll" build
 node desktop-qt\tools\stage-frontend.js build\www
 ```
 
-`.github/workflows/desktop-qt.yml` does exactly this on `windows-latest`, on a
-push to `qt-native` or by hand, and keeps the result as an artifact
-(`Microtone-<version>-windows-x64`): the app, its Qt runtime, the staged web
-app in `www\`, and `wasapi-probe.exe`. It releases nothing.
+The Windows build has ASIO as well as WASAPI: RtAudio's ASIO backend with
+Steinberg's SDK files, vendored from the same RtAudio release
+(`vendor/rtaudio/include`; GPLv3, see `vendor/VENDOR-VERSIONS.md`). The C
+runtime goes beside the app as DLLs ("local deployment"), not as
+`vc_redist.x64.exe`, which needs an administrator to run.
+
+The installer (NSIS 3, `installer/microtone.nsi`) is made from the packaged
+folder:
+
+```bat
+node desktop-qt\tools\installer-files.js <app folder> build\installer-lists
+makensis /INPUTCHARSET UTF8 /DVERSION=5.0.5 /DFILEVERSION=5.0.5.0 /DSTAGE=<app folder> ^
+  /DLISTS=build\installer-lists /DOUTFILE=build\Microtone-5.0.5-windows-x64-setup.exe ^
+  desktop-qt\installer\microtone.nsi
+```
+
+(`makensis.exe` from NSIS's Windows zip also runs under Wine, which is how it
+was tested on Linux.)
+
+`.github/workflows/desktop-qt.yml` does all of this on `windows-latest`, on a
+push to `qt-native` or by hand, and keeps two artifacts:
+`Microtone-<version>-windows-x64` (the app, its Qt and C runtimes, the staged
+web app in `www\`, `LICENSE.txt`, `wasapi-probe.exe` and `asio-probe.exe`)
+and `Microtone-<version>-windows-x64-setup` (the installer). It releases
+nothing.
 
 ## Running
 
@@ -80,8 +102,12 @@ microtone [--root <dir>] [--open <page>] [--web-audio]
 
 The output (audio system, device, sample rate, buffer) is chosen in the app's
 **Settings** tab (Ctrl+,), which only the desktop app has, and remembered in
-`<config>/Microtone/Microtone.conf` (`[audio]`). For a test run, the
-environment overrides what is remembered:
+`<config>/Microtone/Microtone.conf` (`[audio]`; on Windows the registry,
+`HKCU\Software\Microtone\Microtone`). The browser profile, which holds every
+project, is in the app's local data folder: `~/.local/share/Microtone/Microtone`
+on Linux, `%LOCALAPPDATA%\Microtone\Microtone` on Windows (not the roaming
+folder: projects with samples are big). For a test run, the environment
+overrides what is remembered:
 
 - `MICROTONE_AUDIO_API`: `pulse`, `alsa`, `jack` (Linux), `wasapi`, `asio`
   (Windows), `core` (macOS). Default on Linux: PulseAudio (PipeWire answers
@@ -176,6 +202,14 @@ then `PULSE_SINK=microtone_test` for the app.
     the device closes, opens again, and playback carries on.
   - Ten seconds at 44.1 kHz match the worklet's read loop over the same render
     in all 882 000 samples.
+  - **A device that goes away is opened again.** It may have been unplugged,
+    or an ASIO driver may have asked to be reset because its own panel changed
+    the buffer or the clock. The host reopens the same setting, or the defaults
+    if that will not open, and sends the page a STATUS. RtAudio closes a reset
+    ASIO stream on a thread of its own, and the reopen waits for that thread to
+    end before loading a driver again. Tried on Linux with the stand-in WASAPI
+    (`MICROTONE_FAKE_WASAPI_LOSE_AFTER=<seconds>`): the song plays straight
+    through the reopen.
 - **The Settings tab** (`microtone-worker/src/ui/views/settings.js`): it is
   laid out as the Samples and Instruments views are, with categories down the
   left.
@@ -187,8 +221,9 @@ then `PULSE_SINK=microtone_test` for the app.
     category is open.
   - A change applies at once. One the device refuses puts the previous setting
     back, and the tab says why.
-  - The host answers two requests of its own, besides the engine's commands:
-    `HOST_DEVICES` (every API's output devices) and `HOST_CONFIGURE`.
+  - The host answers three requests of its own, besides the engine's
+    commands: `HOST_DEVICES` (every API's output devices), `HOST_CONFIGURE`
+    and `HOST_PANEL` (the ASIO driver's own window).
   - The tab exists only where `window.__MICROTONE_NATIVE__` does: the
     website's audio is the browser's.
 - **WASAPI** (`wasapi.c`, Windows): our own, in C (COM through its C
@@ -224,24 +259,90 @@ then `PULSE_SINK=microtone_test` for the app.
     - low latency at 256 frames: 5.33 ms, 377 callbacks in 2 s;
     - Wine's own listed minimum is refused, and the default retry opens it;
     - exclusive: Wine offers none, and that refusal is reported.
-  - Not checked yet on real Windows: anything MSVC, exclusive mode, real
-    drivers' low-latency ranges, the packaged app.
+  - On real Windows (2026-11-18): the CI build (MSVC, Qt 6.8.3, the
+    windeployqt package) runs, and all three modes play as intended.
+- **ASIO** (Windows): RtAudio's backend, with Steinberg's SDK files from the
+  same release. A driver is a device. Unlike WASAPI, the buffer and the clock
+  belong to the driver, which has a settings window of its own:
+  - The tab's first buffer choice is *Driver's* (`bufferFrames` 0): the size
+    the driver's window is set to, RtAudio's "preferred". It is the default
+    whenever ASIO is chosen. Other sizes are those the open driver allows
+    (`asiodriver.cpp`: `ASIOGetBufferSize`, sent as the status's
+    `bufferLimits`), and RtAudio fits a size to the driver's granularity.
+  - *Driver settings…* opens that window (`ASIOControlPanel`). A change made
+    there arrives as the driver's reset request, so the stream is opened again
+    at the new size or rate.
+  - The status gives the driver's sample format (RtAudio converts to it) and
+    the latency it reports, which already includes the buffer. The callback
+    runs on the driver's own thread, at the priority the driver gives it.
+  - ASIO is never the first choice: a first start goes to WASAPI, and ASIO is
+    the last fallback.
+  - `tools/asio-probe.cpp` (built beside the app) lists the drivers, their
+    rates, formats and buffer sizes, plays a tone through one, or opens one's
+    window.
+  - Not yet run against a real driver: Wine has none, and there is no MinGW
+    C++ compiler here. The tab's ASIO branch was checked on Linux against a
+    stubbed host (the driver's size, the limits, the window's button, and the
+    switch from WASAPI asking for the driver's size).
 - **`links`**: `docs.html` opens in the docs window, other pages of the app in
   the main window, `http(s):` and `mailto:` in the system browser. The window a
   link was clicked in never navigates away from an open project.
+
+## The Windows installer
+
+`installer/microtone.nsi` (NSIS 3, Unicode, English and Korean by Windows'
+language):
+
+- **For one person, with no administrator rights.** It installs into
+  `%LOCALAPPDATA%\Programs\Microtone`, or wherever the last install went. It
+  adds a Start menu shortcut, a desktop one if asked on the last page, and an
+  entry in Windows' list of apps under the key `cc.microtone.desktop`. The
+  Tauri build's own entry, `Microtone`, is left alone, and so is its data
+  (`%LOCALAPPDATA%\cc.microtone.desktop`). Both builds' shortcuts are named
+  "Microtone", so with both installed the newer shortcut wins, and each
+  uninstaller removes a shortcut only if it points at its own exe.
+- **The uninstaller removes what the installer put there, by name, and nothing
+  else.** `tools/installer-files.js` writes both lists from the packaged
+  folder. It never runs `RMDir /r` on a folder someone chose, so a file of
+  yours in that folder stays. An install over an earlier one first runs the
+  earlier one's uninstaller (`/S /UPDATE`), so files a version stopped
+  shipping go too.
+- **Projects stay unless asked.** The uninstaller's first page asks whether to
+  delete the projects and settings too (off by default). If ticked, it removes
+  `%LOCALAPPDATA%\Microtone\Microtone` and `HKCU\Software\Microtone\Microtone`.
+- **Microtone must be closed.** The app holds the mutex
+  `Local\microtone-desktop` (`main.cpp`). If it is held, the installer asks
+  you to close the app and retry. Unattended, it waits up to ten seconds, then
+  stops with exit code 2.
+- **The licence page is not an agreement.** The GPL asks for none, so its
+  button is Next, not "I Agree".
+- Switches, besides NSIS's `/S` and `/D=`: `/P` (passive: only the progress,
+  for an update) and `/R` (with `/P` or `/S`, start Microtone afterwards).
+- Tested under Wine with the CI artifact:
+  - a silent install matches the packaged folder byte for byte;
+  - an upgrade drops an older version's extra files (a `$` in a name
+    included) and keeps the user's own;
+  - uninstalling removes everything it installed and leaves a same-named
+    shortcut that points elsewhere;
+  - the running-app check waits, or gives up with exit code 2;
+  - "delete my projects" removes the Qt build's data and settings but not the
+    Tauri build's;
+  - the pages draw in English and Korean.
+- Not code-signed, so Windows SmartScreen warns about an unknown publisher.
 
 ## Not yet done
 
 - Online projects (sign-in through the system browser, the access token, the
   `/api/online` proxy). The page's requests already reach this server, which
   answers them 404 for now.
-- The updater, the deep-link scheme, release staging (`tools/stage-site.js`
-  into `www/`), packaging (AppImage, NSIS, .dmg) and CI.
+- The updater and the deep-link scheme. The installer already takes `/P /R`,
+  the switches an updater runs it with.
+- Linux and macOS packaging (AppImage, .deb/.rpm, .dmg) and their CI.
+- Code signing, and the third-party notices a release must ship (Qt and
+  Chromium's licences, RtAudio's, the ASIO SDK's).
 - Moving projects over from the Tauri build.
 - The native audio host's next steps:
-  - running the Windows build on real Windows (the CI artifact): MSVC, the
-    three modes on real drivers, the package; then ASIO (RtAudio, with the
-    SDK files it ships) and an installer;
+  - ASIO on a real driver (above);
   - the macOS build (CoreAudio), and JACK on Linux;
   - audio input for the sampler's Record, and MIDI;
   - whether PulseAudio's simple API reports underflows at all (RtAudio's

@@ -8,6 +8,9 @@ file(READ "${CMAKE_CURRENT_SOURCE_DIR}/../microtone-worker/package.json" MICROTO
 string(JSON MICROTONE_VERSION GET "${MICROTONE_PACKAGE_JSON}" version)
 
 project(microtone-desktop VERSION ${MICROTONE_VERSION} LANGUAGES C CXX)
+if(WIN32)
+  enable_language(RC)  # src/microtone.rc.in
+endif()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -72,8 +75,18 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   endif()
 elseif(WIN32)
   # WASAPI is ours (src/wasapi.c: shared, low-latency shared, exclusive);
-  # RtAudio stays for ASIO, which comes with Steinberg's SDK files. With no
-  # API of its own compiled it falls back to its dummy, which the host skips.
+  # RtAudio is here for ASIO, with Steinberg's SDK files as its release ships
+  # them (vendor/rtaudio/include; GPLv3 — see vendor/VENDOR-VERSIONS.md).
+  target_sources(rtaudio PRIVATE
+    vendor/rtaudio/include/asio.cpp
+    vendor/rtaudio/include/asiodrivers.cpp
+    vendor/rtaudio/include/asiolist.cpp
+    vendor/rtaudio/include/iasiothiscallresolver.cpp)
+  target_include_directories(rtaudio PUBLIC vendor/rtaudio/include)
+  target_compile_definitions(rtaudio PUBLIC __WINDOWS_ASIO__)
+  # COM (the drivers are COM objects), the registry (where they are listed),
+  # the foreground window (the parent of a driver's panel).
+  target_link_libraries(rtaudio PUBLIC ole32 advapi32 user32)
 elseif(APPLE)
   target_compile_definitions(rtaudio PUBLIC __MACOSX_CORE__)
   target_link_libraries(rtaudio PUBLIC "-framework CoreAudio" "-framework CoreFoundation")
@@ -97,14 +110,24 @@ target_link_libraries(microtone PRIVATE
 # WASAPI glue and the Settings tab's modes, a stand-in (never shipped).
 option(MICROTONE_FAKE_WASAPI "Build a stand-in WASAPI backend (testing only)" OFF)
 if(WIN32)
-  target_sources(microtone PRIVATE src/wasapi.c src/wasapi.h)
-  target_compile_definitions(microtone PRIVATE MICROTONE_WASAPI=1)
+  target_sources(microtone PRIVATE src/wasapi.c src/wasapi.h src/asiodriver.cpp src/asiodriver.h)
+  target_compile_definitions(microtone PRIVATE MICROTONE_WASAPI=1 MICROTONE_ASIO=1)
   target_link_libraries(microtone PRIVATE ole32)
-  # What WASAPI offers on a machine, and a test tone through each mode: ships
-  # beside the app, for when a device will not play (tools/wasapi-probe.c).
+  # The probes ship beside the app, for when a device will not play: what
+  # WASAPI offers on a machine and a test tone through each mode
+  # (tools/wasapi-probe.c); the ASIO drivers, their sizes and a tone through
+  # one (tools/asio-probe.cpp). Neither is Qt.
   add_executable(wasapi-probe tools/wasapi-probe.c src/wasapi.c)
   target_link_libraries(wasapi-probe PRIVATE ole32)
-  set_target_properties(wasapi-probe PROPERTIES AUTOMOC OFF)  # plain C: no Qt
+  set_target_properties(wasapi-probe PROPERTIES AUTOMOC OFF)
+  add_executable(asio-probe tools/asio-probe.cpp src/asiodriver.cpp)
+  target_link_libraries(asio-probe PRIVATE rtaudio)
+  set_target_properties(asio-probe PROPERTIES AUTOMOC OFF)
+  # The icon (Explorer, the taskbar, every window: Qt takes IDI_ICON1) and
+  # the version Windows shows in the file's properties.
+  set(MICROTONE_ICON "${CMAKE_CURRENT_SOURCE_DIR}/icons/microtone.ico")
+  configure_file(src/microtone.rc.in ${CMAKE_CURRENT_BINARY_DIR}/microtone.rc @ONLY)
+  target_sources(microtone PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/microtone.rc)
 elseif(MICROTONE_FAKE_WASAPI)
   target_sources(microtone PRIVATE src/wasapi_fake.c src/wasapi.h)
   target_compile_definitions(microtone PRIVATE MICROTONE_WASAPI=1)

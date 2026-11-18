@@ -22,7 +22,20 @@
 #include <unistd.h>
 #endif
 
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
+
 #include "RtAudio.h"
+#if MICROTONE_ASIO
+#include "asiodriver.h"
+#endif
 
 namespace microtone {
 
@@ -96,11 +109,28 @@ std::vector<RtAudio::Api> apiOrder() {
   return order;
 }
 
-std::unique_ptr<RtAudio> makeDac(RtAudio::Api api) {
-  return std::make_unique<RtAudio>(api, [](RtAudioErrorType type, const std::string &text) {
+/** An RtAudio for `api`. Its errors are logged; the open stream's "device
+ *  disconnected" — which ASIO also says when its driver asks to be reset —
+ *  reaches `owner`. */
+std::unique_ptr<RtAudio> makeDac(RtAudio::Api api, NativeAudio *owner = nullptr) {
+  return std::make_unique<RtAudio>(api, [owner](RtAudioErrorType type, const std::string &text) {
     if (type != RTAUDIO_WARNING) qWarning("microtone: audio: %s", text.c_str());
+    if (owner != nullptr && type == RTAUDIO_DEVICE_DISCONNECT) owner->deviceLost();
   });
 }
+
+#if MICROTONE_ASIO
+/** A device's own sample format as RtAudio probes it (one bit set), in the
+ *  words wasapi.c uses. */
+QString formatName(RtAudioFormat f) {
+  if (f & RTAUDIO_FLOAT32) return QStringLiteral("32-bit float");
+  if (f & RTAUDIO_FLOAT64) return QStringLiteral("64-bit float");
+  if (f & RTAUDIO_SINT32) return QStringLiteral("32-bit PCM");
+  if (f & RTAUDIO_SINT24) return QStringLiteral("24-bit PCM");
+  if (f & RTAUDIO_SINT16) return QStringLiteral("16-bit PCM");
+  return {};
+}
+#endif
 
 }  // namespace
 
@@ -109,6 +139,9 @@ NativeAudio::NativeAudio(QObject *parent) : QObject(parent) {
   for (Slot &s : slots_) s.f.assign(size_t(layout_.floats), 0.0f);
   scratch_.assign(size_t(kScratchFrames) * 2, 0.0f);
   host_ = mt_host_new(int(kEngineRate));
+#ifdef _WIN32
+  guiThread_ = GetCurrentThreadId();
+#endif
   pump_.setInterval(4);
   connect(&pump_, &QTimer::timeout, this, &NativeAudio::pump);
 }
@@ -116,6 +149,7 @@ NativeAudio::NativeAudio(QObject *parent) : QObject(parent) {
 NativeAudio::~NativeAudio() {
   pump_.stop();
   closeDevice();
+  closerDone(2000);
   std::lock_guard<std::mutex> lock(engine_);
   mt_host_free(host_);
   host_ = nullptr;
@@ -155,7 +189,6 @@ bool NativeAudio::start(QString *error) {
   }
   if (qEnvironmentVariableIntValue("MICROTONE_BUFFER_FRAMES") > 0)
     wanted.bufferFrames = unsigned(qEnvironmentVariableIntValue("MICROTONE_BUFFER_FRAMES"));
-  if (wanted.bufferFrames == 0) wanted.bufferFrames = 256;
 
   dumpPath_ = qEnvironmentVariable("MICROTONE_NATIVE_DUMP");
   if (!dumpPath_.isEmpty()) {
@@ -164,37 +197,37 @@ bool NativeAudio::start(QString *error) {
   }
 
   QString why;
-  // Nothing remembered (a first start) goes straight to the defaults below:
-  // an empty setting would open RtAudio's first API, ahead of WASAPI.
-  if (!wanted.api.isEmpty() && open(wanted, &why)) {
+  // Nothing remembered (a first start) goes straight to the defaults: an
+  // empty setting would open RtAudio's first API, ahead of WASAPI. What was
+  // remembered and is gone (unplugged, another machine) goes there too.
+  if ((!wanted.api.isEmpty() && open(wanted, &why)) || openDefaults(wanted.bufferFrames, &why)) {
     pump_.start();
     return true;
   }
+  if (error) *error = why.isEmpty() ? QStringLiteral("no audio API was compiled in") : why;
+  return false;
+}
+
+/** The defaults: on Windows WASAPI — at a short period where the driver
+ *  allows one, else through the mixer as every program plays — then
+ *  RtAudio's APIs in order (Linux: PulseAudio, ALSA, JACK; Windows: ASIO, at
+ *  the driver's own size). */
+bool NativeAudio::openDefaults(unsigned bufferFrames, QString *error) {
 #if MICROTONE_WASAPI
-  // Windows: WASAPI, at a short period where the driver allows one, else
-  // through the mixer as every program does.
   for (const char *mode : {"lowLatency", "shared"}) {
     Config c;
     c.api = QStringLiteral("wasapi");
     c.mode = QString::fromLatin1(mode);
-    c.bufferFrames = wanted.bufferFrames;
-    if (open(c, &why)) {
-      pump_.start();
-      return true;
-    }
+    c.bufferFrames = bufferFrames;
+    if (open(c, error)) return true;
   }
 #endif
-  // What was remembered is gone (unplugged, another machine): the defaults.
   for (RtAudio::Api api : apiOrder()) {
     Config c;
     c.api = QString::fromStdString(RtAudio::getApiName(api));
-    c.bufferFrames = wanted.bufferFrames;
-    if (open(c, &why)) {
-      pump_.start();
-      return true;
-    }
+    c.bufferFrames = api == RtAudio::WINDOWS_ASIO ? 0 : bufferFrames;
+    if (open(c, error)) return true;
   }
-  if (error) *error = why.isEmpty() ? QStringLiteral("no audio API was compiled in") : why;
   return false;
 }
 
@@ -213,16 +246,87 @@ void NativeAudio::closeDevice() {
   running_ = false;
   format_.clear();
   latencyMs_ = 0.0;
+  driverPanel_ = false;
+  bufMin_ = bufMax_ = bufStep_ = bufPreferred_ = 0;
 }
 
 /** Open `want` (closing what is open first). On success the host's state
- *  follows the new stream; on failure nothing is open. */
+ *  follows the new stream; on failure nothing is open. Either way a loss
+ *  reported before is answered. */
 bool NativeAudio::open(const Config &want, QString *error) {
   closeDevice();
+  // An ASIO driver RtAudio is still unloading must be gone before one loads.
+  closerDone(2000);
+  lost_ = false;
 #if MICROTONE_WASAPI
-  if (want.api == QLatin1String("wasapi")) return openWasapi(want, error);
+  if (want.api == QLatin1String("wasapi")) {
+    Config c = want;
+    if (c.bufferFrames == 0) c.bufferFrames = 256;
+    return openWasapi(c, error);
+  }
 #endif
   return openRtAudio(want, error);
+}
+
+/** Windows: true once the RtAudio thread closing a lost ASIO stream (its
+ *  driver asked for a reset) has ended, waiting up to `ms` for it. */
+bool NativeAudio::closerDone(unsigned ms) {
+#ifdef _WIN32
+  void *h = closer_.exchange(nullptr);
+  if (h == nullptr) return true;
+  if (WaitForSingleObject(h, ms) == WAIT_TIMEOUT) {
+    if (void *other = closer_.exchange(h)) CloseHandle(other);
+    return false;
+  }
+  CloseHandle(h);
+#else
+  Q_UNUSED(ms);
+#endif
+  return true;
+}
+
+void NativeAudio::deviceLost() {
+#ifdef _WIN32
+  // ASIO says so from a thread of RtAudio's that goes on to dispose of the
+  // buffers and unload the driver: whoever opens next waits for it to end.
+  if (GetCurrentThreadId() != guiThread_) {
+    HANDLE h = nullptr;
+    if (DuplicateHandle(GetCurrentProcess(), GetCurrentThread(), GetCurrentProcess(), &h, SYNCHRONIZE, FALSE, 0)) {
+      if (void *old = closer_.exchange(h)) CloseHandle(old);
+    }
+  }
+#endif
+  lost_ = true;
+}
+
+/** On the pump: the device went away, or its driver asked to be reset (an
+ *  ASIO panel's new buffer or rate takes effect so). The same setting again;
+ *  if that will not open, the defaults, and the page is told why. */
+void NativeAudio::reopenLost() {
+  if (!closerDone(0)) return;  // RtAudio is still closing it: the next tick
+  const qint64 now = QDateTime::currentMSecsSinceEpoch();
+  if (now - lastReopenMs_ < 1000) return;  // a device that keeps going: once a second at most
+  lastReopenMs_ = now;
+  qInfo("microtone: audio: the output went away; opening it again");
+  const Config again = config_;
+  QString why;
+  if (open(again, &why)) {
+    lastError_.clear();
+  } else {
+    lastError_ = why.isEmpty() ? QStringLiteral("the device went away") : why;
+    QString more;
+    openDefaults(again.bufferFrames, &more);
+  }
+  sendStatus();
+}
+
+/** HOST_PANEL: the open ASIO driver's own settings window. A change made
+ *  there (the buffer, the clock) comes back as the driver's reset request,
+ *  which reopens the stream: with the driver's size chosen, at the new size. */
+void NativeAudio::openDriverPanel() {
+#if MICROTONE_ASIO
+  if (driverPanel_ && dac_ && dac_->isStreamOpen() && !lost_) asio::controlPanel();
+#endif
 }
 
 bool NativeAudio::openRtAudio(const Config &want, QString *error) {
@@ -230,7 +334,7 @@ bool NativeAudio::openRtAudio(const Config &want, QString *error) {
   if (api == RtAudio::UNSPECIFIED) api = apiOrder().empty() ? RtAudio::UNSPECIFIED : apiOrder().front();
   if (!dac_ || dac_->getCurrentApi() != api) {
     dac_.reset();
-    dac_ = makeDac(api);
+    dac_ = makeDac(api, this);
   }
   const QString apiName = QString::fromStdString(RtAudio::getApiDisplayName(api));
 
@@ -269,7 +373,11 @@ bool NativeAudio::openRtAudio(const Config &want, QString *error) {
   RtAudio::StreamOptions options;
   options.flags = RTAUDIO_SCHEDULE_REALTIME;
   options.streamName = "Microtone";
-  unsigned int frames = want.bufferFrames ? want.bufferFrames : 256;
+  // 0: the driver's own size where it has one (ASIO's "preferred", what its
+  // panel is set to), 256 elsewhere. RtAudio fits a size to the driver's.
+  const bool isAsio = api == RtAudio::WINDOWS_ASIO;
+  const unsigned int asked = want.bufferFrames != 0 || isAsio ? want.bufferFrames : 256;
+  unsigned int frames = asked;
   if (dac_->openStream(&out, nullptr, RTAUDIO_FLOAT32, rate, &frames, &NativeAudio::callback, this, &options) !=
       RTAUDIO_NO_ERROR) {
     if (error) *error = QString::fromStdString(dac_->getErrorText());
@@ -281,7 +389,24 @@ bool NativeAudio::openRtAudio(const Config &want, QString *error) {
   streamLatency_ = dac_->getStreamLatency();
   apiName_ = apiName;
   device_ = QString::fromStdString(info.name);
-  config_ = Config{QString::fromStdString(RtAudio::getApiName(api)), want.device, want.rate, want.bufferFrames, {}};
+  config_ = Config{QString::fromStdString(RtAudio::getApiName(api)), want.device, want.rate, asked, {}};
+#if MICROTONE_ASIO
+  if (isAsio) {
+    // The driver's limits, for the tab's buffer sizes; its sample format
+    // (RtAudio converts to it); the latency it reports, which already holds
+    // the buffer.
+    driverPanel_ = true;
+    asio::BufferLimits l;
+    if (asio::bufferLimits(&l)) {
+      bufPreferred_ = l.preferred;
+      bufMin_ = l.granularity == 0 ? l.preferred : l.min;
+      bufMax_ = l.granularity == 0 ? l.preferred : l.max;
+      bufStep_ = l.granularity > 0 ? l.granularity : 1;
+    }
+    format_ = formatName(info.nativeFormats);
+    if (rate_ > 0) latencyMs_ = std::max(streamLatency_, bufferFrames_) * 1000.0 / rate_;
+  }
+#endif
   {
     std::lock_guard<std::mutex> lock(engine_);
     resampler_.configure(kEngineRate, rate_);
@@ -295,6 +420,13 @@ bool NativeAudio::openRtAudio(const Config &want, QString *error) {
   callbackTid_ = 0;
   realtimeAsked_ = false;
   realtime_.clear();
+#ifndef __linux__
+  // The callback runs on the API's own thread, at the priority it gives it:
+  // nothing to ask for (Linux asks RealtimeKit, in pump).
+  realtimeAsked_ = true;
+  if (isAsio) realtime_ = QStringLiteral("ASIO driver thread");
+  else if (api == RtAudio::MACOSX_CORE) realtime_ = QStringLiteral("Core Audio I/O thread");
+#endif
 
   live_ = true;
   if (dac_->startStream() != RTAUDIO_NO_ERROR) {
@@ -380,7 +512,8 @@ void NativeAudio::configure(const QByteArray &json) {
   want.api = o.value(QStringLiteral("api")).toString();
   want.device = o.value(QStringLiteral("device")).toString();
   want.rate = unsigned(std::max(0, o.value(QStringLiteral("rate")).toInt()));
-  want.bufferFrames = unsigned(std::clamp(o.value(QStringLiteral("bufferFrames")).toInt(256), 16, 8192));
+  const int frames = o.value(QStringLiteral("bufferFrames")).toInt(256);
+  want.bufferFrames = frames == 0 ? 0u : unsigned(std::clamp(frames, 16, 8192));  // 0: the driver's
   want.mode = o.value(QStringLiteral("mode")).toString();
   const Config before = config_;
   QString why;
@@ -390,21 +523,15 @@ void NativeAudio::configure(const QByteArray &json) {
   } else {
     lastError_ = why.isEmpty() ? QStringLiteral("the device would not open") : why;
     QString again;
-    if (!open(before, &again)) {
-      // Not even the old one: the defaults, rather than no sound at all.
-      for (RtAudio::Api api : apiOrder()) {
-        Config c;
-        c.api = QString::fromStdString(RtAudio::getApiName(api));
-        if (open(c, &again)) break;
-      }
-    }
+    // Not even the old one: the defaults, rather than no sound at all.
+    if (!open(before, &again)) openDefaults(before.bufferFrames, &again);
   }
   sendStatus();
 }
 
 QJsonObject NativeAudio::status() const {
   const double ms = rate_ ? 1000.0 / rate_ : 0.0;
-  return QJsonObject{
+  QJsonObject o{
       {QStringLiteral("ok"), running_},
       {QStringLiteral("api"), apiName_},
       {QStringLiteral("apiId"), config_.api},
@@ -422,6 +549,14 @@ QJsonObject NativeAudio::status() const {
       {QStringLiteral("realtime"), realtime_},
       {QStringLiteral("error"), lastError_},
   };
+  // ASIO: the driver has a settings window, and these buffer sizes.
+  if (driverPanel_) o.insert(QStringLiteral("driverPanel"), true);
+  if (bufMax_ > 0) {
+    o.insert(QStringLiteral("bufferLimits"),
+             QJsonObject{{QStringLiteral("min"), int(bufMin_)}, {QStringLiteral("max"), int(bufMax_)},
+                         {QStringLiteral("step"), int(bufStep_)}, {QStringLiteral("preferred"), int(bufPreferred_)}});
+  }
+  return o;
 }
 
 QJsonObject NativeAudio::devices() {
@@ -490,11 +625,17 @@ QJsonObject NativeAudio::devices() {
           {QStringLiteral("preferredRate"), int(info.preferredSampleRate)},
       });
     }
-    apis.append(QJsonObject{
+    QJsonObject entry{
         {QStringLiteral("id"), QString::fromStdString(RtAudio::getApiName(api))},
         {QStringLiteral("name"), QString::fromStdString(RtAudio::getApiDisplayName(api))},
         {QStringLiteral("devices"), list},
-    });
+    };
+    if (api == RtAudio::WINDOWS_ASIO) {
+      // The size is the driver's to set (0 asks for it), in its own window.
+      entry.insert(QStringLiteral("driverBuffer"), true);
+      entry.insert(QStringLiteral("driverPanel"), true);
+    }
+    apis.append(entry);
   }
   return QJsonObject{{QStringLiteral("apis"), apis}, {QStringLiteral("current"), status()}};
 }
@@ -724,12 +865,15 @@ void NativeAudio::onMessage(const QByteArray &message) {
 
     // The host's own requests: the device is closed and opened outside the
     // engine lock (stopping a stream waits for its callback).
-    if (named(c.name, c.nameLen, "HOST_DEVICES") || named(c.name, c.nameLen, "HOST_CONFIGURE")) {
+    if (named(c.name, c.nameLen, "HOST_DEVICES") || named(c.name, c.nameLen, "HOST_CONFIGURE") ||
+        named(c.name, c.nameLen, "HOST_PANEL")) {
       if (lock.owns_lock()) lock.unlock();
       if (named(c.name, c.nameLen, "HOST_DEVICES")) {
         QByteArray b = header(kDevices);
         b += QJsonDocument(devices()).toJson(QJsonDocument::Compact);
         replies.push_back(b);
+      } else if (named(c.name, c.nameLen, "HOST_PANEL")) {
+        openDriverPanel();
       } else {
         configure(c.nBlobs > 0 ? QByteArray(reinterpret_cast<const char *>(c.blob[0]), qsizetype(c.blobLen[0]))
                                : QByteArray());
@@ -773,6 +917,10 @@ void NativeAudio::onMessage(const QByteArray &message) {
 }
 
 void NativeAudio::pump() {
+#if MICROTONE_WASAPI
+  if (wasapi_ != nullptr && mt_wasapi_lost(wasapi_)) lost_ = true;
+#endif
+  if (lost_ && running_) reopenLost();
   if (!realtimeAsked_ && callbackTid_.load() != 0) {  // RtAudio's thread (WASAPI's has MMCSS)
     realtimeAsked_ = true;
     requestRealtime(callbackTid_.load());

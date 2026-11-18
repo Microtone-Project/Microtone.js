@@ -2352,6 +2352,7 @@ window.__microtone = {
   get filesView() { return viewNamed("files"); },
   get keymapView() { return viewNamed("keymap"); },
   get motifView() { return viewNamed("motif"); },
+  get settingsView() { return viewNamed("settings"); },
   get welcomeView() { return paneViews[split.focus].get("timeline")?.welcome ?? paneViews[0].get("timeline").welcome; },
 };
 

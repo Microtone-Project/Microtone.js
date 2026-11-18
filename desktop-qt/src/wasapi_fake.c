@@ -3,7 +3,11 @@
  * that asks for frames once a period, as WASAPI's event would, and drops
  * them. Built only with MICROTONE_FAKE_WASAPI, to try the host's WASAPI glue
  * and the Settings tab's modes without Windows; never shipped. (The real
- * backend is tried under Wine with tools/wasapi-probe.c.) */
+ * backend is tried under Wine with tools/wasapi-probe.c.)
+ *
+ * MICROTONE_FAKE_WASAPI_LOSE_AFTER=<seconds>: the first stream opened goes
+ * away after that long, as an unplugged device's does (its thread stops and
+ * mt_wasapi_lost says so), for the host's reopen. */
 #define _POSIX_C_SOURCE 200809L
 #include <pthread.h>
 #include <stdatomic.h>
@@ -35,6 +39,8 @@ void mt_wasapi_free_list(MtWasapiDevice *list) { free(list); }
 struct MtWasapiStream {
     pthread_t thread;
     atomic_int stop;
+    atomic_int lost;
+    long loseAfterPeriods;  /* 0: never */
     atomic_uint glitches;
     int period, rate;
     MtWasapiRender render;
@@ -47,8 +53,13 @@ static void *run(void *arg)
     MtWasapiStream *s = (MtWasapiStream *)arg;
     struct timespec next;
     const long periodNs = (long)(1e9 * s->period / s->rate);
+    long periods = 0;
     clock_gettime(CLOCK_MONOTONIC, &next);
     while (!atomic_load(&s->stop)) {
+        if (s->loseAfterPeriods > 0 && ++periods > s->loseAfterPeriods) {
+            atomic_store(&s->lost, 1);
+            break;
+        }
         next.tv_nsec += periodNs;
         while (next.tv_nsec >= 1000000000L) { next.tv_nsec -= 1000000000L; next.tv_sec++; }
         clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &next, NULL);
@@ -97,6 +108,11 @@ MtWasapiStream *mt_wasapi_open(const char *deviceId, MtWasapiMode mode, int rate
     if (s == NULL) return NULL;
     s->period = period;
     s->rate = rate;
+    {
+        static int opened = 0;
+        const char *lose = getenv("MICROTONE_FAKE_WASAPI_LOSE_AFTER");
+        if (opened++ == 0 && lose != NULL && atof(lose) > 0) s->loseAfterPeriods = (long)(atof(lose) * rate / period);
+    }
     s->render = render;
     s->user = user;
     s->scratch = (float *)calloc((size_t)period * 2, sizeof(float));
@@ -129,4 +145,4 @@ void mt_wasapi_close(MtWasapiStream *s)
 }
 
 unsigned mt_wasapi_glitches(const MtWasapiStream *s) { return s != NULL ? atomic_load(&((MtWasapiStream *)s)->glitches) : 0; }
-int mt_wasapi_lost(const MtWasapiStream *s) { (void)s; return 0; }
+int mt_wasapi_lost(const MtWasapiStream *s) { return s != NULL && atomic_load(&((MtWasapiStream *)s)->lost) != 0; }
