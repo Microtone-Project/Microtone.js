@@ -15,7 +15,12 @@
 //   2. handOff(): a one-time code, bound to the challenge, good for five
 //      minutes, and a page that sends the browser on to
 //        cc.microtone.desktop:/signed-in?code=…&state=…
-//      which the operating system hands to the app.
+//      which the operating system hands to the app — or, when step 1 named a
+//      `port`, to the app's own loopback server (RFC 8252 §7.3):
+//        http://127.0.0.1:<port>/signed-in?code=…&state=…
+//      (the Qt build, desktop-qt/src/online.cpp: it may be installed beside
+//      the Tauri one for a while, and two apps claiming one URI scheme would
+//      each hear the other's sign-ins).
 //   3. The app swaps code and verifier for the token:
 //        POST /api/online/auth/token   {"code": …, "verifier": …}
 //      → {"token": …, "user": {"name": …}}   (auth.js desktopToken)
@@ -32,7 +37,13 @@ import { randomToken, sha256Hex, parseCookies } from "./util.js";
  *  plugins.deep-link), reverse-domain as RFC 8252 §7.1 asks of a native app. */
 export const RETURN_URL = "cc.microtone.desktop:/signed-in";
 
-/** Challenge and state, while an ordinary sign-in runs in between. __Host-
+/** The loopback way back: only 127.0.0.1, only this path, only a port no
+ *  system service holds. */
+export const LOOPBACK_PATH = "/signed-in";
+const PORT = /^[1-9][0-9]{3,4}$/;
+const portOf = (text) => (PORT.test(text) && Number(text) >= 1024 && Number(text) <= 65535 ? Number(text) : null);
+
+/** Challenge and state (and the loopback port), while an ordinary sign-in runs in between. __Host-
  *  and Lax for the reason the SceneID state cookie is: the way back from
  *  SceneID is a cross-site navigation. Lives as long as that state does. */
 const PENDING_COOKIE = "__Host-mt_desktop";
@@ -57,8 +68,10 @@ export async function s256(verifier) {
 /** The desktop sign-in this browser is in the middle of, or null. */
 export function pendingDesktop(request) {
   const raw = parseCookies(request.headers.get("cookie")).get(PENDING_COOKIE) ?? "";
-  const [challenge = "", state = ""] = raw.split(".");
-  return CHALLENGE.test(challenge) && STATE.test(state) ? { challenge, state } : null;
+  const [challenge = "", state = "", port = ""] = raw.split(".");
+  if (!CHALLENGE.test(challenge) || !STATE.test(state)) return null;
+  if (port && portOf(port) === null) return null;
+  return { challenge, state, port: port ? portOf(port) : null };
 }
 
 export const CLEAR_PENDING = `${PENDING_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`;
@@ -71,9 +84,14 @@ export const CLEAR_PENDING = `${PENDING_COOKIE}=; Path=/; HttpOnly; Secure; Same
 export async function beginDesktopSignIn({ url, env, user, signIn }) {
   const challenge = url.searchParams.get("challenge") ?? "";
   const state = url.searchParams.get("state") ?? "";
-  if (!CHALLENGE.test(challenge) || !STATE.test(state)) return desktopPage({ kind: "bad-request" }, 400);
-  if (user) return handOff(env, user.id, user.name, { challenge, state });
-  const pending = `${PENDING_COOKIE}=${challenge}.${state}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${PENDING_TTL_S}`;
+  const portText = url.searchParams.get("port");
+  const port = portText === null ? null : portOf(portText);
+  if (!CHALLENGE.test(challenge) || !STATE.test(state) || (portText !== null && port === null)) {
+    return desktopPage({ kind: "bad-request" }, 400);
+  }
+  if (user) return handOff(env, user.id, user.name, { challenge, state, port });
+  const kept = port === null ? `${challenge}.${state}` : `${challenge}.${state}.${port}`;
+  const pending = `${PENDING_COOKIE}=${kept}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${PENDING_TTL_S}`;
   if (signIn === "sceneid") {
     const res = new Response(null, {
       status: 302,
@@ -91,7 +109,7 @@ export async function beginDesktopSignIn({ url, env, user, signIn }) {
  * it back to the app. `cookies` are Set-Cookie values to send with it (a new
  * session, a spent SceneID state); the pending desktop sign-in is cleared.
  */
-export async function handOff(env, userId, name, { challenge, state }, cookies = []) {
+export async function handOff(env, userId, name, { challenge, state, port = null }, cookies = []) {
   const code = randomToken();
   const now = Date.now();
   const db = env.ONLINE_DB;
@@ -100,8 +118,9 @@ export async function handOff(env, userId, name, { challenge, state }, cookies =
     db.prepare(`INSERT INTO desktop_codes (code_hash, user_id, challenge, expires_at) VALUES (?1, ?2, ?3, ?4)`)
       .bind(await sha256Hex(code), userId, challenge, now + CODE_TTL_MS),
   ]);
-  const back = `${RETURN_URL}?${new URLSearchParams({ code, state })}`;
-  return desktopPage({ kind: "hand-off", name, back }, 200, [...cookies, CLEAR_PENDING]);
+  const to = port === null ? RETURN_URL : `http://127.0.0.1:${port}${LOOPBACK_PATH}`;
+  const back = `${to}?${new URLSearchParams({ code, state })}`;
+  return desktopPage({ kind: port === null ? "hand-off" : "hand-back", name, back }, 200, [...cookies, CLEAR_PENDING]);
 }
 
 /**
@@ -132,6 +151,11 @@ function desktopPage({ kind, name = "", back = "" }, status, cookies = []) {
 <p><a id="back" href="${esc(back)}">Open Microtone · Microtone 열기</a></p>
 <p lang="en">You can close this tab afterwards.</p>
 <p lang="ko">그런 다음 이 탭을 닫아도 됩니다.</p>
+<script>location.href = document.getElementById("back").href;</script>`,
+    "hand-back": `
+<p lang="en">Signed in as <b>${who}</b>. Taking you back to Microtone on this computer…</p>
+<p lang="ko"><b>${who}</b>(으)로 로그인했습니다. 이 컴퓨터의 Microtone으로 돌아갑니다…</p>
+<p><a id="back" href="${esc(back)}">Back to Microtone · Microtone으로 돌아가기</a></p>
 <script>location.href = document.getElementById("back").href;</script>`,
     dev: `
 <p lang="en">Test sign-in for the desktop app (this server has no SceneID).</p>
