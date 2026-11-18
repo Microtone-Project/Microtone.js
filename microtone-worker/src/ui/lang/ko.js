@@ -751,6 +751,8 @@ export default {
   "files.online.signInDev": "로컬 테스트 계정으로 로그인",
   "files.online.devName": "테스트 계정 이름",
   "files.online.popupBlocked": "브라우저가 로그인 창을 막았습니다. 이 사이트의 팝업을 허용한 뒤 다시 시도하세요.",
+  "files.online.signInBrowser": "방금 열린 브라우저에서 로그인하세요. 그러면 Microtone이 이어받습니다.",
+  "files.online.signInFailed": "로그인을 마치지 못했습니다. 다시 시도하세요.",
   "files.online.signedInAs": "{name}(으)로 로그인됨",
   "files.online.signOut": "로그아웃",
   "files.online.saveOnline": "온라인에 저장…",

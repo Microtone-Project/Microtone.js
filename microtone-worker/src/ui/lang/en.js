@@ -767,6 +767,8 @@ export default {
   "files.online.signInDev": "Sign in to a local test account",
   "files.online.devName": "Test account name",
   "files.online.popupBlocked": "The browser blocked the sign-in window. Allow pop-ups for this site and try again.",
+  "files.online.signInBrowser": "Sign in in the browser that just opened; Microtone picks it up from there.",
+  "files.online.signInFailed": "Signing in did not complete. Try again.",
   "files.online.signedInAs": "Signed in as {name}",
   "files.online.signOut": "Sign out",
   "files.online.saveOnline": "Save online…",

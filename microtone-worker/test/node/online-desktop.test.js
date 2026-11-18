@@ -31,8 +31,8 @@ function app(env, token = null) {
   };
 }
 
-const desktopUrl = (challenge = CHALLENGE, state = STATE) =>
-  `/api/online/auth/desktop?${new URLSearchParams({ challenge, state })}`;
+const desktopUrl = (challenge = CHALLENGE, state = STATE, port = null) =>
+  `/api/online/auth/desktop?${new URLSearchParams({ challenge, state, ...(port === null ? {} : { port }) })}`;
 
 /** A hand-off page → the code and state its cc.microtone.desktop: link carries. */
 async function handedOff(res) {
@@ -40,6 +40,17 @@ async function handedOff(res) {
   const page = await res.text();
   const href = /href="(cc\.microtone\.desktop:\/signed-in\?[^"]+)"/.exec(page)?.[1];
   assert.ok(href, "the page links back to the app");
+  const back = new URL(href.replace(/&amp;/g, "&"));
+  return { code: back.searchParams.get("code"), state: back.searchParams.get("state"), page };
+}
+
+/** The Qt build's way back: a page that sends the browser to its loopback port. */
+async function handedBack(res, port) {
+  assert.equal(res.status, 200);
+  const page = await res.text();
+  const href = new RegExp(`href="(http://127\\.0\\.0\\.1:${port}/signed-in\\?[^"]+)"`).exec(page)?.[1];
+  assert.ok(href, "the page links back to the app's own server");
+  assert.doesNotMatch(page, /cc\.microtone\.desktop/);
   const back = new URL(href.replace(/&amp;/g, "&"));
   return { code: back.searchParams.get("code"), state: back.searchParams.get("state"), page };
 }
@@ -89,6 +100,33 @@ test("a browser signed in already hands the app a code at once, and the code bec
   // the same account the browser is signed in to
   const listed = await (await b.fetch("/api/online/projects")).json();
   assert.deepEqual(listed.projects.map((p) => p.name), ["a.taud"]);
+});
+
+test("the Qt build's sign-in comes back to its own loopback port, signed in already or not", async () => {
+  const env = onlineEnv();
+  const b = await signedInBrowser(env);
+  const now = await handedBack(await b.fetch(desktopUrl(CHALLENGE, STATE, 49152)), 49152);
+  assert.equal(now.state, STATE);
+  assert.match(now.page, /location\.href = document\.getElementById\("back"\)\.href/);
+  assert.equal((await exchange(env, now.code)).status, 200);
+
+  // Signed out: the port waits in the cookie, with challenge and state.
+  const c = browser(env);
+  assert.equal((await c.fetch(desktopUrl(CHALLENGE, STATE, 50001))).status, 200);
+  const later = await handedBack(await c.signIn("carol"), 50001);
+  assert.equal(later.state, STATE);
+  assert.deepEqual((await (await exchange(env, later.code)).json()).user, { name: "carol (local test)" });
+  assert.equal(c.jar.has("__Host-mt_desktop"), false, "the desktop sign-in is over");
+});
+
+test("only a port a person's own program could hold", async () => {
+  const env = onlineEnv();
+  const b = await signedInBrowser(env);
+  for (const port of ["", "80", "1023", "65536", "0x50", "08080", "8080/x", "8080@evil.example"]) {
+    const res = await b.fetch(desktopUrl(CHALLENGE, STATE, port));
+    assert.equal(res.status, 400, port);
+  }
+  assert.equal(env.sqlite.prepare("SELECT COUNT(*) AS n FROM desktop_codes").get().n, 0);
 });
 
 test("a bearer session slides forward like a cookie one, but is never sent a cookie", async () => {

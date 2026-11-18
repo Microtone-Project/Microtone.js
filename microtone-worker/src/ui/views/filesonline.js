@@ -26,6 +26,7 @@ import { ZSTD_LEVEL_SAVE } from "../../../core/format/zstd.js";
 import { withSaveProgress } from "../saveprogress.js";
 import { download } from "../../storage/import-export.js";
 import { showModal, showNotice } from "../components/modal.js";
+import { showBanner } from "../components/banner.js";
 import { showProgress } from "../popups/progress.js";
 import { t } from "../i18n.js";
 import { setIconLabel } from "../icons.js";
@@ -35,6 +36,11 @@ const MB = 1024 * 1024;
 /** SceneID's own "Sign in with SceneID" artwork, cropped from the kit they
  *  hand out to sites that use it (see the comment inside the file). */
 const SCENEID_SIGN_IN = new URL("../../../assets/sceneid/sign-in.svg", import.meta.url).href;
+
+/** The desktop app signs in in the system's browser, not a window of its own
+ *  (desktop-qt/src/online.h): POSTed here, the shell opens it, and the end
+ *  comes back as the broadcast the website's sign-in window sends. */
+const DESKTOP_SIGN_IN = globalThis.__MICROTONE_NATIVE__?.online?.signIn ?? null;
 
 /** Error codes with a sentence of their own; anything else gets the generic
  *  one, code included, so a report can say what happened. */
@@ -327,6 +333,7 @@ export class OnlineSection {
   // ── the actions ──
 
   async signIn(mode) {
+    if (DESKTOP_SIGN_IN) return this.signInDesktop();
     let name = "";
     if (mode === "dev") {
       const result = await showModal({
@@ -342,6 +349,29 @@ export class OnlineSection {
     if (!online.signIn(mode, { name })) {
       await showNotice({ title: t("files.online.popupBlocked"), okLabel: t("common.ok") });
     }
+  }
+
+  /** In the system's browser (the test sign-in asks its name there): a banner
+   *  says so until the shell hears how it ended. */
+  async signInDesktop() {
+    this.stopSignInWait?.();
+    let res = null;
+    try { res = await fetch(DESKTOP_SIGN_IN, { method: "POST" }); } catch { /* said below */ }
+    if (!res?.ok) {
+      await showNotice({ title: t("files.online.signInFailed"), okLabel: t("common.ok") });
+      return;
+    }
+    const banner = showBanner({ text: t("files.online.signInBrowser"), actions: [{ label: t("sf.dismiss") }] });
+    const unlisten = online.onAuthChange((type) => {
+      if (type !== "signed-in" && type !== "sign-in-failed") return;
+      this.stopSignInWait?.();
+      if (type === "sign-in-failed") showNotice({ title: t("files.online.signInFailed"), okLabel: t("common.ok") });
+    });
+    this.stopSignInWait = () => {
+      unlisten();
+      banner.close();
+      this.stopSignInWait = null;
+    };
   }
 
   async signOut() {
