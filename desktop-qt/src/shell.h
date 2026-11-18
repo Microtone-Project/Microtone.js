@@ -83,10 +83,11 @@ class Shell : public QObject {
   /** `origin` is http://microtone.localhost/; the profile keeps its data in
    *  `dataDir`. `nativeEngine` (empty = none) is the native audio host's
    *  socket, given to every page with `nativeStatus`: the page's
-   *  AudioSystem talks to it instead of starting a worklet. `files` is the
-   *  file store's description (FileStore::describe()), given to every page. */
+   *  AudioSystem talks to it instead of starting a worklet. `services` go to
+   *  every page as they are: `files` (FileStore::describe()) and `online`
+   *  (Online::describe()). */
   Shell(QUrl origin, const QByteArray &token, const QString &dataDir, const QString &nativeEngine = {},
-        const QJsonObject &nativeStatus = {}, const QJsonObject &files = {}, QObject *parent = nullptr);
+        const QJsonObject &nativeStatus = {}, const QJsonObject &services = {}, QObject *parent = nullptr);
   ~Shell() override;
 
   QWebEngineProfile *profile() const { return profile_; }
@@ -96,6 +97,10 @@ class Shell : public QObject {
   void openDocs(const QUrl &url);
   void focusMain();
   void openOutside(const QUrl &url);
+  /** A sign-in in the system's browser ended ("signed-in", "sign-in-failed"):
+   *  the page hears it on the channel the website's sign-in window uses, and
+   *  the main window comes forward. */
+  void onlineAuth(const QString &type);
   /** The main window agreed to close: the app goes with it. */
   void quit();
 

@@ -33,6 +33,7 @@ class QWebSocket;
 namespace microtone {
 
 class FileStore;
+class Online;
 
 /** The app's origin, without a port: what the page's storage is keyed by. */
 inline constexpr char kAppHost[] = "microtone.localhost";
@@ -57,6 +58,10 @@ class AppServer : public QObject {
 
   /** Serve the file store at /api/files (filestore.h). */
   void setFileStore(const FileStore *files) { files_ = files; }
+  /** Online projects (online.h): /api/online is sent on to the site, and
+   *  http://127.0.0.1:<port>/signed-in is the one page served without the
+   *  token — the system's browser coming back from a sign-in. */
+  void setOnline(Online *online) { online_ = online; }
 
  private:
   void handle(const QHttpServerRequest &request, QHttpServerResponder &responder) const;
@@ -67,6 +72,7 @@ class AppServer : public QObject {
   QTcpServer *tcp_ = nullptr;
   std::function<void(std::unique_ptr<QWebSocket>)> engineSockets_;
   const FileStore *files_ = nullptr;
+  Online *online_ = nullptr;
 };
 
 /** The origin the page is served from, as its requests' Origin header says it. */

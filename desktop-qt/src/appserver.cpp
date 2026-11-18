@@ -18,6 +18,7 @@
 #endif
 
 #include "filestore.h"
+#include "online.h"
 
 namespace microtone {
 
@@ -137,6 +138,14 @@ void AppServer::handle(const QHttpServerRequest &request, QHttpServerResponder &
   // The Host header names the origin the page was loaded from: anything else
   // is a page that resolved its own name to 127.0.0.1.
   const QByteArrayView host = in.value(QHttpHeaders::WellKnownHeader::Host);
+  // The system's browser, back from signing in (online.h): by the server's
+  // own address, without the token, for this one page — whose state only
+  // this app knows.
+  if (online_ != nullptr && request.url().path() == u"/signed-in" &&
+      request.method() == QHttpServerRequest::Method::Get && host == "127.0.0.1:" + QByteArray::number(port())) {
+    online_->signedIn(request, responder);
+    return;
+  }
   if (host != kAppHost || in.value(kTokenHeader) != token_) {
     responder.write(Status::Forbidden);
     return;
@@ -144,6 +153,27 @@ void AppServer::handle(const QHttpServerRequest &request, QHttpServerResponder &
   // The projects, soundfonts and keymaps (filestore.h).
   if (files_ != nullptr && FileStore::handles(request.url())) {
     files_->handle(request, responder);
+    return;
+  }
+  // Online projects: the API sent on to the site, and the File view's Sign
+  // in (from the page itself: its Origin says so).
+  if (online_ != nullptr && Online::handles(request.url())) {
+    online_->handle(request, responder);
+    return;
+  }
+  if (online_ != nullptr && request.url().path() == u"/api/desktop/online-sign-in") {
+    if (request.method() != QHttpServerRequest::Method::Post || in.value(QHttpHeaders::WellKnownHeader::Origin) != kAppOrigin) {
+      responder.write(Status::Forbidden);
+      return;
+    }
+    QString why;
+    if (online_->beginSignIn(port(), &why)) {
+      responder.write(appHeaders(), Status::NoContent);
+    } else {
+      QHttpHeaders h = appHeaders();
+      h.append(QHttpHeaders::WellKnownHeader::ContentType, "text/plain; charset=utf-8");
+      responder.write(why.toUtf8(), h, Status::InternalServerError);
+    }
     return;
   }
   const bool head = request.method() == QHttpServerRequest::Method::Head;

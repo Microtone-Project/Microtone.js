@@ -273,6 +273,60 @@ database with `--leveldb <dir>`. Tested:
 - On Linux, the real Tauri build's store (16 projects in folders), copied
   into a scratch folder: identical byte for byte.
 
+## Online projects
+
+The page's own client (`core/storage/online.js`, what the website runs)
+fetches `/api/online` on its own origin. Here that is the app's server, which
+sends each request on to `https://microtone.cc` with the app's access token
+(`Authorization: Bearer`) and gives the answer back as it came
+(`src/online.cpp`). Fetched by the page itself it would be a cross-site
+request, with a session cookie Chromium keeps from a third party.
+
+- **Only the API goes out**: `/api/online…`, no `..`. Only `content-type`,
+  `if-match` and `accept` go with it, and only `content-type` and `etag` come
+  back. No cookies, no redirects followed, no cache. A server that never
+  answers is `{"error": "offline"}` (502), the code online.js uses for a
+  fetch() that failed. A 401 with a token forgets the token. Signing out
+  forgets it whatever the site says.
+- **Signing in is RFC 8252 with PKCE**, in the system's browser, where the
+  person may be signed in to the site already. The File view's *Sign in*
+  POSTs `/api/desktop/online-sign-in`, and the app keeps a verifier and a
+  state and opens `<site>/api/online/auth/desktop?challenge=…&state=…&port=…`.
+  The site sends the browser back to `http://127.0.0.1:<port>/signed-in?code&state`.
+  That is the app's own server, and the one page it serves without its
+  per-launch token. The app spends the code with the verifier, keeps the
+  token in `<app data>/online-token` (owner only), and the page hears
+  "signed-in" on the channel the website's sign-in window announces on. A
+  banner says "sign in in the browser" meanwhile.
+- **Not the Tauri build's `cc.microtone.desktop:` scheme.** The two apps
+  may be installed side by side for a while, and two apps claiming one scheme
+  hear each other's sign-ins. The loopback way back (RFC 8252 §7.3) needs no
+  registration on any system. It needs the site's `port` parameter
+  (`server/online/desktop.js`), so **the site must be deployed with it before
+  this build can sign in there**. Without it the site sends the code to the
+  Tauri scheme, which ignores it.
+- `MICROTONE_ONLINE=<url>` talks to another server (`wrangler dev`), with a
+  token of its own, so the site's is never sent elsewhere.
+  `MICROTONE_BROWSER=<program>` is run with the sign-in's address instead of
+  the system's browser.
+- A response waits for the site's: the responder is moved out of the handler,
+  and Qt keeps the connection for it (6.8's HTTP/1 handler does not delete
+  itself while a responder lives, even if the page has gone). The body is
+  buffered whole, as the Tauri build does: a streamed one cut short would
+  reach the page as a complete, shorter project.
+
+Tested: `tools/online-test.js` runs the app against `wrangler dev`, playing
+the browser itself (its header has the recipe):
+- the File view's Sign in, the round trip, the banner;
+- only the way back answers without the token, and a forged one is refused;
+- the token is kept, owner-only;
+- create, read back byte for byte, save, a conflict, rename, delete;
+- still signed in after a restart; sign-out forgets the token;
+- "offline".
+
+The smoke test asks the real site whether anyone is signed in, through the
+app. That makes CI check the packaged builds' TLS too.
+
 ## When it goes wrong: logs, crash reports, diagnostics
 
 Nobody working on this has the Windows machines or the Macs it runs on, so
@@ -612,9 +666,8 @@ language):
 
 ## Not yet done
 
-- Online projects (sign-in through the system browser, the access token, the
-  `/api/online` proxy). The page's requests already reach this server, which
-  answers them 404 for now.
+- Deploying the site's `port` parameter for the desktop sign-in (online
+  projects, above) — a release of the website, before this build is.
 - The updater and the deep-link scheme. The installer already takes `/P /R`,
   the switches an updater runs it with.
 - Linux packaging (AppImage, .deb/.rpm) and its CI.

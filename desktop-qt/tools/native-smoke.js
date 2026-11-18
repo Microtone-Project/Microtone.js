@@ -11,7 +11,9 @@
 // (SharedArrayBuffer), with OPFS; the file store (~/Microtone, here a
 // folder of the test's own) takes a 40 MB project and gives it back; what an
 // earlier desktop app kept (a store laid out as WebKit keeps it) comes over
-// into that folder and the page says so; the native host is
+// into that folder and the page says so; online projects reach the site
+// through the app (one GET of https://microtone.cc/api/online/me: TLS works
+// in the packaged app); the native host is
 // running and the song plays; the capture is complete; and — at 48 kHz, where
 // nothing converts — it is the WebAssembly render, bit for bit. A host load
 // figure is reported, not judged (a CI runner's is no one's computer).
@@ -171,6 +173,11 @@ if (!target) {
     old.files.includes("Album/Old song.taud") && old.keymaps.includes("Old.taudkey") && old.banner
     ? "ok" : `the earlier app's projects did not come over: ${JSON.stringify(old)}`;
 
+  // Online projects: the site's own API, through the app's proxy (online.h).
+  report.online = await ev(`(async () => (await import("/core/storage/online.js")).status())()`);
+  report.checks.online = report.online?.available
+    ? "ok" : `the site's online API did not answer through the app: ${JSON.stringify(report.online)}`;
+
   // Audio: autoplay starts it; a gesture-less start where it did not.
   for (let i = 0; i < 20 && !(await ev("!!window.__microtone.store.audio?.isPlaying()")); i++) await sleep(500);
   if (!(await ev("!!window.__microtone.store.audio"))) await ev("window.__microtoneEnsureAudio()");
@@ -182,7 +189,8 @@ if (!target) {
   if (!audio?.native) {
     report.checks.audio = "no native audio (no output device?): the page plays through Web Audio";
     ws.close();
-    finish(report.checks.page === "ok" && report.checks.files === "ok" && report.checks.oldApp === "ok" ? 3 : 1);
+    const quiet = ["page", "files", "oldApp", "online"].every((k) => report.checks[k] === "ok");
+    finish(quiet ? 3 : 1);
   } else {
     report.checks.audio = audio.playing ? "ok" : "the song is not playing";
     await ev("window.__microtone.store.audio.setProfiling(true)");

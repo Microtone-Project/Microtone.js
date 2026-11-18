@@ -10,7 +10,8 @@
 // Where there is no API at all — a static server, a deploy without its
 // bindings, or one with no way to sign in yet — status() says
 // `available: false` and the app shows no online section whatsoever. (The
-// desktop app answers these same requests itself: desktop/src/online.rs.)
+// desktop apps answer these same requests themselves: desktop/src/online.rs
+// in the Tauri build, desktop-qt/src/online.cpp in the Qt one.)
 
 const API = "/api/online";
 

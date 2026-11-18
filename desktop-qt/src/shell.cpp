@@ -7,6 +7,7 @@
 #include <QDir>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QMenu>
 #include <QMessageBox>
@@ -225,7 +226,7 @@ void AppWindow::askThePage() {
 // ── Shell ──
 
 Shell::Shell(QUrl origin, const QByteArray &token, const QString &dataDir, const QString &nativeEngine,
-             const QJsonObject &nativeStatus, const QJsonObject &files, QObject *parent)
+             const QJsonObject &nativeStatus, const QJsonObject &services, QObject *parent)
     : QObject(parent), origin_(std::move(origin)) {
   profile_ = new QWebEngineProfile(QStringLiteral("microtone"), this);
   profile_->setPersistentStoragePath(dataDir + QStringLiteral("/webengine"));
@@ -247,12 +248,12 @@ Shell::Shell(QUrl origin, const QByteArray &token, const QString &dataDir, const
 
   // What the shell gives the page, in the page's own world and before any of
   // its scripts run: always the file store (`files`: storage/opfs.js reads
-  // it), and the native audio host where there is one (`engine`:
-  // core/audio/audio-system.js reads it).
+  // it) and online projects (`online`: views/filesonline.js), and the native
+  // audio host where there is one (`engine`: core/audio/audio-system.js).
   {
     QJsonObject native = nativeEngine.isEmpty() ? QJsonObject() : nativeStatus;
     if (!nativeEngine.isEmpty()) native.insert(QStringLiteral("engine"), nativeEngine);
-    if (!files.isEmpty()) native.insert(QStringLiteral("files"), files);
+    for (auto it = services.constBegin(); it != services.constEnd(); ++it) native.insert(it.key(), it.value());
     QWebEngineScript script;
     script.setName(QStringLiteral("microtone-native"));
     script.setSourceCode(QStringLiteral("window.__MICROTONE_NATIVE__ = Object.freeze(%1);")
@@ -289,6 +290,17 @@ void Shell::openDocs(const QUrl &url) {
 
 void Shell::focusMain() {
   if (main_) main_->bringToFront();
+}
+
+void Shell::onlineAuth(const QString &type) {
+  focusMain();
+  if (!main_) return;
+  // online.js AUTH_CHANNEL: a message from another channel object reaches
+  // the page's own listener, as the website's sign-in window's does.
+  const QString quoted = QString::fromUtf8(QJsonDocument(QJsonArray{type}).toJson(QJsonDocument::Compact)).mid(1).chopped(1);
+  main_->page()->runJavaScript(
+      QStringLiteral("(() => { const c = new BroadcastChannel('microtone-online'); c.postMessage({ type: %1 }); c.close(); })();")
+          .arg(quoted));
 }
 
 void Shell::openOutside(const QUrl &url) {

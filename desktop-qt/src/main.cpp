@@ -42,6 +42,7 @@
 #include "appserver.h"
 #include "diagnostics.h"
 #include "filestore.h"
+#include "online.h"
 #include "nativeaudio.h"
 #include "shell.h"
 
@@ -140,6 +141,9 @@ int main(int argc, char **argv) {
   server.setFileStore(&files);
   // What the earlier desktop app kept comes over too, in the background.
   files.startOldAppCopy();
+  // Online projects, through the site with the app's own token.
+  Online online(dataDir);
+  server.setOnline(&online);
   if (!server.start()) {
     QMessageBox::critical(nullptr, QStringLiteral("Microtone"), QStringLiteral("Microtone could not start its local server."));
     return 1;
@@ -169,7 +173,9 @@ int main(int argc, char **argv) {
   }
 
   Shell shell(QUrl(QStringLiteral("http://") + QLatin1String(kAppHost) + u'/'), token, dataDir, nativeEngine,
-              nativeEngine.isEmpty() ? QJsonObject() : native.status(), files.describe());
+              nativeEngine.isEmpty() ? QJsonObject() : native.status(),
+              QJsonObject{{QStringLiteral("files"), files.describe()}, {QStringLiteral("online"), online.describe()}});
+  QObject::connect(&online, &Online::authChanged, &shell, &Shell::onlineAuth);
 
   // Chromium is up now, and may have put its own crash filter first.
   reinstallCrashReporter();

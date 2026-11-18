@@ -124,6 +124,7 @@ qt_add_executable(microtone
   src/diagnostics.cpp src/diagnostics.h src/crashlog.c src/crashlog.h
   src/filestore.cpp src/filestore.h
   src/oldapp.cpp src/oldapp.h
+  src/online.cpp src/online.h
 )
 
 target_link_libraries(microtone PRIVATE
