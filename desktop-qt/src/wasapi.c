@@ -333,6 +333,17 @@ static int setup(MtWasapiStream *s)
     if (e == NULL) { say(s->error, sizeof s->error, "WASAPI is not available", E_FAIL); return 0; }
     dev = device_named(e, s->deviceId);
     if (dev == NULL) { say(s->error, sizeof s->error, "no output device", E_FAIL); goto out; }
+    {
+        IPropertyStore *props = NULL;
+        if (SUCCEEDED(IMMDevice_OpenPropertyStore(dev, STGM_READ, &props))) {
+            PROPVARIANT v;
+            PropVariantInit(&v);
+            if (SUCCEEDED(IPropertyStore_GetValue(props, &MT_PKEY_Device_FriendlyName, &v)) && v.vt == VT_LPWSTR)
+                utf8_of(v.pwszVal, s->info.name, sizeof s->info.name);
+            PropVariantClear(&v);
+            IPropertyStore_Release(props);
+        }
+    }
     hr = IMMDevice_Activate(dev, &MT_IID_IAudioClient, CLSCTX_ALL, NULL, (void **)&s->client);
     if (FAILED(hr)) { say(s->error, sizeof s->error, "the device would not activate", hr); goto out; }
     hr = IAudioClient_GetMixFormat(s->client, &mix);
@@ -340,41 +351,69 @@ static int setup(MtWasapiStream *s)
     IAudioClient_GetDevicePeriod(s->client, &defP, &minP);
 
     if (s->mode == MT_WASAPI_EXCLUSIVE) {
-        /* Our rate (the mixer's by default), the first sample format the
-         * hardware takes, a period no shorter than its minimum — and if the
-         * buffer that makes is not aligned, the size it says, once more. */
+        /* Our rate (the mixer's by default). Periods to try, in order: the
+         * one asked for (no shorter than the minimum), the same in whole
+         * milliseconds, the device's default, its minimum — each in every
+         * sample format the hardware says it takes, on a fresh client (one
+         * that refused cannot be initialised again). Within a try, a buffer
+         * that is not aligned gets the size the driver says, once more. */
         const int rate = s->rate > 0 ? s->rate : (int)mix->nSamplesPerSec;
-        int k, found = -1;
-        REFERENCE_TIME period;
-        for (k = FMT_FLOAT32; k <= FMT_PCM32 && found < 0; k++) {
+        REFERENCE_TIME periods[4];
+        int np = 0, p, k, kinds[FMT_PCM32 + 1], nk = 0;
+        HRESULT first = S_OK;
+        REFERENCE_TIME asked = hns_of(s->periodFrames > 0 ? s->periodFrames : 0, rate), ms;
+        if (asked < minP) asked = minP;
+        ms = (asked + 5000) / 10000 * 10000;
+        if (ms < minP) ms += 10000;
+        periods[np++] = asked;
+        if (ms != asked) periods[np++] = ms;
+        if (defP > 0 && defP != asked && defP != ms) periods[np++] = defP;
+        if (minP > 0 && minP != asked && minP != ms && minP != defP) periods[np++] = minP;
+        for (k = FMT_FLOAT32; k <= FMT_PCM32; k++) {
             make_format(&ex, rate, 2, (SampleKind)k);
             if (IAudioClient_IsFormatSupported(s->client, AUDCLNT_SHAREMODE_EXCLUSIVE, (WAVEFORMATEX *)&ex, NULL) == S_OK)
-                found = k;
+                kinds[nk++] = k;
         }
-        if (found < 0) { say(s->error, sizeof s->error, "the device takes no stereo format at that rate exclusively", AUDCLNT_E_UNSUPPORTED_FORMAT); goto out; }
-        make_format(&ex, rate, 2, (SampleKind)found);
-        fmt = (const WAVEFORMATEX *)&ex;
-        period = hns_of(s->periodFrames > 0 ? s->periodFrames : 0, rate);
-        if (period < minP) period = minP;
-        hr = IAudioClient_Initialize(s->client, AUDCLNT_SHAREMODE_EXCLUSIVE, AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
-                                     period, period, fmt, NULL);
-        if (hr == AUDCLNT_E_BUFFER_SIZE_NOT_ALIGNED) {
-            UINT32 n = 0;
-            IAudioClient_GetBufferSize(s->client, &n);
-            IAudioClient_Release(s->client);
-            s->client = NULL;
-            hr = IMMDevice_Activate(dev, &MT_IID_IAudioClient, CLSCTX_ALL, NULL, (void **)&s->client);
-            if (FAILED(hr)) { say(s->error, sizeof s->error, "the device would not activate again", hr); goto out; }
-            period = hns_of((int)n, rate);
-            hr = IAudioClient_Initialize(s->client, AUDCLNT_SHAREMODE_EXCLUSIVE, AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
-                                         period, period, fmt, NULL);
+        if (nk == 0) { say(s->error, sizeof s->error, "the device takes no stereo format at that rate exclusively", AUDCLNT_E_UNSUPPORTED_FORMAT); goto out; }
+        hr = E_FAIL;
+        for (p = 0; p < np && FAILED(hr); p++) {
+            for (k = 0; k < nk && FAILED(hr); k++) {
+                REFERENCE_TIME period = periods[p];
+                make_format(&ex, rate, 2, (SampleKind)kinds[k]);
+                fmt = (const WAVEFORMATEX *)&ex;
+                if (s->info.tries++ > 0) {  /* a client that refused once is spent */
+                    IAudioClient_Release(s->client);
+                    s->client = NULL;
+                    hr = IMMDevice_Activate(dev, &MT_IID_IAudioClient, CLSCTX_ALL, NULL, (void **)&s->client);
+                    if (FAILED(hr)) { say(s->error, sizeof s->error, "the device would not activate again", hr); goto out; }
+                }
+                hr = IAudioClient_Initialize(s->client, AUDCLNT_SHAREMODE_EXCLUSIVE, AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
+                                             period, period, fmt, NULL);
+                if (hr == AUDCLNT_E_BUFFER_SIZE_NOT_ALIGNED) {
+                    UINT32 n = 0;
+                    IAudioClient_GetBufferSize(s->client, &n);
+                    IAudioClient_Release(s->client);
+                    s->client = NULL;
+                    hr = IMMDevice_Activate(dev, &MT_IID_IAudioClient, CLSCTX_ALL, NULL, (void **)&s->client);
+                    if (FAILED(hr)) { say(s->error, sizeof s->error, "the device would not activate again", hr); goto out; }
+                    period = hns_of((int)n, rate);
+                    hr = IAudioClient_Initialize(s->client, AUDCLNT_SHAREMODE_EXCLUSIVE, AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
+                                                 period, period, fmt, NULL);
+                }
+                if (FAILED(hr) && first == S_OK) first = hr;
+                if (SUCCEEDED(hr)) s->kind = kinds[k];
+                /* Busy is busy, whatever the period. */
+                if (hr == AUDCLNT_E_DEVICE_IN_USE) { p = np; break; }
+            }
         }
         if (FAILED(hr)) {
-            say(s->error, sizeof s->error, hr == AUDCLNT_E_DEVICE_IN_USE ? "another program has the device"
-                                         : "exclusive mode was refused", hr);
+            char what[96];
+            snprintf(what, sizeof what, "exclusive mode was refused at all %d periods and formats tried; the first refusal",
+                     s->info.tries);
+            say(s->error, sizeof s->error, hr == AUDCLNT_E_DEVICE_IN_USE ? "another program has the device" : what,
+                hr == AUDCLNT_E_DEVICE_IN_USE ? hr : first);
             goto out;
         }
-        s->kind = found;
         s->channels = 2;
     } else if (s->mode == MT_WASAPI_SHARED_LOW_LATENCY) {
         /* The mixer's format, at a period of the driver's choosing: a

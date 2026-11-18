@@ -121,6 +121,8 @@ LangString dataSubtitle ${LANG_ENGLISH} "Keep them, or delete them too."
 LangString dataSubtitle ${LANG_KOREAN} "남겨 둘지, 함께 삭제할지 고르세요."
 LangString dataText ${LANG_ENGLISH} "Microtone keeps your projects, the samples in them and its settings outside its program folder. They stay after uninstalling, and installing Microtone again finds them where they were."
 LangString dataText ${LANG_KOREAN} "Microtone은 프로젝트와 그 안의 샘플, 그리고 설정을 프로그램 폴더 바깥에 보관합니다. 제거한 뒤에도 남아 있으며, Microtone을 다시 설치하면 그대로 찾아 씁니다."
+LangString diagShortcut ${LANG_ENGLISH} "Microtone diagnostics"
+LangString diagShortcut ${LANG_KOREAN} "Microtone 진단"
 LangString dataBox ${LANG_ENGLISH} "Also delete my projects and settings (this cannot be undone)"
 LangString dataBox ${LANG_KOREAN} "프로젝트와 설정도 삭제 (되돌릴 수 없음)"
 
@@ -210,6 +212,12 @@ Section "${PRODUCT}"
   WriteUninstaller "$INSTDIR\uninstall.exe"
 
   CreateShortcut "$SMPROGRAMS\${PRODUCT}.lnk" "$INSTDIR\${EXE}"
+  ; For a failure report: the probes, the log and the crash reports, gathered
+  ; on the Desktop (diagnostics.cmd). Its name is kept for the uninstaller.
+  ${If} ${FileExists} "$INSTDIR\diagnostics.cmd"
+    CreateShortcut "$SMPROGRAMS\$(diagShortcut).lnk" "$INSTDIR\diagnostics.cmd" "" "$INSTDIR\${EXE}" 0
+    WriteRegStr HKCU "${UNINSTKEY}" "DiagnosticsShortcut" "$SMPROGRAMS\$(diagShortcut).lnk"
+  ${EndIf}
 
   WriteRegStr HKCU "${UNINSTKEY}" "DisplayName" "${PRODUCT}"
   WriteRegStr HKCU "${UNINSTKEY}" "DisplayIcon" '"$INSTDIR\${EXE}"'
@@ -323,6 +331,10 @@ Section "Uninstall"
   RMDir "$INSTDIR"
 
   ${If} $Update <> 1
+    ReadRegStr $R8 HKCU "${UNINSTKEY}" "DiagnosticsShortcut"
+    ${If} $R8 != ""
+      Delete "$R8"
+    ${EndIf}
     !insertmacro REMOVE_OUR_SHORTCUT "$SMPROGRAMS\${PRODUCT}.lnk"
     !insertmacro REMOVE_OUR_SHORTCUT "$DESKTOP\${PRODUCT}.lnk"
     DeleteRegKey HKCU "${UNINSTKEY}"

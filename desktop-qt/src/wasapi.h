@@ -67,6 +67,8 @@ typedef struct MtWasapiInfo {
     double latencyMs;   /* buffer + the stream latency WASAPI reports */
     char format[48];    /* e.g. "32-bit float", "24-bit PCM in 32" */
     int mmcss;          /* the thread got "Pro Audio" */
+    char name[256];     /* the device's friendly name, UTF-8 */
+    int tries;          /* EXCLUSIVE: how many period/format pairs were tried */
 } MtWasapiInfo;
 
 typedef struct MtWasapiStream MtWasapiStream;
@@ -74,7 +76,11 @@ typedef struct MtWasapiStream MtWasapiStream;
 /** Open and start. `deviceId` NULL or "" = the default output. `rate` counts
  *  only in EXCLUSIVE mode (0 = the mixer's); the shared modes run at the
  *  mixer's. `periodFrames` is what is asked for, rounded to what the mode
- *  allows. NULL, with `error` said, on failure. */
+ *  allows; in EXCLUSIVE mode a period the driver refuses is followed by the
+ *  same in whole milliseconds, its default period and its minimum, in each
+ *  sample format it says it takes (many USB drivers open only at their
+ *  default). `info->periodFrames` is what it got. NULL, with `error` said,
+ *  on failure. */
 MtWasapiStream *mt_wasapi_open(const char *deviceId, MtWasapiMode mode, int rate, int periodFrames,
                                MtWasapiRender render, void *user, MtWasapiInfo *info,
                                char *error, int errorCap);

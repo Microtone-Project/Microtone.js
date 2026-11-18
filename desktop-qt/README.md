@@ -79,7 +79,8 @@ was tested on Linux.)
 `.github/workflows/desktop-qt.yml` does all of this on `windows-latest`, on a
 push to `qt-native` or by hand, and keeps two artifacts:
 `Microtone-<version>-windows-x64` (the app, its Qt and C runtimes, the staged
-web app in `www\`, `LICENSE.txt`, `wasapi-probe.exe` and `asio-probe.exe`)
+web app in `www\`, `LICENSE.txt`, `wasapi-probe.exe`, `asio-probe.exe`,
+`microtone.pdb` and `diagnostics.cmd`)
 and `Microtone-<version>-windows-x64-setup` (the installer). It releases
 nothing.
 
@@ -96,6 +97,9 @@ node desktop-qt/tools/stage-frontend.js build/Microtone.app/Contents/Resources/w
 macdeployqt build/Microtone.app
 codesign --force --deep --sign - build/Microtone.app
 ```
+
+Qt 6.8.3's CMake files link Apple's AGL framework, which Xcode 26's SDK no
+longer has; `CMakeLists.txt` takes it off the link.
 
 The workflow's `macos` job does this on `macos-latest` and keeps
 `Microtone-<version>-macos` (a .dmg: the app and an Applications link). Then,
@@ -158,6 +162,40 @@ folders to keep your own projects out of it. To keep the sound off the
 speakers, give the test its own sink: `pactl load-module module-null-sink
 sink_name=microtone_test` (it prints the module number to unload afterwards),
 then `PULSE_SINK=microtone_test` for the app.
+
+## When it goes wrong: logs, crash reports, diagnostics
+
+Nobody working on this has the Windows machines or the Macs it runs on, so
+the app keeps its own account (`src/diagnostics.cpp`, `src/crashlog.c`), in
+`<app data>/logs` (Windows: `%LOCALAPPDATA%\Microtone\Microtone\logs`):
+
+- `microtone.log` is this run's messages, each with the time and the thread;
+  `microtone.1.log` is the run before. The audio host logs every output it
+  opens (what it asked for and what it got), every failure with its reason,
+  every close, loss and reopen, and RtAudio's warnings.
+- `crash-*.txt` is written if a run dies of a fault, an `abort()` or an
+  uncaught C++ exception. It names the exception and the faulting module and
+  offset, and gives the faulting thread's stack (on Windows unwound from the
+  fault's own context). Where a `.pdb` is beside the module, the frames are
+  named with file and line; the Windows build ships `microtone.pdb` for that.
+  On Windows a minidump (`crash-*.dmp`) goes beside it.
+- **The crash guard.** An output is marked as being opened, in the settings,
+  until it has played for five seconds. A run that dies inside that window
+  leaves the mark, and the next start skips that setting for the defaults.
+  The Settings tab says so. After two such deaths in a row, it starts with Web
+  Audio, and with native audio again the time after. So a remembered setting
+  that kills the app cannot keep it from starting.
+- **"Microtone diagnostics"** (Windows Start menu, `installer/diagnostics.cmd`)
+  is for whoever has to report a failure. It plays test tones through every
+  WASAPI mode and every ASIO driver with the probes. It then puts their output,
+  a description of the computer, and the app's log and crash reports in a
+  "Microtone report" folder on the Desktop, ready to send.
+
+Tested here: the reporter under Wine (MinGW: a fault's frames named down to
+the line, through Wine's dbghelp, which reads DWARF 4 but not 5) and on Linux
+(signals, with backtraces); the guard on Linux, by killing the app inside the
+window (defaults, then Web Audio, then native again); the diagnostics script
+under Wine's cmd.
 
 ## How it works
 
@@ -268,9 +306,17 @@ then `PULSE_SINK=microtone_test` for the app.
     driver that refuses a period it listed gets its own default instead, and
     the tab shows the period it got;
   - *exclusive*: the device to ourselves, at the rate chosen in the tab. The
-    sample format is the first the hardware takes: 32-bit float, then 24-in-32,
-    24 or 32-bit PCM, then 16-bit PCM (TPDF-dithered). The period is no shorter
-    than the device's minimum, with the buffer-alignment retry Windows asks for.
+    sample formats are the ones the hardware says it takes: 32-bit float,
+    24-in-32, 24 or 32-bit PCM, 16-bit PCM (TPDF-dithered). Drivers refuse
+    periods they never listed (a MOTU M2 gave `E_INVALIDARG` for everything
+    but its default), so a refused period is followed by:
+    - the same period in whole milliseconds;
+    - the device's default period;
+    - its minimum.
+
+    Each period is tried in each of those formats, on a fresh client, with the
+    buffer-alignment retry Windows asks for. The tab says when the device
+    opened at another size than asked.
 
   Event-driven, on a thread of its own registered with MMCSS as "Pro Audio";
   everything COM about a stream happens on that thread. Devices are named by
@@ -341,7 +387,8 @@ language):
 
 - **For one person, with no administrator rights.** It installs into
   `%LOCALAPPDATA%\Programs\Microtone`, or wherever the last install went. It
-  adds a Start menu shortcut, a desktop one if asked on the last page, and an
+  adds a Start menu shortcut, "Microtone diagnostics" beside it (above), a
+  desktop one if asked on the last page, and an
   entry in Windows' list of apps under the key `cc.microtone.desktop`. The
   Tauri build's own entry, `Microtone`, is left alone, and so is its data
   (`%LOCALAPPDATA%\cc.microtone.desktop`). Both builds' shortcuts are named

@@ -301,7 +301,14 @@ export class SettingsView {
       section.append(el("p", "set-note", now.rate === now.engineRate
         ? t("settings.unconverted", { rate: now.rate })
         : t("settings.converted", { engine: now.engineRate, rate: now.rate })));
+      // A driver that opens at a size of its own (in the shared mode the
+      // mixer's period is the rule, and its note says so).
+      if (now.bufferChoice && now.bufferChoice !== now.bufferFrames && now.mode !== "shared") {
+        section.append(el("p", "set-note", t("settings.bufferGot", { asked: now.bufferChoice, got: now.bufferFrames })));
+      }
     }
+    // The last run died opening a setting, so this one started on the defaults.
+    if (now.recovered) section.append(el("p", "set-note err", t("settings.recovered", { setting: now.recovered })));
     if (this.error) section.append(el("p", "set-note err", t("settings.failed", { error: this.error })));
     this.detail.append(section);
   }

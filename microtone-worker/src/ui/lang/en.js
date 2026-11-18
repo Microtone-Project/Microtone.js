@@ -498,6 +498,8 @@ export default {
   "settings.unconverted": "The engine renders at {rate} Hz, the device's own rate, so nothing is converted.",
   "settings.applying": "Opening the device…",
   "settings.failed": "That setting would not open ({error}), so the one before is back.",
+  "settings.bufferGot": "Asked for {asked} frames; the device opened at {got}.",
+  "settings.recovered": "Microtone closed unexpectedly while opening an output last time ({setting}), so it started with the default output instead.",
   "settings.noNative": "The native audio host is not running, so the app plays through the browser engine's audio, as on the web.",
   "settings.perfNote": "Live figures from the audio device's callback, a second at a time. The buffer can come down while the slowest callback stays well inside its budget.",
   "settings.callback": "Callback",

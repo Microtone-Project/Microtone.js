@@ -2,6 +2,7 @@
 
 #include <QDateTime>
 #include <QFile>
+#include <QStringList>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QSettings>
@@ -124,9 +125,23 @@ std::vector<RtAudio::Api> apiOrder() {
  *  reaches `owner`. */
 std::unique_ptr<RtAudio> makeDac(RtAudio::Api api, NativeAudio *owner = nullptr) {
   return std::make_unique<RtAudio>(api, [owner](RtAudioErrorType type, const std::string &text) {
-    if (type != RTAUDIO_WARNING) qWarning("microtone: audio: %s", text.c_str());
+    // Warnings too: a driver that would not load is one, and the log is
+    // where someone finds out why a device is missing.
+    if (type == RTAUDIO_WARNING) qInfo("audio: RtAudio: %s", text.c_str());
+    else qWarning("audio: RtAudio error %d: %s", int(type), text.c_str());
     if (owner != nullptr && type == RTAUDIO_DEVICE_DISCONNECT) owner->deviceLost();
   });
+}
+
+/** A setting in words, for the log and the crash guard. */
+QString describe(const NativeAudio::Config &c) {
+  QStringList parts{c.api.isEmpty() ? QStringLiteral("the first API") : c.api};
+  if (!c.mode.isEmpty()) parts << c.mode;
+  parts << (c.device.isEmpty() ? QStringLiteral("default device") : QStringLiteral("device ") + c.device);
+  parts << (c.rate != 0 ? QString::number(c.rate) + QStringLiteral(" Hz") : QStringLiteral("rate automatic"));
+  parts << (c.bufferFrames != 0 ? QString::number(c.bufferFrames) + QStringLiteral(" frames")
+                                : QStringLiteral("the driver's buffer"));
+  return parts.join(QStringLiteral(", "));
 }
 
 #ifdef __APPLE__
@@ -176,6 +191,8 @@ NativeAudio::~NativeAudio() {
   pump_.stop();
   closeDevice();
   closerDone(2000);
+  // A normal quit, however soon after an open, is not a death.
+  clearOpening();
   std::lock_guard<std::mutex> lock(engine_);
   mt_host_free(host_);
   host_ = nullptr;
@@ -224,6 +241,33 @@ bool NativeAudio::start(QString *error) {
     dump_.assign(size_t(192000) * size_t(seconds > 0 ? seconds : 30) * 2, 0.0f);  // any device rate
   }
 
+  // The crash guard: an output is marked as being opened (markOpening) until
+  // it has played for a few seconds. A mark found now means the last run died
+  // in that window: its setting is skipped for the defaults, and the page is
+  // told. Twice running, the defaults too: Web Audio this time, native audio
+  // again on the next start.
+  {
+    QSettings s;
+    const QString died = s.value(QStringLiteral("audio/opening")).toString();
+    if (!died.isEmpty()) {
+      const int deaths = s.value(QStringLiteral("audio/deaths"), 0).toInt() + 1;
+      s.remove(QStringLiteral("audio/opening"));
+      s.setValue(QStringLiteral("audio/deaths"), deaths >= 2 ? 0 : deaths);
+      s.sync();
+      recovered_ = died;
+      qWarning("audio: the last run stopped while opening %s (%d in a row)", qUtf8Printable(died), deaths);
+      if (deaths >= 2) {
+        if (error) *error = QStringLiteral("the last two runs stopped while opening an output");
+        return false;
+      }
+      wanted.api.clear();  // the defaults, below
+    } else {
+      s.setValue(QStringLiteral("audio/deaths"), 0);
+    }
+  }
+  qInfo("audio: starting; the remembered setting: %s",
+        wanted.api.isEmpty() ? "none" : qUtf8Printable(describe(wanted)));
+
   QString why;
   // Nothing remembered (a first start) goes straight to the defaults: an
   // empty setting would open RtAudio's first API, ahead of WASAPI. What was
@@ -262,6 +306,7 @@ bool NativeAudio::openDefaults(unsigned bufferFrames, unsigned rate, QString *er
 }
 
 void NativeAudio::closeDevice() {
+  if (running_) qInfo("audio: closing %s", qUtf8Printable(apiName_));
   live_ = false;
 #if MICROTONE_WASAPI
   if (wasapi_ != nullptr) {
@@ -285,6 +330,41 @@ void NativeAudio::closeDevice() {
  *  follows the new stream; on failure nothing is open. Either way a loss
  *  reported before is answered. */
 bool NativeAudio::open(const Config &want, QString *error) {
+  qInfo("audio: opening %s", qUtf8Printable(describe(want)));
+  markOpening(want);
+  QString why;
+  const bool ok = openOne(want, &why);
+  if (ok) {
+    qInfo("audio: open: %s \"%s\" at %u Hz, %u frames%s%s; latency %.1f ms", qUtf8Printable(apiName_),
+          qUtf8Printable(device_), rate_, bufferFrames_, format_.isEmpty() ? "" : ", ",
+          qUtf8Printable(format_), status().value(QStringLiteral("latencyMs")).toDouble());
+    // Cleared once it has played a while: a death before that is its.
+    const unsigned generation = openGeneration_;
+    QTimer::singleShot(5000, this, [this, generation] {
+      if (generation == openGeneration_ && running_) clearOpening();
+    });
+  } else {
+    qWarning("audio: would not open (%s): %s", qUtf8Printable(describe(want)), qUtf8Printable(why));
+    clearOpening();
+  }
+  if (error) *error = why;
+  return ok;
+}
+
+void NativeAudio::markOpening(const Config &config) {
+  ++openGeneration_;
+  QSettings s;
+  s.setValue(QStringLiteral("audio/opening"), describe(config));
+  s.sync();  // on disk now: this is for the case where nothing after runs
+}
+
+void NativeAudio::clearOpening() {
+  QSettings s;
+  s.remove(QStringLiteral("audio/opening"));
+  s.sync();
+}
+
+bool NativeAudio::openOne(const Config &want, QString *error) {
   closeDevice();
   // An ASIO driver RtAudio is still unloading must be gone before one loads.
   closerDone(2000);
@@ -365,6 +445,7 @@ void NativeAudio::reopenLost() {
  *  which reopens the stream: with the driver's size chosen, at the new size. */
 void NativeAudio::openDriverPanel() {
 #if MICROTONE_ASIO
+  qInfo("audio: the driver's settings window");
   if (driverPanel_ && dac_ && dac_->isStreamOpen() && !lost_) asio::controlPanel();
 #endif
 }
@@ -498,16 +579,6 @@ bool NativeAudio::openWasapi(const Config &want, QString *error) {
   const MtWasapiMode mode = want.mode == QLatin1String("exclusive") ? MT_WASAPI_EXCLUSIVE
                             : want.mode == QLatin1String("shared")  ? MT_WASAPI_SHARED
                                                                     : MT_WASAPI_SHARED_LOW_LATENCY;
-  QString name;
-  {
-    MtWasapiDevice *list = nullptr;
-    const int n = mt_wasapi_list(&list);
-    for (int i = 0; i < n; i++) {
-      const bool it = want.device.isEmpty() ? list[i].isDefault != 0 : want.device == QString::fromUtf8(list[i].id);
-      if (it) name = QString::fromUtf8(list[i].name);
-    }
-    mt_wasapi_free_list(list);
-  }
   MtWasapiInfo info{};
   char why[256] = "";
   MtWasapiStream *s = mt_wasapi_open(want.device.toUtf8().constData(), mode,
@@ -525,7 +596,7 @@ bool NativeAudio::openWasapi(const Config &want, QString *error) {
   latencyMs_ = info.latencyMs;
   format_ = QString::fromUtf8(info.format);
   apiName_ = QStringLiteral("WASAPI");
-  device_ = name;
+  device_ = QString::fromUtf8(info.name);
   config_ = Config{QStringLiteral("wasapi"), want.device, mode == MT_WASAPI_EXCLUSIVE ? want.rate : 0,
                    want.bufferFrames,
                    mode == MT_WASAPI_EXCLUSIVE ? QStringLiteral("exclusive")
@@ -563,10 +634,12 @@ void NativeAudio::configure(const QByteArray &json) {
   const int frames = o.value(QStringLiteral("bufferFrames")).toInt(256);
   want.bufferFrames = frames == 0 ? 0u : unsigned(std::clamp(frames, 16, 8192));  // 0: the driver's
   want.mode = o.value(QStringLiteral("mode")).toString();
+  qInfo("audio: the Settings tab asks for %s", qUtf8Printable(describe(want)));
   const Config before = config_;
   QString why;
   if (open(want, &why)) {
     lastError_.clear();
+    recovered_.clear();
     remember(config_);
   } else {
     lastError_ = why.isEmpty() ? QStringLiteral("the device would not open") : why;
@@ -596,6 +669,7 @@ QJsonObject NativeAudio::status() const {
       {QStringLiteral("format"), format_},
       {QStringLiteral("realtime"), realtime_},
       {QStringLiteral("error"), lastError_},
+      {QStringLiteral("recovered"), recovered_},
   };
   // ASIO: the driver has a settings window, and these buffer sizes.
   if (driverPanel_) o.insert(QStringLiteral("driverPanel"), true);

@@ -68,6 +68,10 @@ jobs:
           $out = "build/Microtone-$version-windows-x64"
           New-Item -ItemType Directory -Force -Path $out | Out-Null
           Copy-Item build/microtone.exe, build/wasapi-probe.exe, build/asio-probe.exe $out
+          # The debug information beside the exe, so a crash report names its
+          # frames (src/crashlog.c); and the failure-report collector, which
+          # the installer puts in the Start menu.
+          Copy-Item build/microtone.pdb, desktop-qt/installer/diagnostics.cmd $out
           # The Qt runtime, WebEngine's process and resources among it — but
           # not vc_redist.x64.exe, which needs an administrator to run: the C
           # runtime's own DLLs go beside the app instead (Microsoft's "local

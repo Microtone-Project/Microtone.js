@@ -115,6 +115,9 @@ class NativeAudio : public QObject {
   void closeDevice();
   void reopenLost();
   bool closerDone(unsigned ms);
+  bool openOne(const Config &config, QString *error);
+  void markOpening(const Config &config);
+  void clearOpening();
   void openDriverPanel();
 #if MICROTONE_WASAPI
   bool openWasapi(const Config &config, QString *error);
@@ -136,6 +139,8 @@ class NativeAudio : public QObject {
   Config config_;            // what is open, its api and device spelled out
   QString apiName_, device_;
   QString lastError_;        // the last setting that would not open
+  QString recovered_;        // what the last run died opening (start skipped it)
+  unsigned openGeneration_ = 0;  // the open the "opening" mark belongs to
   unsigned int rate_ = kEngineRate;
   unsigned int bufferFrames_ = 256;
   unsigned int streamLatency_ = 0;

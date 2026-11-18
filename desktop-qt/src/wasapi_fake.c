@@ -124,6 +124,7 @@ MtWasapiStream *mt_wasapi_open(const char *deviceId, MtWasapiMode mode, int rate
         info->bufferFrames = buffer;
         info->latencyMs = buffer * 1000.0 / rate;
         snprintf(info->format, sizeof info->format, "%s", format);
+        snprintf(info->name, sizeof info->name, "%s", d->name);
         info->mmcss = 1;
     }
     if (s->scratch == NULL || pthread_create(&s->thread, NULL, run, s) != 0) {

@@ -40,6 +40,7 @@
 #endif
 
 #include "appserver.h"
+#include "diagnostics.h"
 #include "nativeaudio.h"
 #include "shell.h"
 
@@ -113,6 +114,12 @@ int main(int argc, char **argv) {
   if (cli.isSet(QStringLiteral("version"))) cli.showVersion();
 
   if (handOverToRunningInstance()) return 0;
+
+  // The log and the crash reporter first: everything after may need them.
+  // (After the hand-over: a second launch must not rotate the first's log.)
+  const QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
+  QDir().mkpath(dataDir);
+  installDiagnostics(dataDir);
 #ifdef Q_OS_WIN
   // Held for the app's life (Windows lets it go at exit): the installer asks
   // by this name whether the app is running before it replaces or removes it.
@@ -155,10 +162,11 @@ int main(int argc, char **argv) {
     }
   }
 
-  const QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
-  QDir().mkpath(dataDir);
   Shell shell(QUrl(QStringLiteral("http://") + QLatin1String(kAppHost) + u'/'), token, dataDir, nativeEngine,
               nativeEngine.isEmpty() ? QJsonObject() : native.status());
+
+  // Chromium is up now, and may have put its own crash filter first.
+  reinstallCrashReporter();
 
   QLocalServer instances;
   QLocalServer::removeServer(instanceName());  // a crashed run's socket

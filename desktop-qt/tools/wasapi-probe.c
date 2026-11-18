@@ -62,6 +62,8 @@ static void play(const char *device, MtWasapiMode mode, int frames, int rate)
     printf("  %d Hz, %d channels, %s; period %d frames (%.2f ms), buffer %d, latency %.2f ms; MMCSS %s\n",
            info.rate, info.channels, info.format, info.periodFrames, info.periodFrames * 1000.0 / info.rate,
            info.bufferFrames, info.latencyMs, info.mmcss ? "yes" : "no");
+    if (info.tries > 1) printf("  (the driver took the %d%s period/format pair tried)\n", info.tries,
+                               info.tries == 2 ? "nd" : info.tries == 3 ? "rd" : "th");
     QueryPerformanceFrequency(&freq);
     Sleep(300);  /* past the start-up */
     {
@@ -82,6 +84,7 @@ int main(int argc, char **argv)
     MtWasapiDevice *list = NULL;
     const int n = mt_wasapi_list(&list);
     const char *what = argc > 1 ? argv[1] : "";
+    setvbuf(stdout, NULL, _IONBF, 0);  /* to a file, a crash keeps what came before */
     const int frames = argc > 2 ? atoi(argv[2]) : 128;
     const int rate = argc > 3 ? atoi(argv[3]) : 0;
     const char *device = argc > 4 ? argv[4] : NULL;

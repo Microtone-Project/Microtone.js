@@ -25,6 +25,25 @@ endif()
 find_package(Threads REQUIRED)
 qt_standard_project_setup()
 
+# Qt 6.8.3's FindWrapOpenGL links Apple's AGL framework, which the macOS 26 SDK
+# (Xcode 26) no longer has: "ld: framework 'AGL' not found". Nothing here uses
+# AGL, so it comes off the link (later Qt releases dropped it themselves).
+if(APPLE AND TARGET WrapOpenGL::WrapOpenGL)
+  get_target_property(_mt_gl WrapOpenGL::WrapOpenGL INTERFACE_LINK_LIBRARIES)
+  if(_mt_gl)
+    list(FILTER _mt_gl EXCLUDE REGEX "AGL")
+    set_target_properties(WrapOpenGL::WrapOpenGL PROPERTIES INTERFACE_LINK_LIBRARIES "${_mt_gl}")
+  endif()
+endif()
+
+# Windows: debug information in the release build too. microtone.pdb ships
+# beside the exe, so a crash report (src/crashlog.c) names its frames; /FS
+# because Ninja's parallel compiles share a target's .pdb.
+if(MSVC)
+  add_compile_options($<$<CONFIG:Release>:/Zi> $<$<CONFIG:Release>:/FS>)
+  add_link_options($<$<CONFIG:Release>:/DEBUG> $<$<CONFIG:Release>:/OPT:REF> $<$<CONFIG:Release>:/OPT:ICF>)
+endif()
+
 # ── the engine, native: the same C the web build compiles to WebAssembly
 # (core/engine/c), with the same flags that make it the same bits — no
 # contracted multiply-adds, never -ffast-math (CLAUDE.md, "The C engine") —
@@ -102,6 +121,7 @@ qt_add_executable(microtone
   src/links.cpp src/links.h
   src/nativeaudio.cpp src/nativeaudio.h src/enginehost.h
   src/resampler.cpp src/resampler.h
+  src/diagnostics.cpp src/diagnostics.h src/crashlog.c src/crashlog.h
 )
 
 target_link_libraries(microtone PRIVATE

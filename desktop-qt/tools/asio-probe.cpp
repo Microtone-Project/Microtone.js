@@ -8,6 +8,7 @@
 //                                 a 440 Hz tone for three seconds through
 //                                 driver n (frames 0 or none: the driver's own
 //                                 size, as the app asks by default)
+//   asio-probe all                the list, then that tone through each driver
 //   asio-probe panel <n>          driver n's own settings window
 //
 // A driver's sizes are only told while it is loaded, so the list opens each
@@ -172,6 +173,9 @@ int panel(RtAudio &dac, size_t index) {
 }  // namespace
 
 int main(int argc, char **argv) {
+  // Unbuffered: written to a file (installer/diagnostics.cmd), a probe that
+  // dies in a driver must leave everything up to that point.
+  std::setvbuf(stdout, nullptr, _IONBF, 0);
   RtAudio dac(RtAudio::WINDOWS_ASIO, [](RtAudioErrorType type, const std::string &text) {
     std::fprintf(stderr, "%s: %s\n", type == RTAUDIO_WARNING ? "warning" : "error", text.c_str());
   });
@@ -180,9 +184,20 @@ int main(int argc, char **argv) {
     return 1;
   }
   if (argc <= 1) return list(dac);
+  if (std::strcmp(argv[1], "all") == 0) {
+    list(dac);
+    const size_t n = dac.getDeviceIds().size();
+    int failed = 0;
+    for (size_t i = 0; i < n; i++) {
+      std::printf("\ntone through driver %zu:\n", i);
+      failed |= play(dac, i, 0, 0);
+    }
+    return failed;
+  }
   if (std::strcmp(argv[1], "panel") == 0) return argc > 2 ? panel(dac, size_t(std::atoi(argv[2]))) : 1;
   if (std::strcmp(argv[1], "-h") == 0 || std::strcmp(argv[1], "--help") == 0) {
     std::printf("asio-probe                   list the ASIO drivers\n"
+                "asio-probe all               …and a tone through each\n"
                 "asio-probe <n> [rate] [frames]  a tone through driver n (frames 0: its own size)\n"
                 "asio-probe panel <n>          driver n's settings window\n");
     return 0;

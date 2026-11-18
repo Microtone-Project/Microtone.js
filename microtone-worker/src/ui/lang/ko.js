@@ -482,6 +482,8 @@ export default {
   "settings.unconverted": "엔진이 장치 고유의 레이트인 {rate} Hz로 렌더링하므로 변환이 없습니다.",
   "settings.applying": "장치를 여는 중…",
   "settings.failed": "그 설정으로는 장치를 열지 못해({error}) 이전 설정으로 되돌렸습니다.",
+  "settings.bufferGot": "{asked} 프레임을 요청했지만 장치가 {got} 프레임으로 열었습니다.",
+  "settings.recovered": "지난번에 출력({setting})을 여는 중에 Microtone이 예기치 않게 종료되어, 기본 출력으로 시작했습니다.",
   "settings.noNative": "네이티브 오디오 호스트가 실행되지 않아, 웹에서처럼 브라우저 엔진의 오디오로 재생합니다.",
   "settings.perfNote": "오디오 장치 콜백의 실시간 수치로, 1초마다 갱신됩니다. 가장 느린 콜백이 예산 안에 넉넉히 들어오는 동안에는 버퍼를 줄여도 됩니다.",
   "settings.callback": "콜백",
