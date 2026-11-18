@@ -78,6 +78,55 @@ initialization script:
 | `src/webkitgtk.rs` | Linux: switches on the Storage and File System APIs (where every project lives) and the microphone, which WebKitGTK ships switched off |
 | `src/mac_dialogs.rs` | macOS: `alert()` and `confirm()`, which WKWebView lacks, as native alerts |
 | `glue/desktop.js` | hides the welcome screen's **Get the desktop app** (`.wc-desktop`), from the first paint — the page offers the app to a browser and never asks where it runs |
+| `src/handover.rs` | copies the projects, soundfonts and keymaps out of OPFS into `~/Microtone`, where the next desktop app keeps them (below) |
+
+### Moving the projects to the next desktop app
+
+The Qt build (`../desktop-qt`) replaces this one. It keeps projects,
+soundfonts and keymaps as ordinary files in `~/Microtone/{Projects,
+Soundfonts,Keymaps}` (`%USERPROFILE%\Microtone` on Windows). This build keeps
+them in its webview's OPFS. WebView2 stores that in Chromium's LevelDB and
+SQLite and WebKit in a format of its own; nothing but the webview itself
+reads either. So this build copies its own across:
+
+- **The glue reads OPFS through the page's API** in the main window, 5 s after
+  start and then every minute. It hands each file to `handover_write`
+  (`src/handover.rs`) as raw bytes, which writes it into the folder.
+- **Never overwrites what it did not write.** A file is created; or replaced
+  only while it is still exactly what was written (the glue keeps a manifest
+  in localStorage, one per destination folder, with the modification times on
+  both sides); or, if the
+  same bytes are already there, counted as done. Anything else gets its copy
+  beside it, as "name (from the old app).taud".
+- **So edits keep flowing** while this app is used: a project changed here is
+  copied again, unless the copy was changed in the new app meanwhile.
+- **Nothing is deleted**, here or there. Empty folders come along, the
+  soundfonts' notes are merged into the folder's `index.json` (what is
+  already there wins), and a name Windows or macOS cannot hold is made
+  portable (`bad:name?.taud` → `bad_name_.taud`).
+- A banner says so the first time anything is copied.
+- `MICROTONE_FILES_ROOT=<dir>` puts the folder elsewhere, for tests.
+
+Tested:
+- `cargo test`: the write rules, names, path escapes;
+- the glue's logic in headless Chromium against a stand-in for the Rust side
+  (copy, beside, nothing twice, replace an unchanged copy, keep a copy edited
+  in the new app, the merged index, one banner).
+
+Not yet run in the Tauri webview itself.
+
+The Qt build also reads this build's storage itself, at every start
+(`desktop-qt/src/oldapp.cpp`, "The earlier desktop app's projects" in its
+README), with the same rules: the same "(from the old app)" name, the same
+"never beside a copy beside it". A change to the rules here is a change there.
+So this side is not strictly needed, but it keeps edits flowing while both
+apps are in use, and it covers a Windows store the Qt build's LevelDB reader
+might not read.
+
+**Shipping it is a release of this app** (a version bump pushed to master),
+and it should go out before the Qt build takes over. AppImage, Windows and
+macOS installs get it through the updater; deb and rpm installs only when
+the person installs that version.
 
 ### Online projects
 

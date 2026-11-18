@@ -17,6 +17,7 @@
 #pragma once
 
 #include <QByteArray>
+#include <QHttpHeaders>
 #include <QHttpServer>
 #include <QObject>
 #include <QString>
@@ -30,6 +31,8 @@ class QHttpServerResponder;
 class QWebSocket;
 
 namespace microtone {
+
+class FileStore;
 
 /** The app's origin, without a port: what the page's storage is keyed by. */
 inline constexpr char kAppHost[] = "microtone.localhost";
@@ -52,6 +55,9 @@ class AppServer : public QObject {
    *  this is called (no device, or --web-audio) the endpoint refuses. */
   void setEngineSockets(std::function<void(std::unique_ptr<QWebSocket>)> sink);
 
+  /** Serve the file store at /api/files (filestore.h). */
+  void setFileStore(const FileStore *files) { files_ = files; }
+
  private:
   void handle(const QHttpServerRequest &request, QHttpServerResponder &responder) const;
 
@@ -60,10 +66,14 @@ class AppServer : public QObject {
   QHttpServer http_;
   QTcpServer *tcp_ = nullptr;
   std::function<void(std::unique_ptr<QWebSocket>)> engineSockets_;
+  const FileStore *files_ = nullptr;
 };
 
 /** The origin the page is served from, as its requests' Origin header says it. */
 inline constexpr char kAppOrigin[] = "http://microtone.localhost";
+
+/** The headers every response carries (isolation, no caching, no sniffing). */
+QHttpHeaders appHeaders();
 
 /** The Content-Type a file is served with, by its extension. */
 QByteArray mimeTypeFor(const QString &path);

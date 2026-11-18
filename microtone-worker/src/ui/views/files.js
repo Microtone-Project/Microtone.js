@@ -165,11 +165,19 @@ export class FilesView {
     // below, once the listing says there is something to put in it.
     const allBtn = mkBtn("", () => this.downloadAll());
     setIconLabel(allBtn, "download", t("files.downloadAll"), { after: true });
-    allBtn.title = t("files.downloadAllTitle");
+    // The desktop keeps the projects as files in a folder of the person's
+    // own (storage/opfs.js location): say where, and offer to show it.
+    const where = opfs.location("projects");
+    allBtn.title = where ? t("files.downloadAllTitleNative", { folder: where }) : t("files.downloadAllTitle");
     allBtn.disabled = true;
     // doc-scoped actions grey out until something is loaded
     for (const b of [saveBtn, saveAsBtn, exportBtn, wavBtn, stemsBtn, modBtn, itBtn]) b.disabled = !doc;
     bar.append(saveBtn, saveAsBtn, importBtn, importMidiBtn, demoBtn, exportBtn, wavBtn, stemsBtn, modBtn, itBtn, allBtn);
+    if (where) {
+      const folderBtn = mkBtn(t("files.showFolder"), () => opfs.reveal("projects", this.folder));
+      folderBtn.title = where;
+      bar.append(folderBtn);
+    }
     page.push(bar);
 
     if (!ok) {
@@ -193,7 +201,7 @@ export class FilesView {
       page.push(this._crumbs(ui), ui.wrap);
       const disclaimer = document.createElement("p");
       disclaimer.className = "files-disclaimer";
-      disclaimer.textContent = t("files.disclaimer");
+      disclaimer.textContent = where ? t("files.disclaimerNative", { folder: where }) : t("files.disclaimer");
       page.push(disclaimer);
     }
 
@@ -261,7 +269,7 @@ export class FilesView {
     ui.move = mkBtn(t("files.moveTo"), () => this.moveSelected());
     ui.move.title = t("files.moveToTitle");
     ui.moveOnline = mkBtn(t("files.moveOnline"), () => this.moveSelectedOnline());
-    ui.moveOnline.title = t("files.moveOnlineTitle");
+    ui.moveOnline.title = opfs.location("projects") ? t("files.moveOnlineTitleNative") : t("files.moveOnlineTitle");
     ui.del = mkBtn("", () => this.deleteSelected());
     setIconLabel(ui.del, "close", t("common.delete"));
     ui.del.title = t("files.deleteSelectedTitle");

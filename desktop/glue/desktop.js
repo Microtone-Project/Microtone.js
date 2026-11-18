@@ -16,6 +16,9 @@
 //     (desktop/src/mac_dialogs.rs)
 //   - hides the welcome screen's "Get the desktop app" (.wc-desktop), the
 //     website's offer of the very app this is
+//   - copies the projects, soundfonts and keymaps out of OPFS into
+//     ~/Microtone, where the next desktop app keeps them (desktop/src/
+//     handover.rs; desktop-qt/src/filestore.cpp)
 //
 // Its strings are its own, in the app's two languages, chosen by <html lang>
 // (which the app's i18n sets). Its colours are the app's theme tokens, and the
@@ -24,7 +27,7 @@
   "use strict";
 
   const config = window.__MICROTONE_DESKTOP__ || {};
-  const invoke = (cmd, args) => window.__TAURI_INTERNALS__.invoke(cmd, args);
+  const invoke = (cmd, args, options) => window.__TAURI_INTERNALS__.invoke(cmd, args, options);
 
   const STRINGS = {
     en: {
@@ -45,6 +48,7 @@
       exportFailed: "{name} could not be saved.",
       signInBrowser: "Sign in in the browser that just opened; Microtone picks it up from there.",
       signInFailed: "Signing in did not complete: {error}",
+      handedOver: "Your projects are now also in {folder}, where the next version of Microtone keeps them. Nothing here was moved or deleted.",
     },
     ko: {
       available: "Microtone {version} 업데이트가 나왔습니다 — 지금 쓰는 버전은 {current}입니다.",
@@ -64,6 +68,7 @@
       exportFailed: "{name}을(를) 저장하지 못했습니다.",
       signInBrowser: "방금 열린 브라우저에서 로그인하세요. 그러면 Microtone이 이어받습니다.",
       signInFailed: "로그인을 마치지 못했습니다: {error}",
+      handedOver: "이제 프로젝트가 {folder}에도 있습니다. 다음 버전의 Microtone은 그곳에 프로젝트를 보관합니다. 여기 있는 것은 옮기거나 지우지 않았습니다.",
     },
   };
 
@@ -341,10 +346,161 @@
     window.confirm = function confirm(message) { return ask("confirm", message); };
   }
 
-  window.__microtoneDesktop = { requestClose, notice, updateProgress, onlineAuth };
+  // ── the projects, for the next desktop app ──
+  //
+  // The next Microtone (desktop-qt) keeps projects, soundfonts and keymaps as
+  // files in ~/Microtone; this one keeps them in OPFS, which only this webview
+  // can read. So this copies them across through the page's own OPFS API and
+  // desktop/src/handover.rs, now and every minute while the app runs: what was
+  // made or changed here since reaches the folder.
+  //
+  // A manifest (localStorage, one per destination folder — a trial with
+  // MICROTONE_FILES_ROOT must not count for ~/Microtone) remembers what went
+  // where, with the times on both sides: an unchanged file is not sent again, and a changed one
+  // replaces its copy only if nothing else has touched that copy since —
+  // otherwise it goes beside it as "name (from the old app)". Nothing is ever
+  // deleted, here or there. The soundfonts' notes (index.json) are merged in.
+
+  const HANDOVER_KEY = "microtone-handover";
+  const HANDOVER_TOLD = "microtone-handover-told";
+  const SOUNDFONT_INDEX = "index.json";
+  let handingOver = false;
+
+  /** A name every system can hold, made from one that maybe is not. */
+  function portableName(name) {
+    let n = name.replace(/[<>:"|?*\x00-\x1f]/g, "_").replace(/[. ]+$/, "");
+    if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i.test(n)) n = "_" + n;
+    return n || "_";
+  }
+
+  /** "Album/song.taud" → "Album/song (from the old app).taud". */
+  function besideName(path) {
+    const at = path.lastIndexOf("/");
+    const folder = at < 0 ? "" : path.slice(0, at + 1);
+    const name = path.slice(at + 1);
+    const dot = name.indexOf(".", 1);
+    return dot < 0 ? `${folder}${name} (from the old app)` : `${folder}${name.slice(0, dot)} (from the old app)${name.slice(dot)}`;
+  }
+
+  async function* walkOpfs(dir, prefix, deep) {
+    for await (const [name, handle] of dir.entries()) {
+      const path = prefix ? `${prefix}/${name}` : name;
+      if (handle.kind === "directory") {
+        if (!deep) continue;
+        yield { path, folder: true };
+        yield* walkOpfs(handle, path, deep);
+      } else {
+        yield { path, handle };
+      }
+    }
+  }
+
+  function put(store, path, bytes, replace) {
+    return invoke("handover_write", bytes, {
+      headers: {
+        "x-mt-store": store,
+        "x-mt-path": path.split("/").map(encodeURIComponent).join("/"),
+        "x-mt-replace": replace,
+      },
+    });
+  }
+
+  async function handover() {
+    if (handingOver) return null;
+    handingOver = true;
+    const counts = { written: 0, replaced: 0, beside: 0 };
+    try {
+      let root;
+      try { root = await navigator.storage.getDirectory(); } catch { return null; }
+      const info = await invoke("handover_info");
+      const manifestKey = `${HANDOVER_KEY}:${info.root}`;
+      const toldKey = `${HANDOVER_TOLD}:${info.root}`;
+      let manifest = {};
+      try { manifest = JSON.parse(localStorage.getItem(manifestKey) || "{}"); } catch { /* start afresh */ }
+      const keep = () => { try { localStorage.setItem(manifestKey, JSON.stringify(manifest)); } catch { /* next time */ } };
+      const portablePath = (path) => path.split("/").map(portableName).join("/");
+
+      for (const store of ["projects", "soundfonts", "keymaps"]) {
+        let dir;
+        try { dir = await root.getDirectoryHandle(store); } catch { continue; }
+        for await (const entry of walkOpfs(dir, "", store === "projects")) {
+          if (entry.folder) {
+            await invoke("handover_folder", { store, path: portablePath(entry.path) });
+            continue;
+          }
+          if (store === "soundfonts" && entry.path === SOUNDFONT_INDEX) continue;  // merged below
+          const key = `${store}/${entry.path}`;
+          const file = await entry.handle.getFile();
+          const was = manifest[key];
+          if (was && was.src === file.lastModified) continue;  // copied, and unchanged since
+          const bytes = new Uint8Array(await file.arrayBuffer());
+          let to = was?.to ?? portablePath(entry.path);
+          let done = await put(store, to, bytes, was ? String(was.dst) : "");
+          if (!done.written && !done.same) {
+            // Someone else's file there, or ours changed since: beside the
+            // original name (never beside a copy beside it).
+            to = besideName(portablePath(entry.path));
+            done = await put(store, to, bytes, "");
+            if (!done.written && !done.same) continue;  // that too: leave it be
+            if (done.written) counts.beside++;
+          } else if (done.written) {
+            if (was) counts.replaced++;
+            else counts.written++;
+          }
+          manifest[key] = { src: file.lastModified, dst: done.mtime, to };
+          keep();
+        }
+      }
+
+      // The soundfonts' notes, keyed by file name: merged into the folder's
+      // index (what is already there wins), when this side's changed.
+      try {
+        const sfDir = await root.getDirectoryHandle("soundfonts");
+        const file = await (await sfDir.getFileHandle(SOUNDFONT_INDEX)).getFile();
+        const key = `soundfonts/${SOUNDFONT_INDEX}`;
+        if (manifest[key]?.src !== file.lastModified) {
+          const ours = JSON.parse(await file.text());
+          let theirs = {};
+          try {
+            theirs = JSON.parse(new TextDecoder().decode(new Uint8Array(await invoke("handover_read", { store: "soundfonts", path: SOUNDFONT_INDEX }))));
+          } catch { /* none yet */ }
+          const merged = { ...theirs };
+          for (const [name, value] of Object.entries(ours)) {
+            const to = manifest[`soundfonts/${name}`]?.to ?? portableName(name);
+            if (!(to in merged)) merged[to] = value;
+          }
+          const done = await put("soundfonts", SOUNDFONT_INDEX, new TextEncoder().encode(JSON.stringify(merged, null, 1)), "*");
+          manifest[key] = { src: file.lastModified, dst: done.mtime, to: SOUNDFONT_INDEX };
+          keep();
+        }
+      } catch { /* no soundfonts, or no index */ }
+
+      config.handover = counts;  // what the last pass did (for whoever looks)
+      if (counts.written + counts.replaced + counts.beside > 0) {
+        let told = false;
+        try { told = !!localStorage.getItem(toldKey); } catch { /* tell */ }
+        if (!told) {
+          notice("handedOver", { folder: info.root });
+          try { localStorage.setItem(toldKey, "1"); } catch { /* once more next time */ }
+        }
+      }
+      return counts;
+    } catch (err) {
+      console.warn("desktop: copying the projects to the next app:", err);
+      return null;
+    } finally {
+      handingOver = false;
+    }
+  }
+
+  window.__microtoneDesktop = { requestClose, notice, updateProgress, onlineAuth, handover };
 
   if (config.window === "main") {
-    const start = () => setTimeout(checkForUpdate, 3000);
+    const start = () => {
+      setTimeout(checkForUpdate, 3000);
+      setTimeout(handover, 5000);
+      setInterval(handover, 60000);
+    };
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start, { once: true });
     else start();
   }

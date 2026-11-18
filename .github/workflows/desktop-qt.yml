@@ -61,6 +61,20 @@ jobs:
       - name: Build
         run: cmake --build build
 
+      # Bringing over what the earlier desktop app kept (src/oldapp.cpp): the
+      # copy's rules, and the Chromium reader on a real Edge profile — the
+      # engine and storage WebView2 is — under the earlier app's own origin.
+      - name: Earlier app's projects
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $edge = "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe"
+          node desktop-qt/tools/oldapp-test.js build/oldapp-dump.exe --browser $edge | Tee-Object -FilePath oldapp.txt
+          $status = $LASTEXITCODE
+          $fence = '```'
+          "### Earlier app's projects (exit $status)", $fence, (Get-Content oldapp.txt -Raw), $fence | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+          exit $status
+
       - name: Package
         shell: pwsh
         run: |
@@ -84,6 +98,20 @@ jobs:
           # The web app, where the binary looks for it: www/ beside itself.
           node desktop-qt/tools/stage-frontend.js "$out/www"
           "version=$version" >> $env:GITHUB_ENV
+
+      # The packaged app on the runner: the page, the file store (a 40 MB
+      # project in and out of a folder of the test's own). The runner has no
+      # sound device, so the audio half is skipped: exit 3, which is fine.
+      - name: Smoke test
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          node desktop-qt/tools/native-smoke.js "build/Microtone-$env:version-windows-x64/microtone.exe" --seconds 5 | Tee-Object -FilePath smoke.json
+          $status = $LASTEXITCODE
+          $fence = '```'
+          "### Windows smoke test (exit $status; 3 = no sound device on the runner)", "${fence}json", (Get-Content smoke.json -Raw), $fence | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+          if ($status -ne 0 -and $status -ne 3) { exit $status }
+          exit 0
 
       # NSIS: on the runner image, or from Chocolatey where it is not.
       - name: Installer
@@ -141,6 +169,17 @@ jobs:
 
       - name: Build
         run: cmake --build build --parallel 4
+
+      # Bringing over what the earlier desktop app kept (src/oldapp.cpp): on a
+      # Mac it kept them as WebKit does, which the copy's rules test uses.
+      - name: Earlier app's projects
+        continue-on-error: true
+        run: |
+          set +e
+          node desktop-qt/tools/oldapp-test.js build/oldapp-dump | tee oldapp.txt
+          status=${PIPESTATUS[0]}
+          { echo "### Earlier app's projects (exit $status)"; echo '```'; cat oldapp.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit $status
 
       - name: Package
         run: |

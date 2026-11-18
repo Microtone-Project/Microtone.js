@@ -38,6 +38,8 @@ import { showWarmthSplash } from "./popups/warmth.js";
 import { showNewProject } from "./popups/newproject.js";
 import { showModal, showNotice } from "./components/modal.js";
 import * as opfs from "../storage/opfs.js";
+import { carryOverFromOpfs, oldAppCopy, oldAppTold } from "../storage/carry-over.js";
+import { showBanner } from "./components/banner.js";
 import { pickFile } from "../storage/import-export.js";
 import { convertToTaud, converterFor, CONVERT_ACCEPT } from "../convert/convert.js";
 import { isImac, imacSongs } from "../convert/imac.js";
@@ -46,7 +48,7 @@ import { showImportProgress } from "./popups/importlog.js";
 import { showProgress } from "./popups/progress.js";
 import { fetchDemo } from "./demos.js";
 import { getSoundfont, getBundledSoundfont, pickUserSoundfont } from "./soundfont.js";
-import { setShowLibrary, librarySoundfonts, loadSoundfont } from "./sflibrary.js";
+import { setShowLibrary, librarySoundfonts, loadSoundfont, libraryChangedElsewhere } from "./sflibrary.js";
 import { resolveBanks, rememberBank } from "./adlibbank.js";
 import { decodeHandoff, handoffArmed } from "./handoff.js";
 import { presetForNotation } from "../../core/tuning/pitchtables.js";
@@ -2415,6 +2417,39 @@ requestAnimationFrame(frame);
 startControlEnhancer();
 
 window.__splash?.done(); // app shell ready — fade out the boot splash (item 67)
+
+// The desktop app keeps projects, soundfonts and keymaps as files in
+// ~/Microtone: what earlier builds kept inside this profile goes there, once
+// (storage/carry-over.js), and the File view shows it.
+carryOverFromOpfs().then((c) => {
+  if (!c || c.projects + c.soundfonts + c.keymaps === 0) return;
+  eachOpenView("files", (v) => v.refresh());
+  showBanner({
+    text: t("files.carriedOver", { ...c, folder: opfs.location("root") }),
+    actions: [
+      { label: t("files.showFolder"), onClick: () => opfs.reveal("projects"), primary: true },
+      { label: t("sf.dismiss") },
+    ],
+  });
+}).catch((err) => console.warn("copying the app's stored projects into the folder:", err));
+
+// ...and so does what the earlier desktop app kept, which the shell copies at
+// every start (desktop-qt/src/oldapp.h): said once, the first time.
+oldAppCopy().then(async (c) => {
+  if (!c || c.projects + c.soundfonts + c.keymaps === 0) return;
+  eachOpenView("files", (v) => v.refresh());
+  if (c.soundfonts) libraryChangedElsewhere();
+  if (!c.tell) return;
+  const beside = c.beside ? " " + t("files.oldAppBeside", c) : "";
+  showBanner({
+    text: t("files.oldAppCopied", { ...c, folder: opfs.location("root") }) + beside,
+    actions: [
+      { label: t("files.showFolder"), onClick: () => opfs.reveal("projects"), primary: true },
+      { label: t("sf.dismiss") },
+    ],
+  });
+  await oldAppTold();
+}).catch((err) => console.warn("bringing over the earlier desktop app's projects:", err));
 
 // Booted straight into the Analogue Warmth Edition (April 1st, a published
 // run, or ?theme=warmth) — all three land before the onThemeChange listener

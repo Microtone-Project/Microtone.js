@@ -225,7 +225,7 @@ void AppWindow::askThePage() {
 // ── Shell ──
 
 Shell::Shell(QUrl origin, const QByteArray &token, const QString &dataDir, const QString &nativeEngine,
-             const QJsonObject &nativeStatus, QObject *parent)
+             const QJsonObject &nativeStatus, const QJsonObject &files, QObject *parent)
     : QObject(parent), origin_(std::move(origin)) {
   profile_ = new QWebEngineProfile(QStringLiteral("microtone"), this);
   profile_->setPersistentStoragePath(dataDir + QStringLiteral("/webengine"));
@@ -245,11 +245,14 @@ Shell::Shell(QUrl origin, const QByteArray &token, const QString &dataDir, const
   glue.setRunsOnSubFrames(false);
   profile_->scripts()->insert(glue);
 
-  // The native audio host, where there is one: the page's own world must see
-  // it (core/audio/audio-system.js reads it), before any of its scripts run.
-  if (!nativeEngine.isEmpty()) {
-    QJsonObject native = nativeStatus;
-    native.insert(QStringLiteral("engine"), nativeEngine);
+  // What the shell gives the page, in the page's own world and before any of
+  // its scripts run: always the file store (`files`: storage/opfs.js reads
+  // it), and the native audio host where there is one (`engine`:
+  // core/audio/audio-system.js reads it).
+  {
+    QJsonObject native = nativeEngine.isEmpty() ? QJsonObject() : nativeStatus;
+    if (!nativeEngine.isEmpty()) native.insert(QStringLiteral("engine"), nativeEngine);
+    if (!files.isEmpty()) native.insert(QStringLiteral("files"), files);
     QWebEngineScript script;
     script.setName(QStringLiteral("microtone-native"));
     script.setSourceCode(QStringLiteral("window.__MICROTONE_NATIVE__ = Object.freeze(%1);")

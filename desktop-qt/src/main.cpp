@@ -41,6 +41,7 @@
 
 #include "appserver.h"
 #include "diagnostics.h"
+#include "filestore.h"
 #include "nativeaudio.h"
 #include "shell.h"
 
@@ -134,6 +135,11 @@ int main(int argc, char **argv) {
 
   const QByteArray token = newToken();
   AppServer server(root, token);
+  // The projects, soundfonts and keymaps: ordinary files in ~/Microtone.
+  FileStore files(dataDir);
+  server.setFileStore(&files);
+  // What the earlier desktop app kept comes over too, in the background.
+  files.startOldAppCopy();
   if (!server.start()) {
     QMessageBox::critical(nullptr, QStringLiteral("Microtone"), QStringLiteral("Microtone could not start its local server."));
     return 1;
@@ -163,7 +169,7 @@ int main(int argc, char **argv) {
   }
 
   Shell shell(QUrl(QStringLiteral("http://") + QLatin1String(kAppHost) + u'/'), token, dataDir, nativeEngine,
-              nativeEngine.isEmpty() ? QJsonObject() : native.status());
+              nativeEngine.isEmpty() ? QJsonObject() : native.status(), files.describe());
 
   // Chromium is up now, and may have put its own crash filter first.
   reinstallCrashReporter();

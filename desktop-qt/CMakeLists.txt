@@ -122,12 +122,20 @@ qt_add_executable(microtone
   src/nativeaudio.cpp src/nativeaudio.h src/enginehost.h
   src/resampler.cpp src/resampler.h
   src/diagnostics.cpp src/diagnostics.h src/crashlog.c src/crashlog.h
+  src/filestore.cpp src/filestore.h
+  src/oldapp.cpp src/oldapp.h
 )
 
 target_link_libraries(microtone PRIVATE
   Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::HttpServer Qt6::WebSockets
   Qt6::WebEngineCore Qt6::WebEngineWidgets
   taudengine rtaudio)
+
+# What the earlier desktop app kept, as the app reads it (src/oldapp.cpp):
+# for trying the reader on a real profile, and for diagnostics. Qt Core only.
+add_executable(oldapp-dump tools/oldapp-dump.cpp src/oldapp.cpp src/oldapp.h)
+target_link_libraries(oldapp-dump PRIVATE Qt6::Core)
+set_target_properties(oldapp-dump PROPERTIES AUTOMOC OFF)
 
 # WASAPI: the real backend on Windows; elsewhere, only for trying the host's
 # WASAPI glue and the Settings tab's modes, a stand-in (never shipped).

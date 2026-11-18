@@ -39,12 +39,19 @@ export class SoundfontSection {
 
     const bar = document.createElement("div");
     bar.className = "files-bar";
+    // The desktop keeps them as files in a folder of the person's own.
+    const where = opfs.location("soundfonts");
     const add = button(t("sf.add"), () => this.add());
-    add.title = t("sf.addTitle");
+    add.title = where ? t("sf.addTitleNative", { folder: where }) : t("sf.addTitle");
     add.disabled = !ok;
     bar.append(add);
+    if (where) {
+      const show = button(t("files.showFolder"), () => opfs.reveal("soundfonts"));
+      show.title = where;
+      bar.append(show);
+    }
 
-    const blurb = el("p", "files-blurb", t("sf.blurb"));
+    const blurb = el("p", "files-blurb", where ? t("sf.blurbNative", { folder: where }) : t("sf.blurb"));
     const parts = [bar, blurb];
     if (!ok) {
       parts.push(el("p", "files-warn", t("files.opfsWarn")));
@@ -73,7 +80,7 @@ export class SoundfontSection {
     link.href = new URL("../../../sf2taudify.py", import.meta.url).href;
     link.download = "sf2taudify.py";
     cli.append(link);
-    parts.push(cli, el("p", "files-disclaimer", t("sf.disclaimer")));
+    parts.push(cli, el("p", "files-disclaimer", where ? t("sf.disclaimerNative", { folder: where }) : t("sf.disclaimer")));
 
     // Keep a note that is being typed: the table is rebuilt under it.
     const typing = this.el.contains(document.activeElement) && document.activeElement.classList.contains("sf-note")

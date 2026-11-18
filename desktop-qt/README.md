@@ -126,11 +126,13 @@ microtone [--root <dir>] [--open <page>] [--web-audio]
 The output (audio system, device, sample rate, buffer) is chosen in the app's
 **Settings** tab (Ctrl+,), which only the desktop app has, and remembered in
 `<config>/Microtone/Microtone.conf` (`[audio]`; on Windows the registry,
-`HKCU\Software\Microtone\Microtone`). The browser profile, which holds every
-project, is in the app's local data folder: `~/.local/share/Microtone/Microtone`
-on Linux, `%LOCALAPPDATA%\Microtone\Microtone` on Windows (not the roaming
-folder: projects with samples are big). For a test run, the environment
-overrides what is remembered:
+`HKCU\Software\Microtone\Microtone`). The projects, soundfonts and keymaps
+are ordinary files in `~/Microtone` (`%USERPROFILE%\Microtone` on Windows; see
+"The file store" below). The browser profile (the page's preferences), the
+logs and the autosave copies are in the app's local data folder:
+`~/.local/share/Microtone/Microtone` on Linux,
+`%LOCALAPPDATA%\Microtone\Microtone` on Windows. For a test run, the
+environment overrides what is remembered:
 
 - `MICROTONE_AUDIO_API`: `pulse`, `alsa`, `jack` (Linux), `wasapi`, `asio`
   (Windows), `core` (macOS). Default on Linux: PulseAudio (PipeWire answers
@@ -143,7 +145,8 @@ overrides what is remembered:
   engine.
 
 `MICROTONE_SAMPLE_RATE` asks for an output rate on a first start (nothing
-remembered).
+remembered). `MICROTONE_FILES_ROOT=<dir>` puts the file store's folder
+somewhere other than `~/Microtone`; tests use it to keep away from yours.
 
 `tools/native-smoke.js <executable>` is the smoke test: it starts the app on
 a demo song (`--song`, default `Eighth.taud`) and checks, over the DevTools
@@ -161,6 +164,114 @@ folders to keep your own projects out of it. To keep the sound off the
 speakers, give the test its own sink: `pactl load-module module-null-sink
 sink_name=microtone_test` (it prints the module number to unload afterwards),
 then `PULSE_SINK=microtone_test` for the app.
+
+## The file store: projects as files in ~/Microtone
+
+In a browser the app keeps its projects in OPFS, the origin's private
+storage, where nobody can see them. The desktop app keeps them as ordinary
+files instead, in a folder of the person's own, to back up, sync or open like
+any other (`src/filestore.cpp`):
+
+    ~/Microtone/Projects     the File view's projects, folders and all
+    ~/Microtone/Soundfonts   converted soundfonts (*.taud.sf2.gz), index.json (their notes)
+    ~/Microtone/Keymaps      jam layouts (*.taudkey)
+
+On Windows it is `%USERPROFILE%\Microtone`. The autosave copies stay private,
+in the app's data folder.
+
+- **The page does not change.** `src/storage/opfs.js` is a dispatcher: in a
+  browser it uses `opfs-browser.js` (OPFS, as before), and where the shell
+  gives the page `window.__MICROTONE_NATIVE__.files` it uses `native-files.js`.
+  That module has the same functions, over `/api/files` on the shell's own
+  server, behind the same per-launch token, and writes only from the page's
+  own origin. A rename or a folder move is a real one, not a copy.
+- **Names every system can hold.** The folder may be synced between Windows,
+  macOS and Linux. So a name the store CREATES may not have `<>:"|?*` or
+  control characters, a trailing dot or space, or be CON, PRN and the like.
+  The page's `validName` says so before it asks. Files already there are
+  read whatever they are called.
+- **Nothing outside the store.** `..`, separators inside a name, and paths
+  whose real place (symlinks followed) leaves the folder are refused. Hidden
+  files (.DS_Store, desktop.ini) are not listed.
+- **No size limit to speak of.** Qt 6.11 refuses request bodies over 32 MiB
+  by default, and a project with its samples can be more: the server allows
+  2 GiB. Qt 6.8 has no limit. 64 MB goes in and out in about a quarter of a
+  second here.
+- **The File view and the Soundfonts tab say where the files are**, and have
+  a *Show folder* button, which opens the system's file manager there.
+- **Earlier builds' projects come along.** On the first start with the store,
+  whatever this profile's OPFS held is copied into the folder, once
+  (`src/storage/carry-over.js`): projects with their folders, soundfonts with
+  their notes, and keymaps. Nothing is deleted from OPFS, nothing in the
+  folder is overwritten, and an unportable name is made portable
+  (`bad:name?.taud` → `bad_name_.taud`). A banner says how many.
+- **The earlier desktop app's projects come over at every start** (next
+  section).
+- Tested on Linux, in a scratch folder:
+  - the copy;
+  - every function through `opfs.js`;
+  - names, the refusals (an encoded `..`, an unportable name, deleting or
+    leaving the store) and 64 MB.
+
+  The smoke test writes and reads back a 40 MB project, so CI checks the
+  store with Qt 6.8 on the macOS runner, and on the Windows runner (which has
+  no sound device: page and files only).
+
+## The earlier desktop app's projects
+
+The Tauri build (`../desktop`) kept projects, soundfonts and keymaps in its
+webview's OPFS. At every start this one reads them where that webview left
+them and copies them into `~/Microtone`, on a thread of its own while the
+window comes up (`src/oldapp.cpp`, run by the file store). Nothing of the
+earlier app's is changed.
+
+| | webview | where | how it keeps OPFS |
+|---|---|---|---|
+| Linux | WebKitGTK | `~/.local/share/cc.microtone.desktop/storage/<salt>/<salt>/FileSystem` | plain files under their own names, beside an `origin` file (`tauri://localhost`) |
+| macOS | WKWebView | `~/Library/WebKit/cc.microtone.desktop/…/FileSystem` | the same (untried: nobody here has a Mac with it) |
+| Windows | WebView2 | `%LOCALAPPDATA%\cc.microtone.desktop\EBWebView\Default\File System` | numbered files (`000/t/00/00000001`); their names and folders in a LevelDB index (`Paths`), which origin is which folder in another (`Origins`: `http_tauri.localhost_0`) |
+
+For Windows it reads LevelDB itself, a few hundred lines with nothing to
+install: the manifest, the logs, the tables, and Snappy (Chromium compresses
+the tables).
+
+- **The same rules as the earlier app's own hand-over** (`desktop/src/
+  handover.rs` and its glue), so the two can run in either order, or both. A
+  file is created, or found already there with the same bytes (counted as
+  done). A copy is replaced only while it is still exactly what was copied.
+  Anything else goes beside the original name as "name (from the old app)":
+  never over a file someone changed, and never a copy beside a copy.
+- **A record per destination folder** (`<app data>/oldapp-copy.json`) keeps
+  each file's size and time on both sides. An unchanged file is not looked
+  at again, and one changed in the earlier app arrives on the next start.
+  Nothing is deleted anywhere, and a file deleted from the folder comes back
+  only if the earlier app changes it.
+- Projects keep their folders; soundfonts and keymaps are flat, as the page
+  keeps them. The soundfonts' notes are merged into `index.json`, what is
+  already there winning. Names become portable (`bad:name?.taud` →
+  `bad_name_.taud`), and Chromium's half-written `.crswap` files are skipped.
+- **The page asks how it went** (`GET /api/files/oldapp`, while it says
+  `running`), refreshes the File view, and the first time anything came over
+  shows a banner (then `POST /api/files/oldapp?told`). The log says what was
+  found and copied (`oldapp: …`).
+- `MICROTONE_OLDAPP_DIR=<dir>` reads there instead (`none`: nowhere), and
+  `MICROTONE_OLDAPP_ORIGIN` picks another origin than `tauri`.
+
+`tools/oldapp-dump` (built beside the app) prints what it finds, copies it
+into a folder of your choice with `--copy <dir>`, and dumps any LevelDB
+database with `--leveldb <dir>`. Tested:
+
+- `tools/oldapp-test.js` (CI, on both runners): the rules on a WebKit-shaped
+  store (create, same, replace an untouched copy, beside, both copies edited,
+  a folder in the way, names, the merged index, a dev server's origin
+  ignored). With `--browser`, headless Chromium (on the Windows runner, Edge:
+  WebView2's engine) keeps a store under `http://tauri.localhost`, renaming,
+  overwriting, deleting, and churning until LevelDB writes a compressed
+  table; the copy must match it file for file.
+- The smoke test brings a small store over through the running app: the
+  folder, the File view, the banner.
+- On Linux, the real Tauri build's store (16 projects in folders), copied
+  into a scratch folder: identical byte for byte.
 
 ## When it goes wrong: logs, crash reports, diagnostics
 
@@ -425,9 +536,12 @@ language):
   yours in that folder stays. An install over an earlier one first runs the
   earlier one's uninstaller (`/S /UPDATE`), so files a version stopped
   shipping go too.
-- **Projects stay unless asked.** The uninstaller's first page asks whether to
-  delete the projects and settings too (off by default). If ticked, it removes
-  `%LOCALAPPDATA%\Microtone\Microtone` and `HKCU\Software\Microtone\Microtone`.
+- **The person's files stay.** Projects, soundfonts and keymaps in
+  `%USERPROFILE%\Microtone` are never touched by an uninstall. Its first page
+  says so, and asks whether to delete what the app keeps of its own too (off
+  by default). If ticked, it removes `%LOCALAPPDATA%\Microtone\Microtone`
+  (the browser profile, the logs, the autosave copies) and
+  `HKCU\Software\Microtone\Microtone`.
 - **Microtone must be closed.** The app holds the mutex
   `Local\microtone-desktop` (`main.cpp`). If it is held, the installer asks
   you to close the app and retry. Unattended, it waits up to ten seconds, then
@@ -463,7 +577,10 @@ language):
   - the text the system asks for the microphone with (the sampler's Record),
     in English and Korean (`macos/*.lproj`).
 - **Where it keeps things:**
-  - the profile and every project: `~/Library/Application Support/Microtone/Microtone`;
+  - projects, soundfonts, keymaps: `~/Microtone` (not in Documents, which
+    macOS would ask permission for);
+  - the browser profile, logs and autosave copies:
+    `~/Library/Application Support/Microtone/Microtone`;
   - the settings: `~/Library/Preferences/com.microtone.Microtone.plist`.
 - **Signed ad hoc, not with a Developer ID, and not notarised.** An Apple
   silicon Mac runs nothing unsigned, so the ad hoc signature is the least it
@@ -504,11 +621,12 @@ language):
 - Code signing (a Windows certificate; Apple's Developer ID and
   notarisation), and the third-party notices a release must ship (Qt and
   Chromium's licences, RtAudio's, the ASIO SDK's).
-- Put project/soundfont dir to:
-  - Windows: %UserProfile%\Microtone
-  - Mac: ~/Microtone
-  - Linux: ~/Microtone
-- Moving projects over from the Tauri build.
+- Moving projects over from the Tauri build is done from both sides: this
+  build reads the Tauri build's storage itself ("The earlier desktop app's
+  projects"), and a Tauri release carrying `desktop/src/handover.rs` copies
+  them too while that app is still used. The WebView2 reader has run only on
+  Chromium and Edge profiles, not yet on a real Tauri install on Windows;
+  the macOS path is untried.
 - The native audio host's next steps:
   - JACK on Linux; device notifications on Linux (PulseAudio's own stream
     already follows the default sink; the tab's list catches up when shown);

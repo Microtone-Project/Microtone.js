@@ -13,6 +13,11 @@
 #include <QUrl>
 #include <QUrlQuery>
 #include <QWebSocket>
+#if QT_VERSION >= QT_VERSION_CHECK(6, 11, 0)
+#include <QHttpServerConfiguration>
+#endif
+
+#include "filestore.h"
 
 namespace microtone {
 
@@ -20,11 +25,13 @@ namespace {
 
 using Status = QHttpServerResponder::StatusCode;
 
+}  // namespace
+
 // Every response carries these. COOP + COEP make the page cross-origin
 // isolated where the origin allows it; no-store because the files change
 // under the same names with every update, and a cached old module next to a
 // new one is a broken app.
-QHttpHeaders baseHeaders() {
+QHttpHeaders appHeaders() {
   QHttpHeaders h;
   h.append("Cross-Origin-Opener-Policy", "same-origin");
   h.append("Cross-Origin-Embedder-Policy", "require-corp");
@@ -33,8 +40,6 @@ QHttpHeaders baseHeaders() {
   h.append("X-Content-Type-Options", "nosniff");
   return h;
 }
-
-}  // namespace
 
 QByteArray mimeTypeFor(const QString &path) {
   static const QHash<QString, QByteArray> types = {
@@ -87,6 +92,14 @@ QString resolvePath(const QString &root, const QString &urlPath) {
 
 AppServer::AppServer(QString root, QByteArray token, QObject *parent)
     : QObject(parent), root_(std::move(root)), token_(std::move(token)) {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 11, 0)
+  // Qt 6.11 refuses request bodies over 32 MiB (413) by default; a project
+  // with its samples, or a converted soundfont, written to the file store is
+  // the person's own and can be bigger. Qt 6.8 has no such limit.
+  QHttpServerConfiguration config = http_.configuration();
+  config.setMaximumBodySize(qint64(2) << 30);
+  http_.setConfiguration(config);
+#endif
   http_.setMissingHandler(this, [this](const QHttpServerRequest &request, QHttpServerResponder &responder) {
     handle(request, responder);
   });
@@ -128,6 +141,11 @@ void AppServer::handle(const QHttpServerRequest &request, QHttpServerResponder &
     responder.write(Status::Forbidden);
     return;
   }
+  // The projects, soundfonts and keymaps (filestore.h).
+  if (files_ != nullptr && FileStore::handles(request.url())) {
+    files_->handle(request, responder);
+    return;
+  }
   const bool head = request.method() == QHttpServerRequest::Method::Head;
   if (!head && request.method() != QHttpServerRequest::Method::Get) {
     responder.write(Status::MethodNotAllowed);
@@ -143,7 +161,7 @@ void AppServer::handle(const QHttpServerRequest &request, QHttpServerResponder &
   const QFileInfo info(path);
   if (info.isDir()) {
     // /docs → /docs/, so the index's relative links resolve inside it.
-    QHttpHeaders h = baseHeaders();
+    QHttpHeaders h = appHeaders();
     QString to = url.path() + u'/';
     if (url.hasQuery()) to += u'?' + url.query(QUrl::FullyEncoded);
     h.append(QHttpHeaders::WellKnownHeader::Location, to.toUtf8());
@@ -156,7 +174,7 @@ void AppServer::handle(const QHttpServerRequest &request, QHttpServerResponder &
     responder.write(Status::NotFound);
     return;
   }
-  QHttpHeaders h = baseHeaders();
+  QHttpHeaders h = appHeaders();
   h.append(QHttpHeaders::WellKnownHeader::ContentType, mimeTypeFor(path));
   if (head) {
     h.append(QHttpHeaders::WellKnownHeader::ContentLength, QByteArray::number(file->size()));

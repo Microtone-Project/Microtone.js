@@ -13,8 +13,10 @@
 ; %LOCALAPPDATA%\Programs\Microtone (or where it went before), a Start menu
 ; shortcut, a desktop one if asked, and an entry in Windows' list of apps
 ; under its own key — the Tauri build's ("Microtone") is left alone, and so is
-; its data. The projects are not in the program folder (src/main.cpp): they
-; stay through an uninstall unless its last-but-one page is told otherwise.
+; its data. The projects, soundfonts and keymaps are ordinary files in
+; %USERPROFILE%\Microtone (src/filestore.cpp), and no uninstall touches them;
+; what the app keeps in its own data (settings, logs, recovery copies) goes
+; only if the uninstaller's first page is told so.
 ;
 ; The uninstaller removes the files the installer put there, by name, and
 ; nothing else: never RMDir /r on a folder someone chose. An install over an
@@ -44,8 +46,9 @@ RequestExecutionLevel user
 !define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\cc.microtone.desktop"
 ; Held by the running app (src/main.cpp).
 !define MUTEX "Local\microtone-desktop"
-; What the app keeps (src/main.cpp): the browser profile with every project,
-; the cache, and QSettings' key.
+; What the app keeps of its own (src/main.cpp): the browser profile (the
+; page's preferences), the cache, the logs, the autosave copies, and
+; QSettings' key. Never the person's files in %USERPROFILE%\Microtone.
 !define DATADIR "$LOCALAPPDATA\Microtone\Microtone"
 !define SETTINGSKEY "Software\Microtone\Microtone"
 !define /ifndef SYNCHRONIZE 0x00100000
@@ -115,16 +118,16 @@ LangString appRunning ${LANG_ENGLISH} "Microtone is running. Close it, then choo
 LangString appRunning ${LANG_KOREAN} "Microtone이 실행 중입니다. 종료한 뒤 [다시 시도]를 누르세요."
 LangString appStillRunning ${LANG_ENGLISH} "Microtone is still running, so nothing was changed."
 LangString appStillRunning ${LANG_KOREAN} "Microtone이 아직 실행 중이라 아무것도 바꾸지 않았습니다."
-LangString dataTitle ${LANG_ENGLISH} "Your projects"
-LangString dataTitle ${LANG_KOREAN} "프로젝트"
-LangString dataSubtitle ${LANG_ENGLISH} "Keep them, or delete them too."
-LangString dataSubtitle ${LANG_KOREAN} "남겨 둘지, 함께 삭제할지 고르세요."
-LangString dataText ${LANG_ENGLISH} "Microtone keeps your projects, the samples in them and its settings outside its program folder. They stay after uninstalling, and installing Microtone again finds them where they were."
-LangString dataText ${LANG_KOREAN} "Microtone은 프로젝트와 그 안의 샘플, 그리고 설정을 프로그램 폴더 바깥에 보관합니다. 제거한 뒤에도 남아 있으며, Microtone을 다시 설치하면 그대로 찾아 씁니다."
+LangString dataTitle ${LANG_ENGLISH} "Your projects stay"
+LangString dataTitle ${LANG_KOREAN} "프로젝트는 남습니다"
+LangString dataSubtitle ${LANG_ENGLISH} "What else to remove."
+LangString dataSubtitle ${LANG_KOREAN} "그 밖에 지울 것을 고르세요."
+LangString dataText ${LANG_ENGLISH} "Your projects, soundfonts and keymaps are files in $PROFILE\Microtone, and uninstalling leaves them there. Microtone also keeps its settings, its logs and recovery copies of unsaved work in a data folder of its own."
+LangString dataText ${LANG_KOREAN} "프로젝트, SoundFont, 건반 배열은 $PROFILE\Microtone에 있는 파일이며, 제거해도 그대로 남습니다. 그 밖에 Microtone은 설정, 기록, 저장하지 않은 작업의 복구본을 자체 데이터 폴더에 보관합니다."
 LangString diagShortcut ${LANG_ENGLISH} "Microtone diagnostics"
 LangString diagShortcut ${LANG_KOREAN} "Microtone 진단"
-LangString dataBox ${LANG_ENGLISH} "Also delete my projects and settings (this cannot be undone)"
-LangString dataBox ${LANG_KOREAN} "프로젝트와 설정도 삭제 (되돌릴 수 없음)"
+LangString dataBox ${LANG_ENGLISH} "Also delete Microtone's settings, logs and recovery copies"
+LangString dataBox ${LANG_KOREAN} "Microtone의 설정, 기록, 복구본도 삭제"
 
 VIProductVersion "${FILEVERSION}"
 VIFileVersion "${FILEVERSION}"

@@ -83,9 +83,10 @@ class Shell : public QObject {
   /** `origin` is http://microtone.localhost/; the profile keeps its data in
    *  `dataDir`. `nativeEngine` (empty = none) is the native audio host's
    *  socket, given to every page with `nativeStatus`: the page's
-   *  AudioSystem talks to it instead of starting a worklet. */
+   *  AudioSystem talks to it instead of starting a worklet. `files` is the
+   *  file store's description (FileStore::describe()), given to every page. */
   Shell(QUrl origin, const QByteArray &token, const QString &dataDir, const QString &nativeEngine = {},
-        const QJsonObject &nativeStatus = {}, QObject *parent = nullptr);
+        const QJsonObject &nativeStatus = {}, const QJsonObject &files = {}, QObject *parent = nullptr);
   ~Shell() override;
 
   QWebEngineProfile *profile() const { return profile_; }

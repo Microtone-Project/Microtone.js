@@ -34,6 +34,10 @@ let showLibrary = null; // set by the app: open the File view on this tab
 
 function changed() { for (const fn of listeners) fn(); }
 
+/** Something else changed the stored soundfonts (the desktop's copy from its
+ *  earlier app): whoever shows them looks again. */
+export function libraryChangedElsewhere() { changed(); }
+
 /** Call `fn` whenever the library or its queue changes. Returns an unsubscribe. */
 export function onLibraryChange(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 
