@@ -28,6 +28,10 @@ using Status = QHttpServerResponder::StatusCode;
 
 /** A sign-in left half-way in the browser is abandoned after this. */
 constexpr qint64 kSignInTtlMs = 30 * 60 * 1000;
+/** A finished one still answers the browser coming back again for this long. */
+constexpr qint64 kReturnTtlMs = 10 * 60 * 1000;
+/** Sign-ins waited on at once, at most (the oldest gives way). */
+constexpr qsizetype kMaxPending = 8;
 /** The page's request headers that go on to the server; nothing else does. */
 const char *const kForwarded[] = {"content-type", "if-match", "accept"};
 /** …and the answer's that come back (the length is the responder's). */
@@ -190,25 +194,42 @@ void Online::handle(const QHttpServerRequest &request, QHttpServerResponder &res
   });
 }
 
+void Online::sweep() {
+  for (auto it = pending_.begin(); it != pending_.end();) {
+    it = it->started.elapsed() > kSignInTtlMs ? pending_.erase(it) : std::next(it);
+  }
+  for (auto it = returns_.begin(); it != returns_.end();) {
+    it = it->done && it->finished.elapsed() > kReturnTtlMs ? returns_.erase(it) : std::next(it);
+  }
+}
+
 bool Online::beginSignIn(quint16 port, QString *error) {
+  sweep();
+  while (pending_.size() >= kMaxPending) {
+    auto oldest = pending_.begin();
+    for (auto it = pending_.begin(); it != pending_.end(); ++it) {
+      if (it->started.elapsed() > oldest->started.elapsed()) oldest = it;
+    }
+    pending_.erase(oldest);
+  }
   Pending p;
   p.verifier = randomB64url(32);
-  p.state = randomB64url(16);
   p.started.start();
+  const QByteArray state = randomB64url(16);
   QUrlQuery q;
   q.addQueryItem(QStringLiteral("challenge"), QString::fromLatin1(s256(p.verifier)));
-  q.addQueryItem(QStringLiteral("state"), QString::fromLatin1(p.state));
+  q.addQueryItem(QStringLiteral("state"), QString::fromLatin1(state));
   q.addQueryItem(QStringLiteral("port"), QString::number(port));
   QUrl url(server_ + QStringLiteral("/api/online/auth/desktop"));
   url.setQuery(q);
-  pending_ = std::move(p);
+  pending_.insert(state, std::move(p));
   // MICROTONE_BROWSER=<program>: that, with the address, instead of the
   // system's browser (tests play the browser's part).
   const QString browser = qEnvironmentVariable("MICROTONE_BROWSER");
   const bool opened = browser.isEmpty() ? QDesktopServices::openUrl(url)
                                         : QProcess::startDetached(browser, {url.toString(QUrl::FullyEncoded)});
   if (!opened) {
-    pending_.reset();
+    pending_.remove(state);
     *error = QStringLiteral("could not open the browser");
     return false;
   }
@@ -216,20 +237,57 @@ bool Online::beginSignIn(quint16 port, QString *error) {
   return true;
 }
 
+void Online::finish(const QByteArray &state, bool ok, const QString &en, const QString &ko) {
+  Return &r = returns_[state];
+  r.done = true;
+  r.ok = ok;
+  r.en = en;
+  r.ko = ko;
+  r.finished.start();
+  for (const auto &held : r.waiting) page(*held, ok ? Status::Ok : Status::BadGateway, en, ko);
+  r.waiting.clear();
+  if (!ok) return;
+  // Signed in: the other sign-ins still out in a browser are answered the
+  // same, their codes left to expire unspent.
+  for (auto it = pending_.cbegin(); it != pending_.cend(); ++it) {
+    Return &other = returns_[it.key()];
+    other.done = true;
+    other.ok = true;
+    other.en = en;
+    other.ko = ko;
+    other.finished.start();
+  }
+  pending_.clear();
+}
+
 void Online::signedIn(const QHttpServerRequest &request, QHttpServerResponder &responder) {
+  sweep();
   const QUrlQuery q(request.url());
   const QByteArray code = q.queryItemValue(QStringLiteral("code")).toLatin1();
   const QByteArray state = q.queryItemValue(QStringLiteral("state")).toLatin1();
+  // Back again from a sign-in already on its way: the same outcome.
+  if (auto r = returns_.find(state); !state.isEmpty() && r != returns_.end()) {
+    qInfo("online: the browser came back again; it gets the same answer");
+    if (r->done) {
+      page(responder, r->ok ? Status::Ok : Status::BadGateway, r->en, r->ko);
+    } else {
+      r->waiting.push_back(std::make_shared<QHttpServerResponder>(std::move(responder)));
+    }
+    return;
+  }
   // Ours, and recent; anything else is a link this app never asked for.
-  if (!pending_ || pending_->state != state || pending_->started.elapsed() > kSignInTtlMs || code.isEmpty()) {
-    qInfo("online: ignored a sign-in this app did not ask for");
+  const auto p = pending_.constFind(state);
+  if (state.isEmpty() || p == pending_.cend() || code.isEmpty()) {
+    qInfo("online: ignored a sign-in this app did not ask for (%s)",
+          state.isEmpty() ? "no state" : code.isEmpty() ? "no code" : "an unknown state");
     page(responder, Status::BadRequest,
          QStringLiteral("This is not a sign-in Microtone is waiting for. Start again from the File view in Microtone."),
          QStringLiteral("Microtone이 기다리던 로그인이 아닙니다. Microtone의 파일 보기에서 다시 시작하세요."));
     return;
   }
-  const QByteArray verifier = pending_->verifier;
-  pending_.reset();
+  const QByteArray verifier = p->verifier;
+  pending_.remove(state);
+  returns_[state].waiting.push_back(std::make_shared<QHttpServerResponder>(std::move(responder)));
 
   QNetworkRequest out(QUrl(server_ + QStringLiteral("/api/online/auth/token")));
   out.setHeader(QNetworkRequest::ContentTypeHeader, QByteArrayLiteral("application/json"));
@@ -240,8 +298,7 @@ void Online::signedIn(const QHttpServerRequest &request, QHttpServerResponder &r
                                                     {QStringLiteral("verifier"), QString::fromLatin1(verifier)}})
                               .toJson(QJsonDocument::Compact);
   QNetworkReply *reply = net_.post(out, body);
-  auto held = std::make_shared<QHttpServerResponder>(std::move(responder));
-  connect(reply, &QNetworkReply::finished, this, [this, reply, held] {
+  connect(reply, &QNetworkReply::finished, this, [this, reply, state] {
     reply->deleteLater();
     const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     const QJsonObject granted = QJsonDocument::fromJson(reply->readAll()).object();
@@ -249,18 +306,18 @@ void Online::signedIn(const QHttpServerRequest &request, QHttpServerResponder &r
     if (status != 200 || token.isEmpty()) {
       const QString why = status ? QStringLiteral("the server answered %1").arg(status) : reply->errorString();
       qWarning("online: the sign-in did not complete: %s", qUtf8Printable(why));
-      page(*held, Status::BadGateway,
-           QStringLiteral("The sign-in did not complete (%1). Try again from the File view in Microtone.").arg(esc(why)),
-           QStringLiteral("로그인을 마치지 못했습니다 (%1). Microtone의 파일 보기에서 다시 시도하세요.").arg(esc(why)));
+      finish(state, false,
+             QStringLiteral("The sign-in did not complete (%1). Try again from the File view in Microtone.").arg(esc(why)),
+             QStringLiteral("로그인을 마치지 못했습니다 (%1). Microtone의 파일 보기에서 다시 시도하세요.").arg(esc(why)));
       emit authChanged(QStringLiteral("sign-in-failed"));
       return;
     }
     keepToken(token);
     const QString name = esc(granted.value(QStringLiteral("user")).toObject().value(QStringLiteral("name")).toString());
     qInfo("online: signed in");
-    page(*held, Status::Ok,
-         QStringLiteral("Signed in as <b>%1</b>. You can close this tab and go back to Microtone.").arg(name),
-         QStringLiteral("<b>%1</b>(으)로 로그인했습니다. 이 탭을 닫고 Microtone으로 돌아가면 됩니다.").arg(name));
+    finish(state, true,
+           QStringLiteral("Signed in as <b>%1</b>. You can close this tab and go back to Microtone.").arg(name),
+           QStringLiteral("<b>%1</b>(으)로 로그인했습니다. 이 탭을 닫고 Microtone으로 돌아가면 됩니다.").arg(name));
     emit authChanged(QStringLiteral("signed-in"));
   });
 }

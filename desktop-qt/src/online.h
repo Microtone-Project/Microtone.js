@@ -40,12 +40,14 @@
 
 #include <QByteArray>
 #include <QElapsedTimer>
+#include <QHash>
 #include <QJsonObject>
 #include <QNetworkAccessManager>
 #include <QObject>
 #include <QString>
 
-#include <optional>
+#include <memory>
+#include <vector>
 
 class QHttpServerRequest;
 class QHttpServerResponder;
@@ -89,13 +91,30 @@ class Online : public QObject {
   QByteArray token_;
   QNetworkAccessManager net_;
 
-  /** The sign-in this app started and is waiting on. */
+  /** A sign-in this app started and is waiting on, by its state. Several may
+   *  be: Sign in clicked again before the browser came up. */
   struct Pending {
     QByteArray verifier;
-    QByteArray state;
     QElapsedTimer started;
   };
-  std::optional<Pending> pending_;
+  QHash<QByteArray, Pending> pending_;
+
+  /** A sign-in the browser has come back from, by its state: while its code
+   *  is being spent, every visit with that state waits for the outcome, and
+   *  afterwards gets the same page. A browser may come back more than once
+   *  (Firefox did, 0.7 s apart), and the visit it shows must not be the one
+   *  that found the state already spent. */
+  struct Return {
+    std::vector<std::shared_ptr<QHttpServerResponder>> waiting;
+    bool done = false;
+    bool ok = false;
+    QString en, ko;  // the page
+    QElapsedTimer finished;
+  };
+  QHash<QByteArray, Return> returns_;
+
+  void sweep();
+  void finish(const QByteArray &state, bool ok, const QString &en, const QString &ko);
 };
 
 }  // namespace microtone

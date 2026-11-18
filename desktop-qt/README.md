@@ -298,6 +298,13 @@ request, with a session cookie Chromium keeps from a third party.
   token in `<app data>/online-token` (owner only), and the page hears
   "signed-in" on the channel the website's sign-in window announces on. A
   banner says "sign in in the browser" meanwhile.
+- **Every visit back gets the outcome.** A browser may come back more than
+  once: the first try on the real site came back twice, 0.7 s apart, and the
+  tab showed the second visit's "not a sign-in Microtone is waiting for"
+  while the app had signed in. Now a visit with a state whose code is being
+  spent waits for that, and one after it gets the same page (for ten
+  minutes). Several sign-ins may be pending at once (Sign in clicked again
+  before the browser came up), and once one succeeds the others get its page.
 - **Not the Tauri build's `cc.microtone.desktop:` scheme.** The two apps
   may be installed side by side for a while, and two apps claiming one scheme
   hear each other's sign-ins. The loopback way back (RFC 8252 §7.3) needs no
@@ -317,7 +324,8 @@ request, with a session cookie Chromium keeps from a third party.
 
 Tested: `tools/online-test.js` runs the app against `wrangler dev`, playing
 the browser itself (its header has the recipe):
-- the File view's Sign in, the round trip, the banner;
+- the File view's Sign in, the round trip (coming back three times, two at
+  once), the banner;
 - only the way back answers without the token, and a forged one is refused;
 - the token is kept, owner-only;
 - create, read back byte for byte, save, a conflict, rename, delete;

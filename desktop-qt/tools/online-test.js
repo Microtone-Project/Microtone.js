@@ -13,7 +13,8 @@
 //
 // Checked: the File view's Sign in opens "the browser" on the site's desktop
 // sign-in with this app's loopback port; the browser signs in and comes back
-// to the app, which spends the code; the page hears it (the banner goes, the
+// to the app — three times, two at once — which spends the code once and
+// answers every visit with the outcome; the page hears it (the banner goes, the
 // File view says who); the token is kept, readable by its owner only; nothing
 // but that one page answers without the app's per-launch token (a forged
 // return is refused); projects go through the proxy (create, list, read back
@@ -57,8 +58,14 @@ if (args[0] === "--browser") {
     }
     const back = /id="back" href="([^"]+)"/.exec(page)?.[1]?.replace(/&amp;/g, "&");
     log("back to", hide(back));
-    res = await get(back);
-    log("app answered", res.status, (await res.text()).replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim().slice(0, 120));
+    // Twice at once, then again: a browser may come back more than once
+    // (Firefox did), and each visit must get the outcome, not a refusal.
+    const answer = async (r) => `${r.status} ${(await r.text()).replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim().slice(0, 100)}`;
+    const [first, second] = await Promise.all([get(back).then(answer), get(back).then(answer)]);
+    const third = await get(back).then(answer);
+    log("app answered", first);
+    log("app answered again at once", second);
+    log("app answered a third time", third);
   } catch (err) {
     log("ERROR", err);
   }
@@ -156,6 +163,9 @@ try {
   const bannerGone = await page.evaluate(`![...document.querySelectorAll(".banner")].some((b) => /browser/.test(b.textContent))`);
   check("a banner while the browser signs in, gone after", banner && bannerGone, { banner, bannerGone });
   check("signed in", after?.signedIn && /^desktop-test-\d+ \(local test\)$/.test(after.user?.name), after);
+  await sleep(500);
+  const answers = readFileSync(browserLog, "utf8").split("\n").filter((l) => l.startsWith("app answered"));
+  check("every visit back gets the outcome", answers.length === 3 && answers.every((l) => /answered[a-z ]* 200 .*Signed in as/.test(l)), answers);
   const shown = await page.evaluate(`document.querySelector(".files-online")?.textContent ?? ""`);
   check("the File view says who", /desktop-test-\d+/.test(shown), shown.slice(0, 120));
 
