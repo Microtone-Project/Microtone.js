@@ -2511,6 +2511,8 @@ button.nota-assign { font-size: 0.85rem; }
 .set-value.warn { color: var(--accent); }
 .set-note { color: var(--dim); font-size: 0.85rem; margin: 0.2rem 0; max-width: 46rem; }
 .set-note.err { color: var(--err-fg); }
+/* A note that belongs to the row above it (WASAPI's mode): under its control. */
+.set-note.set-indent { margin-left: calc(10rem + 0.8rem); margin-top: -0.15rem; }
 .set-verdict { font-weight: 600; margin: 0.2rem 0 0; }
 .set-verdict[data-tone="ok"] { color: var(--ok-fg); }
 .set-verdict[data-tone="warn"] { color: var(--accent); }

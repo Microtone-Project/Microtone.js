@@ -88,6 +88,9 @@ std::vector<RtAudio::Api> apiOrder() {
     if (std::find(compiled.begin(), compiled.end(), preferred) != compiled.end()) order.push_back(preferred);
   }
   for (RtAudio::Api api : compiled) {
+    // RtAudio's stand-in where none of its own is compiled (Windows, where
+    // WASAPI is ours) plays nothing.
+    if (api == RtAudio::RTAUDIO_DUMMY) continue;
     if (std::find(order.begin(), order.end(), api) == order.end()) order.push_back(api);
   }
   return order;
@@ -127,6 +130,7 @@ NativeAudio::Config NativeAudio::remembered() {
   c.device = s.value(QStringLiteral("audio/device")).toString();
   c.rate = s.value(QStringLiteral("audio/rate"), 0u).toUInt();
   c.bufferFrames = s.value(QStringLiteral("audio/bufferFrames"), 256u).toUInt();
+  c.mode = s.value(QStringLiteral("audio/mode")).toString();
   return c;
 }
 
@@ -136,6 +140,7 @@ void NativeAudio::remember(const Config &c) {
   s.setValue(QStringLiteral("audio/device"), c.device);
   s.setValue(QStringLiteral("audio/rate"), c.rate);
   s.setValue(QStringLiteral("audio/bufferFrames"), c.bufferFrames);
+  s.setValue(QStringLiteral("audio/mode"), c.mode);
 }
 
 bool NativeAudio::start(QString *error) {
@@ -159,10 +164,26 @@ bool NativeAudio::start(QString *error) {
   }
 
   QString why;
-  if (open(wanted, &why)) {
+  // Nothing remembered (a first start) goes straight to the defaults below:
+  // an empty setting would open RtAudio's first API, ahead of WASAPI.
+  if (!wanted.api.isEmpty() && open(wanted, &why)) {
     pump_.start();
     return true;
   }
+#if MICROTONE_WASAPI
+  // Windows: WASAPI, at a short period where the driver allows one, else
+  // through the mixer as every program does.
+  for (const char *mode : {"lowLatency", "shared"}) {
+    Config c;
+    c.api = QStringLiteral("wasapi");
+    c.mode = QString::fromLatin1(mode);
+    c.bufferFrames = wanted.bufferFrames;
+    if (open(c, &why)) {
+      pump_.start();
+      return true;
+    }
+  }
+#endif
   // What was remembered is gone (unplugged, another machine): the defaults.
   for (RtAudio::Api api : apiOrder()) {
     Config c;
@@ -178,17 +199,33 @@ bool NativeAudio::start(QString *error) {
 }
 
 void NativeAudio::closeDevice() {
+  live_ = false;
+#if MICROTONE_WASAPI
+  if (wasapi_ != nullptr) {
+    mt_wasapi_close(wasapi_);
+    wasapi_ = nullptr;
+  }
+#endif
   if (dac_) {
     if (dac_->isStreamRunning()) dac_->stopStream();
     if (dac_->isStreamOpen()) dac_->closeStream();
   }
   running_ = false;
+  format_.clear();
+  latencyMs_ = 0.0;
 }
 
 /** Open `want` (closing what is open first). On success the host's state
  *  follows the new stream; on failure nothing is open. */
 bool NativeAudio::open(const Config &want, QString *error) {
   closeDevice();
+#if MICROTONE_WASAPI
+  if (want.api == QLatin1String("wasapi")) return openWasapi(want, error);
+#endif
+  return openRtAudio(want, error);
+}
+
+bool NativeAudio::openRtAudio(const Config &want, QString *error) {
   RtAudio::Api api = apiNamed(want.api);
   if (api == RtAudio::UNSPECIFIED) api = apiOrder().empty() ? RtAudio::UNSPECIFIED : apiOrder().front();
   if (!dac_ || dac_->getCurrentApi() != api) {
@@ -244,7 +281,7 @@ bool NativeAudio::open(const Config &want, QString *error) {
   streamLatency_ = dac_->getStreamLatency();
   apiName_ = apiName;
   device_ = QString::fromStdString(info.name);
-  config_ = Config{QString::fromStdString(RtAudio::getApiName(api)), want.device, want.rate, want.bufferFrames};
+  config_ = Config{QString::fromStdString(RtAudio::getApiName(api)), want.device, want.rate, want.bufferFrames, {}};
   {
     std::lock_guard<std::mutex> lock(engine_);
     resampler_.configure(kEngineRate, rate_);
@@ -259,7 +296,9 @@ bool NativeAudio::open(const Config &want, QString *error) {
   realtimeAsked_ = false;
   realtime_.clear();
 
+  live_ = true;
   if (dac_->startStream() != RTAUDIO_NO_ERROR) {
+    live_ = false;
     if (error) *error = QString::fromStdString(dac_->getErrorText());
     dac_->closeStream();
     return false;
@@ -267,6 +306,71 @@ bool NativeAudio::open(const Config &want, QString *error) {
   running_ = true;
   return true;
 }
+
+#if MICROTONE_WASAPI
+void NativeAudio::wasapiRender(void *user, float *out, int frames) {
+  static_cast<NativeAudio *>(user)->process(out, unsigned(frames), 0);
+}
+
+/** WASAPI (wasapi.c): the mode, the device by endpoint id, our rate in
+ *  exclusive mode, and the buffer as the period asked for. */
+bool NativeAudio::openWasapi(const Config &want, QString *error) {
+  const MtWasapiMode mode = want.mode == QLatin1String("exclusive") ? MT_WASAPI_EXCLUSIVE
+                            : want.mode == QLatin1String("shared")  ? MT_WASAPI_SHARED
+                                                                    : MT_WASAPI_SHARED_LOW_LATENCY;
+  QString name;
+  {
+    MtWasapiDevice *list = nullptr;
+    const int n = mt_wasapi_list(&list);
+    for (int i = 0; i < n; i++) {
+      const bool it = want.device.isEmpty() ? list[i].isDefault != 0 : want.device == QString::fromUtf8(list[i].id);
+      if (it) name = QString::fromUtf8(list[i].name);
+    }
+    mt_wasapi_free_list(list);
+  }
+  MtWasapiInfo info{};
+  char why[256] = "";
+  MtWasapiStream *s = mt_wasapi_open(want.device.toUtf8().constData(), mode,
+                                     mode == MT_WASAPI_EXCLUSIVE ? int(want.rate) : 0, int(want.bufferFrames),
+                                     &NativeAudio::wasapiRender, this, &info, why, int(sizeof why));
+  if (s == nullptr) {
+    if (error) *error = QString::fromUtf8(why);
+    return false;
+  }
+  wasapi_ = s;
+  wasapiGlitches_ = 0;
+  rate_ = unsigned(info.rate);
+  bufferFrames_ = unsigned(info.periodFrames);
+  streamLatency_ = 0;
+  latencyMs_ = info.latencyMs;
+  format_ = QString::fromUtf8(info.format);
+  apiName_ = QStringLiteral("WASAPI");
+  device_ = name;
+  config_ = Config{QStringLiteral("wasapi"), want.device, mode == MT_WASAPI_EXCLUSIVE ? want.rate : 0,
+                   want.bufferFrames,
+                   mode == MT_WASAPI_EXCLUSIVE ? QStringLiteral("exclusive")
+                   : mode == MT_WASAPI_SHARED  ? QStringLiteral("shared")
+                                               : QStringLiteral("lowLatency")};
+  {
+    std::lock_guard<std::mutex> lock(engine_);
+    resampler_.configure(kEngineRate, rate_);
+    framesSinceSnap_ = 0;
+  }
+  if (!dumpWritten_) {
+    const int seconds = qEnvironmentVariableIntValue("MICROTONE_NATIVE_DUMP_SECONDS");
+    dumpUsed_ = 0;
+    dumpTarget_ = std::min(dump_.size(), size_t(rate_) * size_t(seconds > 0 ? seconds : 30) * 2);
+  }
+  // The thread registered itself with MMCSS ("Pro Audio"): Windows' own
+  // real-time class for audio, which RealtimeKit stands in for on Linux.
+  callbackTid_ = 0;
+  realtimeAsked_ = true;
+  realtime_ = info.mmcss ? QStringLiteral("MMCSS Pro Audio") : QString();
+  live_ = true;
+  running_ = true;
+  return true;
+}
+#endif
 
 /** HOST_CONFIGURE: the page's Settings tab asks for another output. It is
  *  opened at once; if it will not open, the one before comes back. */
@@ -277,6 +381,7 @@ void NativeAudio::configure(const QByteArray &json) {
   want.device = o.value(QStringLiteral("device")).toString();
   want.rate = unsigned(std::max(0, o.value(QStringLiteral("rate")).toInt()));
   want.bufferFrames = unsigned(std::clamp(o.value(QStringLiteral("bufferFrames")).toInt(256), 16, 8192));
+  want.mode = o.value(QStringLiteral("mode")).toString();
   const Config before = config_;
   QString why;
   if (open(want, &why)) {
@@ -309,8 +414,11 @@ QJsonObject NativeAudio::status() const {
       {QStringLiteral("rateChoice"), int(config_.rate)},
       {QStringLiteral("engineRate"), int(kEngineRate)},
       {QStringLiteral("bufferFrames"), int(bufferFrames_)},
+      {QStringLiteral("bufferChoice"), int(config_.bufferFrames)},
       {QStringLiteral("bufferMs"), bufferFrames_ * ms},
-      {QStringLiteral("latencyMs"), (bufferFrames_ + streamLatency_) * ms},
+      {QStringLiteral("latencyMs"), latencyMs_ > 0 ? latencyMs_ : (bufferFrames_ + streamLatency_) * ms},
+      {QStringLiteral("mode"), config_.mode},
+      {QStringLiteral("format"), format_},
       {QStringLiteral("realtime"), realtime_},
       {QStringLiteral("error"), lastError_},
   };
@@ -318,6 +426,51 @@ QJsonObject NativeAudio::status() const {
 
 QJsonObject NativeAudio::devices() {
   QJsonArray apis;
+#if MICROTONE_WASAPI
+  {
+    // WASAPI first: its devices by endpoint id, and what each mode offers on
+    // each (0 frames = not offered), so the tab shows only what will open.
+    MtWasapiDevice *list = nullptr;
+    const int n = mt_wasapi_list(&list);
+    QJsonArray devs;
+    const auto rates = [](const int *r, int count) {
+      QJsonArray a;
+      for (int i = 0; i < count; i++) a.append(r[i]);
+      return a;
+    };
+    for (int i = 0; i < n; i++) {
+      const MtWasapiDevice &d = list[i];
+      const QJsonArray mix{d.mixRate};
+      QJsonObject modes{{QStringLiteral("shared"),
+                         QJsonObject{{QStringLiteral("rates"), mix}, {QStringLiteral("min"), d.sharedPeriod}}}};
+      modes.insert(QStringLiteral("lowLatency"),
+                   d.llStep > 0 ? QJsonValue(QJsonObject{{QStringLiteral("rates"), mix},
+                                                         {QStringLiteral("min"), d.llMin},
+                                                         {QStringLiteral("max"), d.llMax},
+                                                         {QStringLiteral("step"), d.llStep}})
+                                : QJsonValue());
+      modes.insert(QStringLiteral("exclusive"),
+                   d.exRateCount > 0 ? QJsonValue(QJsonObject{{QStringLiteral("rates"), rates(d.exRates, d.exRateCount)},
+                                                              {QStringLiteral("min"), d.exMin}})
+                                     : QJsonValue());
+      devs.append(QJsonObject{
+          {QStringLiteral("id"), QString::fromUtf8(d.id)},
+          {QStringLiteral("name"), QString::fromUtf8(d.name)},
+          {QStringLiteral("isDefault"), d.isDefault != 0},
+          {QStringLiteral("rates"), mix},
+          {QStringLiteral("preferredRate"), d.mixRate},
+          {QStringLiteral("modes"), modes},
+      });
+    }
+    mt_wasapi_free_list(list);
+    apis.append(QJsonObject{
+        {QStringLiteral("id"), QStringLiteral("wasapi")},
+        {QStringLiteral("name"), QStringLiteral("WASAPI")},
+        {QStringLiteral("modes"), QJsonArray{QStringLiteral("shared"), QStringLiteral("lowLatency"), QStringLiteral("exclusive")}},
+        {QStringLiteral("devices"), devs},
+    });
+  }
+#endif
   for (RtAudio::Api api : apiOrder()) {
     // The open API answers through its own instance: probing a device it
     // holds from a second one can fail.
@@ -330,6 +483,7 @@ QJsonObject NativeAudio::devices() {
       QJsonArray rates;
       for (unsigned int r : info.sampleRates) rates.append(int(r));
       list.append(QJsonObject{
+          {QStringLiteral("id"), QString::fromStdString(info.name)},
           {QStringLiteral("name"), QString::fromStdString(info.name)},
           {QStringLiteral("isDefault"), info.isDefaultOutput},
           {QStringLiteral("rates"), rates},
@@ -369,6 +523,10 @@ void NativeAudio::process(float *out, unsigned int frames, unsigned int status) 
 #ifdef __linux__
   if (callbackTid_.load(std::memory_order_relaxed) == 0) callbackTid_.store(long(syscall(SYS_gettid)));
 #endif
+  if (!live_.load(std::memory_order_acquire)) {
+    std::memset(out, 0, sizeof(float) * 2 * frames);
+    return;
+  }
   const bool profiling = profiling_.load(std::memory_order_relaxed);
   const auto t0 = Clock::now();
   if (status & RTAUDIO_OUTPUT_UNDERFLOW) xruns_.fetch_add(1, std::memory_order_relaxed);
@@ -615,7 +773,7 @@ void NativeAudio::onMessage(const QByteArray &message) {
 }
 
 void NativeAudio::pump() {
-  if (!realtimeAsked_ && callbackTid_.load() != 0) {
+  if (!realtimeAsked_ && callbackTid_.load() != 0) {  // RtAudio's thread (WASAPI's has MMCSS)
     realtimeAsked_ = true;
     requestRealtime(callbackTid_.load());
     sendStatus();
@@ -684,7 +842,15 @@ void NativeAudio::sendProfile() {
   const uint64_t procCount = pfProcCount_.exchange(0), renderCount = pfRenderCount_.exchange(0);
   const uint64_t procMax = pfProcMaxNs_.exchange(0), renderMax = pfRenderMaxNs_.exchange(0);
   const int peak = pfPeakVoices_.exchange(0);
-  const uint64_t xruns = xruns_.exchange(0), misses = lockMisses_.exchange(0);
+  uint64_t xruns = xruns_.exchange(0);
+  const uint64_t misses = lockMisses_.exchange(0);
+#if MICROTONE_WASAPI
+  if (wasapi_ != nullptr) {
+    const unsigned g = mt_wasapi_glitches(wasapi_);
+    xruns += g - wasapiGlitches_;
+    wasapiGlitches_ = g;
+  }
+#endif
   const double audioMs = rate_ ? double(frames) * 1000.0 / rate_ : 0.0;
   const double ms = 1e-6;
   QJsonObject o{

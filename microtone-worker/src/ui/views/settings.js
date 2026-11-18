@@ -9,7 +9,8 @@
 // playing — so there is nothing to commit and no Apply button. A setting the
 // device refuses puts the previous one back, and the tab says why.
 //
-//   Audio        the audio system (API), the device, its sample rate, the buffer
+//   Audio        the audio system (API), the device, WASAPI's mode, the sample
+//                rate, the buffer
 //   Performance  the device callback's load, the engine's, dropouts, and the
 //                real-time scheduling the thread was granted
 //
@@ -29,6 +30,21 @@ const CATEGORIES = [
   { key: "audio", label: "settings.cat.audio" },
   { key: "performance", label: "settings.cat.performance" },
 ];
+
+// WASAPI's three ways to play (desktop-qt/src/wasapi.h), in the host's words.
+const MODES = ["shared", "lowLatency", "exclusive"];
+
+/** The buffer sizes worth offering where a mode has limits: the usual ones
+ *  inside them, the shortest it allows and the longest. */
+export function bufferChoices(limits) {
+  if (!limits) return BUFFERS;
+  const min = limits.min || 0, max = limits.max || Infinity, step = limits.step || 1;
+  const fits = (n) => n >= min && n <= max && n % step === 0;
+  const out = BUFFERS.filter(fits);
+  if (min > 0 && !out.includes(min)) out.unshift(min);
+  if (Number.isFinite(max) && !out.includes(max)) out.push(max);
+  return out;
+}
 
 const pct = (f) => `${Math.round(f * 100)}%`;
 const ms = (v, digits = 2) => (Number.isFinite(v) ? v.toFixed(digits) : "–");
@@ -169,47 +185,74 @@ export class SettingsView {
       b.type = "button";
       b.disabled = this.busy;
       b.addEventListener("click", () => {
-        if (a.id !== now.apiId) this._apply({ api: a.id, device: "", rate: 0, bufferFrames: now.bufferFrames });
+        if (a.id !== now.apiId) {
+          this._apply({ api: a.id, device: "", rate: 0, bufferFrames: now.bufferFrames, mode: a.modes ? "lowLatency" : "" });
+        }
       });
       apiSeg.append(b);
     }
     section.append(this._row(t("settings.api"), apiSeg));
 
     // The device: a long list, so a dropdown.
+    // What the host has open, as a setting: anything below changes one part.
+    const asked = {
+      api: now.apiId, device: now.deviceChoice ?? "", mode: now.mode ?? "",
+      rate: now.rateChoice ?? 0, bufferFrames: now.bufferChoice ?? now.bufferFrames,
+    };
     const devSel = el("select", "set-select");
     const def = api?.devices.find((d) => d.isDefault);
     devSel.append(new Option(def ? t("settings.deviceDefaultIs", { name: def.name }) : t("settings.deviceDefault"), ""));
-    for (const d of api?.devices ?? []) devSel.append(new Option(d.name, d.name));
-    devSel.value = now.deviceChoice ?? "";
+    for (const d of api?.devices ?? []) devSel.append(new Option(d.name, d.id ?? d.name));
+    devSel.value = asked.device;
     devSel.disabled = this.busy;
-    devSel.addEventListener("change", () => {
-      this._apply({ api: now.apiId, device: devSel.value, rate: 0, bufferFrames: now.bufferFrames });
-    });
+    devSel.addEventListener("change", () => this._apply({ ...asked, device: devSel.value, rate: 0 }));
     section.append(this._row(t("settings.device"), devSel));
 
-    // The sample rate: the device's, as it lists them.
-    const device = api?.devices.find((d) => d.name === now.deviceChoice) ?? def ?? null;
-    const rates = (device?.rates ?? []).filter((r) => RATES.includes(r));
-    const rateSel = el("select", "set-select");
-    rateSel.append(new Option(t("settings.rateAuto"), "0"));
-    for (const r of rates) rateSel.append(new Option(`${r} Hz`, String(r)));
-    rateSel.value = String(rates.includes(now.rateChoice) ? now.rateChoice : 0);
-    rateSel.disabled = this.busy;
-    rateSel.addEventListener("change", () => {
-      this._apply({ api: now.apiId, device: now.deviceChoice, rate: Number(rateSel.value), bufferFrames: now.bufferFrames });
-    });
-    section.append(this._row(t("settings.rate"), rateSel));
+    const device = api?.devices.find((d) => (d.id ?? d.name) === asked.device) ?? def ?? null;
+    // WASAPI's mode: three named ways, flipped while listening; one the
+    // device does not offer cannot be pressed.
+    const modeLimits = api?.modes ? device?.modes?.[asked.mode] ?? null : null;
+    if (api?.modes) {
+      const modeSeg = el("div", "mst-seg");
+      for (const m of MODES) {
+        const offered = !!device?.modes?.[m];
+        const b = el("button", m === asked.mode ? "active" : "", t(`settings.mode.${m}`));
+        b.type = "button";
+        b.disabled = this.busy || !offered;
+        if (!offered) b.title = t("settings.modeUnavailable");
+        b.addEventListener("click", () => {
+          if (m !== asked.mode) this._apply({ ...asked, mode: m, rate: m === "exclusive" ? asked.rate : 0 });
+        });
+        modeSeg.append(b);
+      }
+      section.append(this._row(t("settings.mode"), modeSeg));
+      if (asked.mode) section.append(el("p", "set-note set-indent", t(`settings.modeNote.${asked.mode}`)));
+    }
 
-    // The buffer: six sizes, the latency each costs read below.
+    // The sample rate: the device's, as it lists them — except through a
+    // mixer, which runs at its own.
+    if (api?.modes && asked.mode !== "exclusive") {
+      section.append(this._row(t("settings.rate"), el("span", "set-value", t("settings.mixerRate", { rate: now.rate }))));
+    } else {
+      const rates = (modeLimits?.rates ?? device?.rates ?? []).filter((r) => RATES.includes(r));
+      const rateSel = el("select", "set-select");
+      rateSel.append(new Option(t("settings.rateAuto"), "0"));
+      for (const r of rates) rateSel.append(new Option(`${r} Hz`, String(r)));
+      rateSel.value = String(rates.includes(asked.rate) ? asked.rate : 0);
+      rateSel.disabled = this.busy;
+      rateSel.addEventListener("change", () => this._apply({ ...asked, rate: Number(rateSel.value) }));
+      section.append(this._row(t("settings.rate"), rateSel));
+    }
+
+    // The buffer: the usual sizes, or those the mode allows on this device;
+    // the latency each costs is read below.
     const bufSeg = el("div", "mst-seg");
-    for (const n of BUFFERS) {
-      const b = el("button", n === now.bufferFrames ? "active" : "", String(n));
+    for (const n of bufferChoices(modeLimits)) {
+      const b = el("button", n === asked.bufferFrames ? "active" : "", String(n));
       b.type = "button";
       b.disabled = this.busy;
       b.addEventListener("click", () => {
-        if (n !== now.bufferFrames) {
-          this._apply({ api: now.apiId, device: now.deviceChoice, rate: now.rateChoice, bufferFrames: n });
-        }
+        if (n !== asked.bufferFrames) this._apply({ ...asked, bufferFrames: n });
       });
       bufSeg.append(b);
     }
@@ -221,8 +264,13 @@ export class SettingsView {
     if (this.busy) {
       section.append(el("p", "set-note", t("settings.applying")));
     } else {
+      // "WASAPI, exclusive, 24-bit PCM in 32": the mode and the sample format
+      // are part of what is open.
+      const how = [nativeApiName(now.apiId, now.api)];
+      if (now.mode) how.push(t(`settings.mode.${now.mode}`).toLocaleLowerCase());
+      if (now.format && now.mode === "exclusive") how.push(now.format);
       section.append(el("p", "set-note", t("settings.now", {
-        device: now.device, api: nativeApiName(now.apiId, now.api), rate: now.rate,
+        device: now.device, api: how.join(", "), rate: now.rate,
         ms: ms(now.bufferMs, 1), latency: ms(now.latencyMs, 1),
       })));
       section.append(el("p", "set-note", now.rate === now.engineRate

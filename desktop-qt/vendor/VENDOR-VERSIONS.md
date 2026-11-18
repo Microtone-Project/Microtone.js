@@ -13,7 +13,9 @@ release over the files and changing this record.
   - `RtAudio.h`   sha256 `3acbd6d0493a1d03941be3f22e050d0fe9ab4a968784c7d0c81530a58162953d`
   - `RtAudio.cpp` sha256 `d880f065bdb65536ce5cf4619b6a2408a360ad0103b8b38600f1a29a11ff1e1e`
 - Backends are chosen by CMakeLists.txt: ALSA, PulseAudio and JACK (when
-  found) on Linux, WASAPI on Windows, CoreAudio on macOS.
+  found) on Linux, CoreAudio on macOS. On Windows none yet: WASAPI is the
+  app's own (`src/wasapi.c`, for exclusive mode, which RtAudio's lacks), and
+  RtAudio stays for ASIO.
 - ASIO (Windows) needs the release's `include/asio*.{h,cpp}`,
   `iasiothiscallresolver.*` and `ginclude.h` (Steinberg's SDK files, GPLv3 since
   October 2025), which come in with the Windows build.

@@ -42,6 +42,25 @@ system (`sudo zypper dup`) rather than mixing versions.
 linker refuses any symbol the older libraries lack. But code compiled against
 newer headers is not guaranteed to run on older libraries.
 
+### Windows
+
+Visual Studio 2022 (MSVC: QtWebEngine has no MinGW build), Qt ≥ 6.8 for
+`msvc2022_64` with WebEngine (an *extension* in Qt's online installer since
+6.8, beside the modules), HttpServer and WebSockets, CMake, Ninja and Node. From
+an "x64 Native Tools" prompt:
+
+```bat
+cmake -S desktop-qt -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+windeployqt --release build\microtone.exe
+node desktop-qt\tools\stage-frontend.js build\www
+```
+
+`.github/workflows/desktop-qt.yml` does exactly this on `windows-latest`, on a
+push to `qt-native` or by hand, and keeps the result as an artifact
+(`Microtone-<version>-windows-x64`): the app, its Qt runtime, the staged web
+app in `www\`, and `wasapi-probe.exe`. It releases nothing.
+
 ## Running
 
 ```
@@ -172,6 +191,41 @@ then `PULSE_SINK=microtone_test` for the app.
     `HOST_DEVICES` (every API's output devices) and `HOST_CONFIGURE`.
   - The tab exists only where `window.__MICROTONE_NATIVE__` does: the
     website's audio is the browser's.
+- **WASAPI** (`wasapi.c`, Windows): our own, in C (COM through its C
+  interface), because RtAudio's WASAPI has no exclusive mode, and takes the
+  low-latency path whenever Windows has it, with no choice. Three modes, chosen
+  in the Settings tab:
+  - *shared*: through the Windows mixer, at its rate and its period (usually
+    10 ms); the buffer asked for is the one behind that period;
+  - *shared, low latency*: through the mixer at a shorter period, a multiple of
+    the driver's step in its range (`IAudioClient3`, Windows 10 and later). A
+    driver that refuses a period it listed gets its own default instead, and
+    the tab shows the period it got;
+  - *exclusive*: the device to ourselves, at the rate chosen in the tab. The
+    sample format is the first the hardware takes: 32-bit float, then 24-in-32,
+    24 or 32-bit PCM, then 16-bit PCM (TPDF-dithered). The period is no shorter
+    than the device's minimum, with the buffer-alignment retry Windows asks for.
+
+  Event-driven, on a thread of its own registered with MMCSS as "Pro Audio";
+  everything COM about a stream happens on that thread. Devices are named by
+  their endpoint ids, which stay the same between sessions. The device list
+  gives each mode's limits per device, so the tab offers only rates and buffer
+  sizes that will open, and disables a mode a device lacks. A first start
+  tries low-latency shared, then shared.
+  - `tools/wasapi-probe.c` (built beside the app on Windows) lists what WASAPI
+    offers and plays a test tone through each mode.
+  - `wasapi_fake.c` stands in for it elsewhere (`-DMICROTONE_FAKE_WASAPI=ON`,
+    testing only), so the host's WASAPI glue and the tab's modes can be tried
+    on Linux.
+  - Checked under Wine 11 with the MinGW build of the probe:
+    - enumeration (names, endpoint ids, mixer formats, low-latency ranges);
+    - shared: 10 ms period, 200 callbacks in 2 s, no glitches, and the 440 Hz
+      tone recorded off the sink at the right level;
+    - low latency at 256 frames: 5.33 ms, 377 callbacks in 2 s;
+    - Wine's own listed minimum is refused, and the default retry opens it;
+    - exclusive: Wine offers none, and that refusal is reported.
+  - Not checked yet on real Windows: anything MSVC, exclusive mode, real
+    drivers' low-latency ranges, the packaged app.
 - **`links`**: `docs.html` opens in the docs window, other pages of the app in
   the main window, `http(s):` and `mailto:` in the system browser. The window a
   link was clicked in never navigates away from an open project.
@@ -185,8 +239,10 @@ then `PULSE_SINK=microtone_test` for the app.
   into `www/`), packaging (AppImage, NSIS, .dmg) and CI.
 - Moving projects over from the Tauri build.
 - The native audio host's next steps:
-  - the Windows build (WASAPI, and ASIO with the SDK files RtAudio ships), the
-    macOS build (CoreAudio), and JACK on Linux;
+  - running the Windows build on real Windows (the CI artifact): MSVC, the
+    three modes on real drivers, the package; then ASIO (RtAudio, with the
+    SDK files it ships) and an installer;
+  - the macOS build (CoreAudio), and JACK on Linux;
   - audio input for the sampler's Record, and MIDI;
   - whether PulseAudio's simple API reports underflows at all (RtAudio's
     status flag): the 0 above may mean "none", or "not reported".

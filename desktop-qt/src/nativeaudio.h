@@ -43,6 +43,9 @@
 
 #include "enginehost.h"
 #include "resampler.h"
+#if MICROTONE_WASAPI
+#include "wasapi.h"
+#endif
 
 class RtAudio;
 class QWebSocket;
@@ -56,12 +59,15 @@ class NativeAudio : public QObject {
   static constexpr unsigned kEngineRate = 48000;
 
   /** An output setting. Empty api / device = the default; rate 0 = 48 kHz
-   *  where the device has it, else its own. */
+   *  where the device has it, else its own. `device` is what the API names a
+   *  device by: RtAudio's name, WASAPI's endpoint id. `mode` is WASAPI's:
+   *  "shared", "lowLatency" or "exclusive" (empty elsewhere). */
   struct Config {
     QString api;
     QString device;
     unsigned rate = 0;
     unsigned bufferFrames = 256;
+    QString mode;
   };
 
   explicit NativeAudio(QObject *parent = nullptr);
@@ -88,7 +94,12 @@ class NativeAudio : public QObject {
   void requestRealtime(long tid);
 
   bool open(const Config &config, QString *error);
+  bool openRtAudio(const Config &config, QString *error);
   void closeDevice();
+#if MICROTONE_WASAPI
+  bool openWasapi(const Config &config, QString *error);
+  static void wasapiRender(void *user, float *out, int frames);
+#endif
   void configure(const QByteArray &json);
   static Config remembered();
   static void remember(const Config &config);
@@ -108,7 +119,16 @@ class NativeAudio : public QObject {
   unsigned int rate_ = kEngineRate;
   unsigned int bufferFrames_ = 256;
   unsigned int streamLatency_ = 0;
+  double latencyMs_ = 0.0;   // where the API reports it whole (WASAPI)
+  QString format_;           // the device's sample format, where it is chosen (WASAPI exclusive)
   bool running_ = false;
+  // The stream is set up: until then the callback plays silence. A WASAPI
+  // stream starts inside its open, before the host has its rate.
+  std::atomic<bool> live_{false};
+#if MICROTONE_WASAPI
+  MtWasapiStream *wasapi_ = nullptr;
+  unsigned wasapiGlitches_ = 0;
+#endif
 
   MtHost *host_ = nullptr;
   std::mutex engine_;

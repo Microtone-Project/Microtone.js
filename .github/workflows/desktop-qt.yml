@@ -1,0 +1,73 @@
+# The Qt desktop build (desktop-qt/, item 336) for Windows: the shell, the C
+# engine and the WASAPI backend built with MSVC against Qt 6.8 LTS, packaged
+# with windeployqt and the staged web app, and kept as a build artifact.
+# Nothing here releases: the Tauri build (desktop.yml) still does that, until
+# the Qt build replaces it.
+name: Desktop (Qt)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [qt-native]
+    paths:
+      - "desktop-qt/**"
+      - "core/**"
+      - "microtone-worker/**"
+      - "tools/stage-site.js"
+      - ".github/workflows/desktop-qt.yml"
+
+concurrency:
+  group: desktop-qt-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Qt for MSVC with what the shell needs: WebEngine (and the two modules
+      # it stands on), the HTTP server the app is served from, WebSockets for
+      # the native audio host.
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.8.3"
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          modules: qtwebengine qtwebchannel qtpositioning qthttpserver qtwebsockets
+          # Qt 6.8 moved WebEngine out of the modules into "extensions" in its
+          # online repository; aqtinstall installs those from 3.2 on.
+          aqtversion: ">=3.2.1"
+          cache: true
+
+      - uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Configure
+        run: cmake -S desktop-qt -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $version = node -p "require('./microtone-worker/package.json').version"
+          $out = "build/Microtone-$version-windows-x64"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          Copy-Item build/microtone.exe, build/wasapi-probe.exe $out
+          # The Qt runtime, WebEngine's process and resources among it.
+          windeployqt --release --no-system-d3d-compiler --no-opengl-sw "$out/microtone.exe"
+          # The web app, where the binary looks for it: www/ beside itself.
+          node desktop-qt/tools/stage-frontend.js "$out/www"
+          "version=$version" >> $env:GITHUB_ENV
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Microtone-${{ env.version }}-windows-x64
+          path: build/Microtone-${{ env.version }}-windows-x64
+          if-no-files-found: error
