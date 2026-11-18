@@ -4,6 +4,8 @@
  *   wasapi-probe                  list the output devices
  *   wasapi-probe all [frames]     …and play 2 s of 440 Hz in each mode
  *   wasapi-probe shared|low|exclusive [frames] [rate] [device id]
+ *   wasapi-probe watch [seconds]  print what the system says changes (plug a
+ *                                 device in or out, choose another default)
  *
  * For each mode it says what the stream became (rate, period, buffer, sample
  * format, MMCSS) and how the callbacks arrived: how many, how many frames a
@@ -79,6 +81,15 @@ static void play(const char *device, MtWasapiMode mode, int frames, int rate)
     mt_wasapi_close(s);
 }
 
+static DWORD g_start;
+
+static void on_change(void *user, MtWasapiChange change)
+{
+    (void)user;
+    printf("  %6.2f s: %s\n", (GetTickCount() - g_start) / 1000.0,
+           change == MT_WASAPI_DEFAULT ? "the default output changed" : "an output device came, went or changed state");
+}
+
 int main(int argc, char **argv)
 {
     MtWasapiDevice *list = NULL;
@@ -110,6 +121,21 @@ int main(int argc, char **argv)
         }
     }
     mt_wasapi_free_list(list);
+    if (!strcmp(what, "watch")) {
+        const int seconds = argc > 2 ? atoi(argv[2]) : 30;
+        MtWasapiWatch *w;
+        g_start = GetTickCount();
+        w = mt_wasapi_watch(on_change, NULL);
+        if (w == NULL) {
+            printf("cannot watch the devices\n");
+            return 1;
+        }
+        printf("watching for %d s...\n", seconds);
+        Sleep((DWORD)seconds * 1000);
+        mt_wasapi_unwatch(w);
+        printf("done\n");
+        return 0;
+    }
     if (!strcmp(what, "all") || !strcmp(what, "shared")) play(device, MT_WASAPI_SHARED, frames, 0);
     if (!strcmp(what, "all") || !strcmp(what, "low")) play(device, MT_WASAPI_SHARED_LOW_LATENCY, frames, 0);
     if (!strcmp(what, "all") || !strcmp(what, "exclusive")) play(device, MT_WASAPI_EXCLUSIVE, frames, rate);

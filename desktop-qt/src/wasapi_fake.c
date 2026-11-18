@@ -7,7 +7,9 @@
  *
  * MICROTONE_FAKE_WASAPI_LOSE_AFTER=<seconds>: the first stream opened goes
  * away after that long, as an unplugged device's does (its thread stops and
- * mt_wasapi_lost says so), for the host's reopen. */
+ * mt_wasapi_lost says so), for the host's reopen.
+ * MICROTONE_FAKE_WASAPI_DEFAULT_AFTER=<seconds>: then the default output
+ * becomes the other device, and a watch is told (as a headset coming in). */
 #define _POSIX_C_SOURCE 200809L
 #include <pthread.h>
 #include <stdatomic.h>
@@ -26,12 +28,62 @@ static const MtWasapiDevice DEVICES[] = {
 };
 #define N_DEVICES ((int)(sizeof DEVICES / sizeof DEVICES[0]))
 
+static atomic_int g_default;  /* which of DEVICES is the default output */
+
 int mt_wasapi_list(MtWasapiDevice **out)
 {
+    int i;
     *out = (MtWasapiDevice *)malloc(sizeof DEVICES);
     if (*out == NULL) return -1;
     memcpy(*out, DEVICES, sizeof DEVICES);
+    for (i = 0; i < N_DEVICES; i++) (*out)[i].isDefault = i == atomic_load(&g_default);
     return N_DEVICES;
+}
+
+struct MtWasapiWatch {
+    pthread_t thread;
+    int started;
+    atomic_int stop;
+    double after;
+    MtWasapiNotify notify;
+    void *user;
+};
+
+static void *watch_run(void *arg)
+{
+    MtWasapiWatch *w = (MtWasapiWatch *)arg;
+    struct timespec tick = {0, 50000000L};
+    double waited = 0;
+    while (!atomic_load(&w->stop) && waited < w->after) {
+        nanosleep(&tick, NULL);
+        waited += 0.05;
+    }
+    if (!atomic_load(&w->stop)) {
+        atomic_store(&g_default, 1 - atomic_load(&g_default));
+        w->notify(w->user, MT_WASAPI_DEFAULT);
+        w->notify(w->user, MT_WASAPI_DEVICES);
+    }
+    return NULL;
+}
+
+MtWasapiWatch *mt_wasapi_watch(MtWasapiNotify notify, void *user)
+{
+    MtWasapiWatch *w = (MtWasapiWatch *)calloc(1, sizeof *w);
+    const char *after = getenv("MICROTONE_FAKE_WASAPI_DEFAULT_AFTER");
+    if (w == NULL) return NULL;
+    w->notify = notify;
+    w->user = user;
+    w->after = after != NULL ? atof(after) : 0;
+    if (w->after > 0) w->started = pthread_create(&w->thread, NULL, watch_run, w) == 0;
+    return w;
+}
+
+void mt_wasapi_unwatch(MtWasapiWatch *w)
+{
+    if (w == NULL) return;
+    atomic_store(&w->stop, 1);
+    if (w->started) pthread_join(w->thread, NULL);
+    free(w);
 }
 
 void mt_wasapi_free_list(MtWasapiDevice *list) { free(list); }
@@ -71,7 +123,7 @@ static void *run(void *arg)
 MtWasapiStream *mt_wasapi_open(const char *deviceId, MtWasapiMode mode, int rate, int periodFrames,
                                MtWasapiRender render, void *user, MtWasapiInfo *info, char *error, int errorCap)
 {
-    const MtWasapiDevice *d = &DEVICES[0];
+    const MtWasapiDevice *d = &DEVICES[atomic_load(&g_default)];
     MtWasapiStream *s;
     int i, period, buffer;
     const char *format = "32-bit float";

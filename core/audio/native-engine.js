@@ -23,7 +23,9 @@
 // Settings tab): HOST_DEVICES, every audio API's output devices; HOST_CONFIGURE,
 // another output (a JSON blob), answered by a STATUS; HOST_PANEL, the open ASIO
 // driver's own settings window, unanswered. A STATUS also comes unasked when
-// the host reopened a device that went away (or whose driver asked for it).
+// the host reopened a device that went away (or whose driver asked for it),
+// and a DEVICES when the system's devices changed (macOS: Core Audio says so;
+// elsewhere after a lost device came back).
 
 import { CMD, MSG } from "../worklet/protocol.js";
 import { engineSeed } from "../engine/rng.js";
@@ -239,6 +241,11 @@ export class NativeEngineLink {
     this.onMessage = null;    // MSG-shaped messages: INVERT_MASK, PROFILE
     this.onClose = null;
     this.onStatus = null;     // (status) whenever the output changes
+    // The newest device list: HOST_DEVICES's answer, or one the host sent
+    // unasked. A new object each time, so a view can tell it changed.
+    this.devices = null;
+    this.onDevices = null;    // (devices) whenever a list arrives
+    this._devicesAsk = null;  // the request in flight, shared
     this._queue = [];
     this._flushQueued = false;
     this._waiting = { [NATIVE_MSG.STATUS]: [], [NATIVE_MSG.DEVICES]: [] };
@@ -262,7 +269,12 @@ export class NativeEngineLink {
 
   /** Every audio API the host has and its output devices: { apis: [{ id,
    *  name, devices: [{ name, isDefault, rates, preferredRate }] }], current }. */
-  requestDevices() { return this._ask("HOST_DEVICES", null, NATIVE_MSG.DEVICES); }
+  requestDevices() {
+    // One round trip however many ask in the meantime (each probes every
+    // API's devices, which is not free).
+    this._devicesAsk ??= this._ask("HOST_DEVICES", null, NATIVE_MSG.DEVICES).finally(() => { this._devicesAsk = null; });
+    return this._devicesAsk;
+  }
 
   /** Another output: { api, device, rate, bufferFrames, mode } (device ""
    *  and rate 0 = the defaults; bufferFrames 0 = the driver's own size,
@@ -311,7 +323,9 @@ export class NativeEngineLink {
       this._waiting[kind].shift()?.(this.hello);
       if (this.onStatus) this.onStatus(this.hello);
     } else if (kind === NATIVE_MSG.DEVICES) {
-      this._waiting[kind].shift()?.(JSON.parse(textOf(buffer)));
+      this.devices = JSON.parse(textOf(buffer));
+      this._waiting[kind].shift()?.(this.devices);
+      if (this.onDevices) this.onDevices(this.devices);
     }
   }
 

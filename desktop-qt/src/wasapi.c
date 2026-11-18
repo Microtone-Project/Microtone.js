@@ -25,6 +25,10 @@ static const IID MT_IID_IAudioClient =
     {0x1cb9ad4c, 0xdbfa, 0x4c32, {0xb1, 0x78, 0xc2, 0xf5, 0x68, 0xa7, 0x03, 0xb2}};
 static const IID MT_IID_IAudioClient3 =
     {0x7ed4ee07, 0x8e67, 0x4cd4, {0x8c, 0x1a, 0x2b, 0x7a, 0x59, 0x87, 0xad, 0x42}};
+static const IID MT_IID_IMMNotificationClient =
+    {0x7991eec9, 0x7e89, 0x4d85, {0x83, 0x90, 0x6c, 0x70, 0x3c, 0xec, 0x60, 0xc0}};
+static const IID MT_IID_IUnknown =
+    {0x00000000, 0x0000, 0x0000, {0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}};
 static const IID MT_IID_IAudioRenderClient =
     {0xf294acfc, 0x3146, 0x4483, {0xa7, 0xbf, 0xad, 0xdc, 0xa7, 0xc2, 0x60, 0xe2}};
 static const GUID MT_SUBTYPE_PCM =
@@ -230,6 +234,106 @@ done:
 }
 
 void mt_wasapi_free_list(MtWasapiDevice *list) { free(list); }
+
+/* ── watching the devices ──
+ * An IMMNotificationClient, by hand: the object starts with its vtable
+ * pointer, as COM wants. Its lifetime is the watch's (unwatch unregisters it,
+ * then frees it), so the reference count is only for COM's bookkeeping. */
+
+struct MtWasapiWatch {
+    IMMNotificationClient iface;  /* first: COM sees this */
+    volatile LONG refs;
+    IMMDeviceEnumerator *e;
+    MtWasapiNotify notify;
+    void *user;
+    int entered;
+};
+
+static MtWasapiWatch *watch_of(IMMNotificationClient *self) { return (MtWasapiWatch *)self; }
+
+static HRESULT STDMETHODCALLTYPE nc_QueryInterface(IMMNotificationClient *self, REFIID riid, void **out)
+{
+    if (IsEqualIID(riid, &MT_IID_IUnknown) || IsEqualIID(riid, &MT_IID_IMMNotificationClient)) {
+        *out = self;
+        InterlockedIncrement(&watch_of(self)->refs);
+        return S_OK;
+    }
+    *out = NULL;
+    return E_NOINTERFACE;
+}
+
+static ULONG STDMETHODCALLTYPE nc_AddRef(IMMNotificationClient *self) { return (ULONG)InterlockedIncrement(&watch_of(self)->refs); }
+static ULONG STDMETHODCALLTYPE nc_Release(IMMNotificationClient *self) { return (ULONG)InterlockedDecrement(&watch_of(self)->refs); }
+
+static HRESULT STDMETHODCALLTYPE nc_OnDeviceStateChanged(IMMNotificationClient *self, LPCWSTR id, DWORD state)
+{
+    (void)id; (void)state;
+    watch_of(self)->notify(watch_of(self)->user, MT_WASAPI_DEVICES);
+    return S_OK;
+}
+
+static HRESULT STDMETHODCALLTYPE nc_OnDeviceAdded(IMMNotificationClient *self, LPCWSTR id)
+{
+    (void)id;
+    watch_of(self)->notify(watch_of(self)->user, MT_WASAPI_DEVICES);
+    return S_OK;
+}
+
+static HRESULT STDMETHODCALLTYPE nc_OnDeviceRemoved(IMMNotificationClient *self, LPCWSTR id)
+{
+    (void)id;
+    watch_of(self)->notify(watch_of(self)->user, MT_WASAPI_DEVICES);
+    return S_OK;
+}
+
+static HRESULT STDMETHODCALLTYPE nc_OnDefaultDeviceChanged(IMMNotificationClient *self, EDataFlow flow, ERole role, LPCWSTR id)
+{
+    (void)id;
+    /* Once per role: the console one is the default the app opens. */
+    if (flow == eRender && role == eConsole) watch_of(self)->notify(watch_of(self)->user, MT_WASAPI_DEFAULT);
+    return S_OK;
+}
+
+static HRESULT STDMETHODCALLTYPE nc_OnPropertyValueChanged(IMMNotificationClient *self, LPCWSTR id, const PROPERTYKEY key)
+{
+    (void)self; (void)id; (void)key;  /* names, formats, icons: they come in floods, and the list keeps */
+    return S_OK;
+}
+
+static IMMNotificationClientVtbl nc_vtbl = {
+    nc_QueryInterface, nc_AddRef, nc_Release,
+    nc_OnDeviceStateChanged, nc_OnDeviceAdded, nc_OnDeviceRemoved,
+    nc_OnDefaultDeviceChanged, nc_OnPropertyValueChanged,
+};
+
+MtWasapiWatch *mt_wasapi_watch(MtWasapiNotify notify, void *user)
+{
+    MtWasapiWatch *w = (MtWasapiWatch *)calloc(1, sizeof *w);
+    if (w == NULL) return NULL;
+    w->iface.lpVtbl = &nc_vtbl;
+    w->refs = 1;
+    w->notify = notify;
+    w->user = user;
+    w->entered = com_enter();
+    w->e = enumerator();
+    if (w->e == NULL || FAILED(IMMDeviceEnumerator_RegisterEndpointNotificationCallback(w->e, &w->iface))) {
+        mt_wasapi_unwatch(w);
+        return NULL;
+    }
+    return w;
+}
+
+void mt_wasapi_unwatch(MtWasapiWatch *w)
+{
+    if (w == NULL) return;
+    if (w->e != NULL) {
+        /* After this returns no callback is running or will run. */
+        IMMDeviceEnumerator_UnregisterEndpointNotificationCallback(w->e, &w->iface);
+        IMMDeviceEnumerator_Release(w->e);
+    }
+    if (w->entered) CoUninitialize();
+    free(w);
+}
 
 /* ── a stream ── */
 

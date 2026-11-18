@@ -74,7 +74,7 @@ export class SettingsView {
     let saved = null;
     try { saved = localStorage.getItem(CATEGORY_KEY); } catch { /* private window */ }
     this.category = CATEGORIES.some((c) => c.key === saved) ? saved : "audio";
-    this.devices = null;     // the host's HOST_DEVICES answer
+    this._devicesDrawn = null;  // the link's device list the tab last drew
     this.busy = false;       // a HOST_CONFIGURE in flight
     this.error = "";         // why the last setting would not open
     this._link = null;       // the link the tab last drew for
@@ -99,6 +99,10 @@ export class SettingsView {
   show() {
     this.visible = true;
     this.host.hidden = false;
+    // A fresh device list each time the tab is opened: something may have
+    // been plugged in since (the host also pushes one where the system tells
+    // it — macOS). It lands in link.devices, and frame() draws it.
+    this.link?.requestDevices();
     this.refresh();
   }
 
@@ -119,8 +123,10 @@ export class SettingsView {
     // was drawn: draw it again once the host is there.
     if (this.link !== this._link) this.refresh();
     // The output changed under the tab (another window's Settings, the
-    // real-time grant arriving after a reopen): draw it as it is now.
-    else if (this._link !== null && this._link.hello !== this._status && !this.busy) this.refresh();
+    // real-time grant arriving after a reopen), or the devices did: draw it
+    // as it is now.
+    else if (this._link !== null && !this.busy && (this._link.hello !== this._status ||
+             (this.category === "audio" && this._link.devices !== this._devicesDrawn))) this.refresh();
     if (this.category === "performance") this._updatePerformance();
   }
 
@@ -169,17 +175,17 @@ export class SettingsView {
     const section = el("div", "set-section");
     section.append(el("h3", "set-head", t("settings.output")));
 
-    if (this.devices === null) {
-      // The device list is the host's to probe: ask once, draw again.
+    const devices = link.devices;
+    this._devicesDrawn = devices;
+    if (devices === null) {
+      // The device list is the host's to probe: asked for, and drawn by
+      // frame() once it is in link.devices.
       this.detail.append(section);
       section.append(el("p", "set-note", t("settings.applying")));
-      link.requestDevices().then((d) => {
-        this.devices = d;
-        if (this.visible && this.category === "audio") this.refresh();
-      });
+      link.requestDevices();
       return;
     }
-    const apis = this.devices.apis.filter((a) => a.devices.length > 0);
+    const apis = devices.apis.filter((a) => a.devices.length > 0);
     const api = apis.find((a) => a.id === now.apiId) ?? apis[0];
 
     // The audio system: a few named options, flipped while listening.

@@ -88,6 +88,23 @@ MtWasapiStream *mt_wasapi_open(const char *deviceId, MtWasapiMode mode, int rate
 /** Stop and release; waits for the thread. */
 void mt_wasapi_close(MtWasapiStream *s);
 
+/** What the system says changed (mt_wasapi_watch). */
+typedef enum {
+    MT_WASAPI_DEVICES = 1,  /* an output device came, went or changed state */
+    MT_WASAPI_DEFAULT = 2   /* the default output (the console role) is another */
+} MtWasapiChange;
+
+/** Called on a thread of the system's: do nothing there but take note (no
+ *  WASAPI calls — the system waits on it). */
+typedef void (*MtWasapiNotify)(void *user, MtWasapiChange change);
+
+typedef struct MtWasapiWatch MtWasapiWatch;
+
+/** Watch the output devices (IMMNotificationClient) until unwatched, on the
+ *  same thread. NULL when WASAPI is not there. */
+MtWasapiWatch *mt_wasapi_watch(MtWasapiNotify notify, void *user);
+void mt_wasapi_unwatch(MtWasapiWatch *w);
+
 /** Wake-ups that found the buffer already empty (shared modes), and waits
  *  of two seconds with no wake-up at all (the device went away). */
 unsigned mt_wasapi_glitches(const MtWasapiStream *s);

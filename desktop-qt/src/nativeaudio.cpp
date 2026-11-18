@@ -148,8 +148,17 @@ QString describe(const NativeAudio::Config &c) {
 const AudioObjectPropertyAddress kDefaultOutput = {kAudioHardwarePropertyDefaultOutputDevice,
                                                    kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain};
 
+const AudioObjectPropertyAddress kDeviceList = {kAudioHardwarePropertyDevices, kAudioObjectPropertyScopeGlobal,
+                                                kAudioObjectPropertyElementMain};
+
 OSStatus onDefaultOutput(AudioObjectID, UInt32, const AudioObjectPropertyAddress *, void *user) {
   static_cast<NativeAudio *>(user)->defaultOutputChanged();
+  static_cast<NativeAudio *>(user)->devicesChanged();  // the "default" mark moved
+  return noErr;
+}
+
+OSStatus onDeviceList(AudioObjectID, UInt32, const AudioObjectPropertyAddress *, void *user) {
+  static_cast<NativeAudio *>(user)->devicesChanged();
   return noErr;
 }
 #endif
@@ -177,16 +186,25 @@ NativeAudio::NativeAudio(QObject *parent) : QObject(parent) {
 #ifdef _WIN32
   guiThread_ = GetCurrentThreadId();
 #endif
+#if MICROTONE_WASAPI
+  watch_ = mt_wasapi_watch(&NativeAudio::wasapiNotify, this);
+#endif
 #ifdef __APPLE__
   AudioObjectAddPropertyListener(kAudioObjectSystemObject, &kDefaultOutput, &onDefaultOutput, this);
+  AudioObjectAddPropertyListener(kAudioObjectSystemObject, &kDeviceList, &onDeviceList, this);
 #endif
   pump_.setInterval(4);
   connect(&pump_, &QTimer::timeout, this, &NativeAudio::pump);
 }
 
 NativeAudio::~NativeAudio() {
+#if MICROTONE_WASAPI
+  mt_wasapi_unwatch(watch_);  // no callback runs after this
+  watch_ = nullptr;
+#endif
 #ifdef __APPLE__
   AudioObjectRemovePropertyListener(kAudioObjectSystemObject, &kDefaultOutput, &onDefaultOutput, this);
+  AudioObjectRemovePropertyListener(kAudioObjectSystemObject, &kDeviceList, &onDeviceList, this);
 #endif
   pump_.stop();
   closeDevice();
@@ -407,12 +425,25 @@ void NativeAudio::deviceLost() {
     }
   }
 #endif
+  markLost();
+}
+
+void NativeAudio::markLost() {
   lostAtMs_ = steadyMs();
   lost_ = true;
 }
 
 void NativeAudio::defaultOutputChanged() {
-  if (followsDefault_) deviceLost();
+  // Not deviceLost(): this comes on a long-lived thread of the system's,
+  // which the reopen must not wait for as for RtAudio's closing one.
+  if (!followsDefault_) return;
+  qInfo("audio: the system's default output changed; following it");
+  markLost();
+}
+
+void NativeAudio::devicesChanged() {
+  devicesAtMs_ = steadyMs();
+  devicesDirty_ = true;
 }
 
 /** On the pump: the device went away, or its driver asked to be reset (an
@@ -427,7 +458,7 @@ void NativeAudio::reopenLost() {
   const qint64 now = QDateTime::currentMSecsSinceEpoch();
   if (now - lastReopenMs_ < 1000) return;  // a device that keeps going: once a second at most
   lastReopenMs_ = now;
-  qInfo("microtone: audio: the output went away; opening it again");
+  qInfo("audio: the output went away; opening it again");
   const Config again = config_;
   QString why;
   if (open(again, &why)) {
@@ -438,6 +469,7 @@ void NativeAudio::reopenLost() {
     openDefaults(again.bufferFrames, 0, &more);
   }
   sendStatus();
+  devicesChanged();  // whatever went away is gone from the list too
 }
 
 /** HOST_PANEL: the open ASIO driver's own settings window. A change made
@@ -573,6 +605,14 @@ void NativeAudio::wasapiRender(void *user, float *out, int frames) {
   static_cast<NativeAudio *>(user)->process(out, unsigned(frames), 0);
 }
 
+/** On a thread of the system's (IMMNotificationClient): note it, nothing
+ *  more — the pump does the rest. */
+void NativeAudio::wasapiNotify(void *user, MtWasapiChange change) {
+  auto *self = static_cast<NativeAudio *>(user);
+  if (change == MT_WASAPI_DEFAULT) self->defaultOutputChanged();
+  self->devicesChanged();
+}
+
 /** WASAPI (wasapi.c): the mode, the device by endpoint id, our rate in
  *  exclusive mode, and the buffer as the period asked for. */
 bool NativeAudio::openWasapi(const Config &want, QString *error) {
@@ -619,6 +659,7 @@ bool NativeAudio::openWasapi(const Config &want, QString *error) {
   realtime_ = info.mmcss ? QStringLiteral("MMCSS Pro Audio") : QString();
   live_ = true;
   running_ = true;
+  followsDefault_ = want.device.isEmpty();  // the console default, as macOS's
   return true;
 }
 #endif
@@ -681,7 +722,7 @@ QJsonObject NativeAudio::status() const {
   return o;
 }
 
-QJsonObject NativeAudio::devices() {
+QJsonObject NativeAudio::devices(bool full) {
   QJsonArray apis;
 #if MICROTONE_WASAPI
   {
@@ -729,6 +770,12 @@ QJsonObject NativeAudio::devices() {
   }
 #endif
   for (RtAudio::Api api : apiOrder()) {
+    // A list pushed after a device event keeps the last ASIO list (see the
+    // header): no driver is loaded for a headset coming in.
+    if (!full && api == RtAudio::WINDOWS_ASIO && !asioEntry_.isEmpty()) {
+      apis.append(asioEntry_);
+      continue;
+    }
     // The open API answers through its own instance: probing a device it
     // holds from a second one can fail.
     std::unique_ptr<RtAudio> temp;
@@ -760,6 +807,7 @@ QJsonObject NativeAudio::devices() {
     }
     // Rate 0 keeps the device's own rate (above); another one changes it.
     if (api == RtAudio::MACOSX_CORE) entry.insert(QStringLiteral("keepsDeviceRate"), true);
+    if (api == RtAudio::WINDOWS_ASIO) asioEntry_ = entry;
     apis.append(entry);
   }
   return QJsonObject{{QStringLiteral("apis"), apis}, {QStringLiteral("current"), status()}};
@@ -908,7 +956,7 @@ void NativeAudio::requestRealtime(long tid) {
   realtime_ = r.type() != QDBusMessage::ErrorMessage
                   ? QStringLiteral("nice %1 (RealtimeKit; real-time refused: %2)").arg(nice).arg(why)
                   : QStringLiteral("none: %1").arg(why);
-  qWarning("microtone: audio thread: %s", qUtf8Printable(realtime_));
+  qWarning("audio: the callback thread: %s", qUtf8Printable(realtime_));
 #else
   Q_UNUSED(tid);
   realtime_ = QStringLiteral("the audio API's own");
@@ -1046,6 +1094,15 @@ void NativeAudio::pump() {
   if (wasapi_ != nullptr && mt_wasapi_lost(wasapi_)) lost_ = true;
 #endif
   if (lost_ && running_) reopenLost();
+  // The system's devices changed: a fresh list, once they have settled (a
+  // headset comes in as several notifications) and any reopen is done.
+  if (devicesDirty_ && !lost_ && steadyMs() - devicesAtMs_.load() >= 300) {
+    devicesDirty_ = false;
+    qInfo("audio: the system's devices changed; sending the page the list");
+    QByteArray b = header(kDevices);
+    b += QJsonDocument(devices(false)).toJson(QJsonDocument::Compact);
+    send(b);
+  }
   if (!realtimeAsked_ && callbackTid_.load() != 0) {  // RtAudio's thread (WASAPI's has MMCSS)
     realtimeAsked_ = true;
     requestRealtime(callbackTid_.load());

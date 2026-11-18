@@ -91,16 +91,22 @@ class NativeAudio : public QObject {
   void attach(std::unique_ptr<QWebSocket> socket);
 
   QJsonObject status() const;
-  /** Every compiled API's output devices, and what is open now. */
-  QJsonObject devices();
+  /** Every compiled API's output devices, and what is open now. `full`
+   *  false (a list pushed after a device event) keeps the last ASIO list:
+   *  probing ASIO loads every driver, and its list only changes when a driver
+   *  is installed. */
+  QJsonObject devices(bool full = true);
 
   /** RtAudio's word that the open device went away, or that its driver asked
    *  to be reset. Any thread: the GUI thread's pump opens it again. */
   void deviceLost();
-  /** macOS: the system's default output changed (headphones in, another
-   *  device chosen in the Sound settings). Followed when "the default" is
-   *  what is open. Any thread. */
+  /** The system's default output changed (headphones in, another device
+   *  chosen in the Sound settings: macOS, Windows). Followed when "the
+   *  default" is what is open. Any thread. */
   void defaultOutputChanged();
+  /** The system's devices changed (one plugged in or out): the page is sent
+   *  a fresh list once they settle. Any thread. */
+  void devicesChanged();
 
  private:
   static int callback(void *out, void *in, unsigned int frames, double time, unsigned int status, void *user);
@@ -116,12 +122,14 @@ class NativeAudio : public QObject {
   void reopenLost();
   bool closerDone(unsigned ms);
   bool openOne(const Config &config, QString *error);
+  void markLost();
   void markOpening(const Config &config);
   void clearOpening();
   void openDriverPanel();
 #if MICROTONE_WASAPI
   bool openWasapi(const Config &config, QString *error);
   static void wasapiRender(void *user, float *out, int frames);
+  static void wasapiNotify(void *user, MtWasapiChange change);
 #endif
   void configure(const QByteArray &json);
   static Config remembered();
@@ -155,6 +163,8 @@ class NativeAudio : public QObject {
   std::atomic<bool> lost_{false};
   std::atomic<int64_t> lostAtMs_{0};       // steady clock, for the settling wait
   std::atomic<bool> followsDefault_{false};  // macOS: "the default" is open
+  std::atomic<bool> devicesDirty_{false};    // a fresh list is owed to the page
+  std::atomic<int64_t> devicesAtMs_{0};
   std::atomic<void *> closer_{nullptr};
   unsigned long guiThread_ = 0;
   qint64 lastReopenMs_ = 0;
@@ -164,7 +174,9 @@ class NativeAudio : public QObject {
 #if MICROTONE_WASAPI
   MtWasapiStream *wasapi_ = nullptr;
   unsigned wasapiGlitches_ = 0;
+  MtWasapiWatch *watch_ = nullptr;  // the system's word on device changes
 #endif
+  QJsonObject asioEntry_;           // devices(): the last full ASIO list
 
   MtHost *host_ = nullptr;
   std::mutex engine_;

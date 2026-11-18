@@ -102,10 +102,9 @@ Qt 6.8.3's CMake files link Apple's AGL framework, which Xcode 26's SDK no
 longer has; `CMakeLists.txt` takes it off the link.
 
 The workflow's `macos` job does this on `macos-latest` and keeps
-`Microtone-<version>-macos` (a .dmg: the app and an Applications link). Then,
-since nobody working on this has a Mac, it installs a virtual audio device
-(BlackHole) on the runner and runs the smoke test below against the packaged
-app; its report is in the run's summary.
+`Microtone-<version>-macos` (a .dmg: the app and an Applications link). Then
+it runs the smoke test below against the packaged app, into the runner's own
+virtual sound device; its report is in the run's summary.
 
 ## Running
 
@@ -293,6 +292,19 @@ under Wine's cmd.
   - The host answers three requests of its own, besides the engine's
     commands: `HOST_DEVICES` (every API's output devices), `HOST_CONFIGURE`
     and `HOST_PANEL` (the ASIO driver's own window).
+  - **The device list stays current.** The tab asks for a fresh one every
+    time it is shown. The host also sends one unasked when the system says its
+    devices changed, settled for 300 ms, and after a lost device is reopened:
+    - macOS: Core Audio's device-list and default-output listeners;
+    - Windows: an `IMMNotificationClient` (`mt_wasapi_watch` in `wasapi.c`).
+
+    The link keeps the newest list (`link.devices`), and the tab redraws when
+    it changes. A pushed list reuses the last ASIO list: probing ASIO loads
+    every driver, and its driver list changes only when one is installed.
+  - **"The default" follows the system's default output** on macOS and on
+    Windows (WASAPI, any mode): headphones plugged in, or another device chosen
+    in the Sound settings, reopen the stream on the new default. If its mode
+    is not there, the defaults are tried.
   - The tab exists only where `window.__MICROTONE_NATIVE__` does: the
     website's audio is the browser's.
 - **WASAPI** (`wasapi.c`, Windows): our own, in C (COM through its C
@@ -325,10 +337,17 @@ under Wine's cmd.
   sizes that will open, and disables a mode a device lacks. A first start
   tries low-latency shared, then shared.
   - `tools/wasapi-probe.c` (built beside the app on Windows) lists what WASAPI
-    offers and plays a test tone through each mode.
+    offers and plays a test tone through each mode. `wasapi-probe watch [s]`
+    prints the system's device notifications as they come.
   - `wasapi_fake.c` stands in for it elsewhere (`-DMICROTONE_FAKE_WASAPI=ON`,
     testing only), so the host's WASAPI glue and the tab's modes can be tried
-    on Linux.
+    on Linux. `MICROTONE_FAKE_WASAPI_LOSE_AFTER=<s>` makes a device go away,
+    and `MICROTONE_FAKE_WASAPI_DEFAULT_AFTER=<s>` makes the other one the
+    default.
+  - Device notifications: under Wine the watch registers and unregisters
+    cleanly, but Wine sends no notifications for PulseAudio's sinks coming and
+    going. The host's side (follow the default, push the list) was tested on
+    Linux with the stand-in, and the callbacks need a real Windows machine.
   - Checked under Wine 11 with the MinGW build of the probe:
     - enumeration (names, endpoint ids, mixer formats, low-latency ranges);
     - shared: 10 ms period, 200 callbacks in 2 s, no glitches, and the 440 Hz
@@ -337,7 +356,13 @@ under Wine's cmd.
     - Wine's own listed minimum is refused, and the default retry opens it;
     - exclusive: Wine offers none, and that refusal is reported.
   - On real Windows (2026-11-18): the CI build (MSVC, Qt 6.8.3, the
-    windeployqt package) runs, and all three modes play as intended.
+    windeployqt package) runs, and all three modes play as intended. A
+    generic USB interface with ASIO4ALL works throughout.
+  - A MOTU M2 (Windows 11 26H2) refused exclusive mode (`E_INVALIDARG`),
+    allowed only 480 frames in low-latency shared mode, and crashed when the
+    mode changed and on ASIO. Its owner sees the same in other programs, so
+    the driver is the likely cause. The exclusive retries above came of it.
+    If it still crashes, the crash report names the module it died in.
 - **ASIO** (Windows): RtAudio's backend, with Steinberg's SDK files from the
   same release. A driver is a device. Unlike WASAPI, the buffer and the clock
   belong to the driver, which has a settings window of its own:
@@ -446,8 +471,19 @@ language):
   Settings → Privacy & Security, choose *Open Anyway*. Or, in Terminal:
   `xattr -dr com.apple.quarantine /Applications/Microtone.app`.
 - The server listens on loopback only, so macOS's firewall never asks.
-- Not run on a real Mac yet. CI builds it, and the runner's smoke test plays
-  it into a virtual device (above). To try on a Mac:
+- CI's smoke test on `macos-latest` (Apple silicon, its virtual sound
+  device): the page
+  isolated with OPFS, Core Audio at 48 kHz, 256 frames, and 480 000 frames of
+  Eighth bit-identical to the WebAssembly engine. So Apple's compiler and libm
+  give the same bits.
+- On a real Mac (2026-11-18, an older MacBook Air):
+  - it plays;
+  - following the default output works (AirPods connected);
+  - a 64-frame buffer is now and then over budget, as that machine would be.
+
+  The Settings tab's device list did not refresh then. It does now (above),
+  confirmed on the same machine.
+  Still to try:
   - the native audio and the Settings tab (Core Audio's devices and rates;
     headphones in and out while playing);
   - copy and paste in text fields (⌘C, ⌘V, ⌘A). A Qt bug report,
@@ -474,8 +510,8 @@ language):
   - Linux: ~/Microtone
 - Moving projects over from the Tauri build.
 - The native audio host's next steps:
-  - JACK on Linux; following the default output on Windows (WASAPI keeps
-    the endpoint it opened until it goes away);
+  - JACK on Linux; device notifications on Linux (PulseAudio's own stream
+    already follows the default sink; the tab's list catches up when shown);
   - audio input for the sampler's Record, and MIDI;
   - whether PulseAudio's simple API reports underflows at all (RtAudio's
     status flag): the 0 above may mean "none", or "not reported".

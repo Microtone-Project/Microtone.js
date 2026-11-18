@@ -6,8 +6,8 @@
 #   macos    a universal Microtone.app (Apple silicon and Intel, Core Audio),
 #            macdeployqt'd, signed ad hoc, in a .dmg — and, since nobody here
 #            has a Mac, smoke-tested on the runner (desktop-qt/tools/
-#            native-smoke.js: the page, the native audio into a virtual
-#            device, bit for bit against the WebAssembly engine).
+#            native-smoke.js: the page, the native audio into the runner's
+#            virtual device, bit for bit against the WebAssembly engine).
 # Everything is kept as build artifacts. Nothing here releases: the Tauri
 # build (desktop.yml) still does that, until the Qt build replaces it.
 name: Desktop (Qt)
@@ -162,15 +162,8 @@ jobs:
           hdiutil create -volname "Microtone $version" -srcfolder build/dmg -ov -format UDZO "build/Microtone-$version-macos.dmg"
           echo "version=$version" >> "$GITHUB_ENV"
 
-      # The runner has no sound device; BlackHole is a virtual one.
-      - name: A virtual audio device for the smoke test
-        continue-on-error: true
-        run: |
-          brew install --cask blackhole-2ch
-          sudo killall coreaudiod || true
-          sleep 5
-          system_profiler SPAudioDataType | sed -n '1,40p'
-
+      # The runner's own "Apple Virtual Sound Device" is the output (a driver
+      # like BlackHole would need a reboot to appear).
       - name: Smoke test
         continue-on-error: true
         run: |

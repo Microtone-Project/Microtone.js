@@ -238,3 +238,39 @@ test("the host's own requests: the device list and another output, each answered
   assert.equal(nativeApiName("asio"), "ASIO");
   assert.equal(nativeApiName("weird", "Weird"), "Weird");
 });
+
+test("device lists: one request however many ask, and a list the host sends unasked is the newest", async () => {
+  const sent = [];
+  const socket = { readyState: WebSocket.OPEN, send: (b) => sent.push(b) };
+  const link = new NativeEngineLink(socket, { ok: true, apiId: "core", rate: 48000 });
+  const lists = [];
+  link.onDevices = (d) => lists.push(d);
+  const a = link.requestDevices();
+  const b = link.requestDevices();  // the tab shown twice, say, before the answer
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(sent.length, 1);
+  assert.deepEqual(decodeFrames(sent[0]).map((f) => f.name), ["HOST_DEVICES"]);
+  const reply = (obj) => {
+    const json = new TextEncoder().encode(JSON.stringify(obj));
+    const bytes = new Uint8Array(4 + json.length);
+    bytes[0] = NATIVE_MSG.DEVICES;
+    bytes.set(json, 4);
+    return bytes.buffer;
+  };
+  const first = { apis: [{ id: "core", name: "CoreAudio", devices: [{ id: "MacBook Air Speakers", name: "MacBook Air Speakers" }] }] };
+  socket.onmessage({ data: reply(first) });
+  assert.deepEqual(await a, first);
+  assert.equal(await b, await a, "both askers get the one answer");
+  assert.deepEqual(link.devices, first);
+  // AirPods connected: the host sends a list nobody asked for.
+  const second = { apis: [{ id: "core", name: "CoreAudio", devices: [...first.apis[0].devices, { id: "AirPods", name: "AirPods" }] }] };
+  socket.onmessage({ data: reply(second) });
+  assert.deepEqual(link.devices, second);
+  assert.notEqual(link.devices, lists[0], "a new object, so a view can tell it changed");
+  assert.equal(lists.length, 2);
+  // And the next request is a request again.
+  link.requestDevices();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(sent.length, 2);
+});
+
