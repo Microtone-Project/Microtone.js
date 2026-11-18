@@ -27,6 +27,8 @@ set(ENGINE_C ${CMAKE_CURRENT_SOURCE_DIR}/../core/engine/c)
 file(GLOB ENGINE_SOURCES CONFIGURE_DEPENDS ${ENGINE_C}/src/*.c)
 list(FILTER ENGINE_SOURCES EXCLUDE REGEX "wasm_parts\\.c$")
 add_library(taudengine STATIC ${ENGINE_SOURCES} src/enginehost.c)
+# Not Qt (qt_standard_project_setup turns moc on for every target).
+set_target_properties(taudengine PROPERTIES AUTOMOC OFF)
 target_include_directories(taudengine PUBLIC ${ENGINE_C}/include PRIVATE ${ENGINE_C}/src)
 set_target_properties(taudengine PROPERTIES C_STANDARD 99 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
 if(MSVC)
@@ -50,6 +52,7 @@ endif()
 
 # ── RtAudio (vendor/rtaudio, see vendor/VENDOR-VERSIONS.md) and its backends
 add_library(rtaudio STATIC vendor/rtaudio/RtAudio.cpp)
+set_target_properties(rtaudio PROPERTIES AUTOMOC OFF)
 target_include_directories(rtaudio PUBLIC vendor/rtaudio)
 target_link_libraries(rtaudio PUBLIC Threads::Threads)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -101,6 +104,7 @@ if(WIN32)
   # beside the app, for when a device will not play (tools/wasapi-probe.c).
   add_executable(wasapi-probe tools/wasapi-probe.c src/wasapi.c)
   target_link_libraries(wasapi-probe PRIVATE ole32)
+  set_target_properties(wasapi-probe PROPERTIES AUTOMOC OFF)  # plain C: no Qt
 elseif(MICROTONE_FAKE_WASAPI)
   target_sources(microtone PRIVATE src/wasapi_fake.c src/wasapi.h)
   target_compile_definitions(microtone PRIVATE MICROTONE_WASAPI=1)

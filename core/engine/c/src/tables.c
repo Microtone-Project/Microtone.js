@@ -94,9 +94,13 @@ const double META_MIX_GAIN[256] = {
 };
 
 /* ThreeFiveMiniUfloat: e = i>>5, m = i&31; e=0 → m/256, else (32+m)·2^(e−1)/256.
- * Every value is an exact binary fraction, so a literal table is exact. */
+ * Every value is an exact binary fraction, so a literal table is exact. The
+ * shift is spelled so that neither arm of the conditional can go negative:
+ * MSVC folds both arms of a constant expression and warns (C4293) on the one
+ * not taken. */
+#define MF_SHIFT(i) (((i) >> 5) > 0 ? ((i) >> 5) - 1 : 0)
 #define MF(i) ((((i) >> 5) == 0) ? (float)((i) & 31) / 256.0f \
-              : (float)((32 + ((i) & 31)) * (1 << (((i) >> 5) - 1))) / 256.0f)
+              : (float)((32 + ((i) & 31)) * (1 << MF_SHIFT(i))) / 256.0f)
 #define MF8(b) MF(b), MF(b + 1), MF(b + 2), MF(b + 3), MF(b + 4), MF(b + 5), MF(b + 6), MF(b + 7)
 #define MF32(b) MF8(b), MF8(b + 8), MF8(b + 16), MF8(b + 24)
 const float MINIFLOAT_LUT[256] = {

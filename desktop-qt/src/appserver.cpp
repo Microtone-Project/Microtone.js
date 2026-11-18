@@ -78,7 +78,10 @@ QString resolvePath(const QString &root, const QString &urlPath) {
   QString rel = QDir::cleanPath(urlPath);
   if (rel == u"/.." || rel.startsWith(u"/../") || rel.contains(u'\\')) return {};
   QString path = root + rel;
-  if (urlPath.endsWith(u'/')) path += (rel.endsWith(u'/') ? u"" : u"/") + QStringLiteral("index.html");
+  if (urlPath.endsWith(u'/')) {
+    if (!rel.endsWith(u'/')) path += u'/';
+    path += QStringLiteral("index.html");
+  }
   return path;
 }
 
