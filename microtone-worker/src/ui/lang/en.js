@@ -485,6 +485,8 @@ export default {
   "settings.deviceFirstIs": "First driver ({name})",
   "settings.rate": "Sample rate",
   "settings.rateAuto": "Automatic",
+  "settings.rateDevice": "The device's own ({rate} Hz)",
+  "settings.rateNoteDevice": "Choosing a rate here sets the device itself to it, for every app, as Audio MIDI Setup does. Left at its own rate, nothing is changed: the engine's 48 kHz is converted to it.",
   "settings.buffer": "Buffer",
   "settings.frames": "frames",
   "settings.bufferDriver": "Driver's",

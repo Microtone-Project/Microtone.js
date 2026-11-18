@@ -469,6 +469,8 @@ export default {
   "settings.deviceFirstIs": "첫 번째 드라이버 ({name})",
   "settings.rate": "샘플링 레이트",
   "settings.rateAuto": "자동",
+  "settings.rateDevice": "장치 설정대로 ({rate} Hz)",
+  "settings.rateNoteDevice": "여기서 레이트를 고르면 오디오 MIDI 설정에서처럼 장치 자체의 레이트가 바뀌어 모든 앱에 적용됩니다. 장치 설정대로 두면 아무것도 바꾸지 않고, 엔진의 48 kHz를 그 레이트로 변환합니다.",
   "settings.buffer": "버퍼",
   "settings.frames": "프레임",
   "settings.bufferDriver": "드라이버",

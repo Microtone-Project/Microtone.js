@@ -7,6 +7,9 @@ cmake_minimum_required(VERSION 3.21)
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/../microtone-worker/package.json" MICROTONE_PACKAGE_JSON)
 string(JSON MICROTONE_VERSION GET "${MICROTONE_PACKAGE_JSON}" version)
 
+# macOS: Qt 6.8's own floor. Before project(), or it does not take.
+set(CMAKE_OSX_DEPLOYMENT_TARGET "12.0" CACHE STRING "The oldest macOS the build runs on")
+
 project(microtone-desktop VERSION ${MICROTONE_VERSION} LANGUAGES C CXX)
 if(WIN32)
   enable_language(RC)  # src/microtone.rc.in
@@ -149,3 +152,17 @@ else()
 endif()
 
 set_target_properties(microtone PROPERTIES WIN32_EXECUTABLE ON MACOSX_BUNDLE ON)
+
+if(APPLE)
+  # Microtone.app: its Info.plist (the bundle id, the version, the microphone
+  # text the system asks with), the icon, and that text per language. The web
+  # app goes into Contents/Resources/www when it is packaged.
+  set_target_properties(microtone PROPERTIES OUTPUT_NAME Microtone)
+  configure_file(macos/Info.plist.in ${CMAKE_CURRENT_BINARY_DIR}/Info.plist @ONLY)
+  set_target_properties(microtone PROPERTIES MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_BINARY_DIR}/Info.plist)
+  target_sources(microtone PRIVATE icons/microtone.icns macos/en.lproj/InfoPlist.strings
+                                   macos/ko.lproj/InfoPlist.strings)
+  set_source_files_properties(icons/microtone.icns PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+  set_source_files_properties(macos/en.lproj/InfoPlist.strings PROPERTIES MACOSX_PACKAGE_LOCATION Resources/en.lproj)
+  set_source_files_properties(macos/ko.lproj/InfoPlist.strings PROPERTIES MACOSX_PACKAGE_LOCATION Resources/ko.lproj)
+endif()

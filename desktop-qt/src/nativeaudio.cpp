@@ -32,6 +32,12 @@
 #include <windows.h>
 #endif
 
+#ifdef __APPLE__
+// Keep AssertMacros.h's short names (check, verify, require) out of the way.
+#define __ASSERT_MACROS_DEFINE_VERSIONS_WITHOUT_UNDERSCORES 0
+#include <CoreAudio/CoreAudio.h>
+#endif
+
 #include "RtAudio.h"
 #if MICROTONE_ASIO
 #include "asiodriver.h"
@@ -42,6 +48,10 @@ namespace microtone {
 namespace {
 
 using Clock = std::chrono::steady_clock;
+
+int64_t steadyMs() {
+  return std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now().time_since_epoch()).count();
+}
 
 uint64_t nanosSince(Clock::time_point t0) {
   return (uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - t0).count();
@@ -119,6 +129,16 @@ std::unique_ptr<RtAudio> makeDac(RtAudio::Api api, NativeAudio *owner = nullptr)
   });
 }
 
+#ifdef __APPLE__
+const AudioObjectPropertyAddress kDefaultOutput = {kAudioHardwarePropertyDefaultOutputDevice,
+                                                   kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain};
+
+OSStatus onDefaultOutput(AudioObjectID, UInt32, const AudioObjectPropertyAddress *, void *user) {
+  static_cast<NativeAudio *>(user)->defaultOutputChanged();
+  return noErr;
+}
+#endif
+
 #if MICROTONE_ASIO
 /** A device's own sample format as RtAudio probes it (one bit set), in the
  *  words wasapi.c uses. */
@@ -142,11 +162,17 @@ NativeAudio::NativeAudio(QObject *parent) : QObject(parent) {
 #ifdef _WIN32
   guiThread_ = GetCurrentThreadId();
 #endif
+#ifdef __APPLE__
+  AudioObjectAddPropertyListener(kAudioObjectSystemObject, &kDefaultOutput, &onDefaultOutput, this);
+#endif
   pump_.setInterval(4);
   connect(&pump_, &QTimer::timeout, this, &NativeAudio::pump);
 }
 
 NativeAudio::~NativeAudio() {
+#ifdef __APPLE__
+  AudioObjectRemovePropertyListener(kAudioObjectSystemObject, &kDefaultOutput, &onDefaultOutput, this);
+#endif
   pump_.stop();
   closeDevice();
   closerDone(2000);
@@ -189,6 +215,8 @@ bool NativeAudio::start(QString *error) {
   }
   if (qEnvironmentVariableIntValue("MICROTONE_BUFFER_FRAMES") > 0)
     wanted.bufferFrames = unsigned(qEnvironmentVariableIntValue("MICROTONE_BUFFER_FRAMES"));
+  const unsigned envRate = unsigned(std::max(0, qEnvironmentVariableIntValue("MICROTONE_SAMPLE_RATE")));
+  if (envRate > 0) wanted.rate = envRate;
 
   dumpPath_ = qEnvironmentVariable("MICROTONE_NATIVE_DUMP");
   if (!dumpPath_.isEmpty()) {
@@ -200,7 +228,7 @@ bool NativeAudio::start(QString *error) {
   // Nothing remembered (a first start) goes straight to the defaults: an
   // empty setting would open RtAudio's first API, ahead of WASAPI. What was
   // remembered and is gone (unplugged, another machine) goes there too.
-  if ((!wanted.api.isEmpty() && open(wanted, &why)) || openDefaults(wanted.bufferFrames, &why)) {
+  if ((!wanted.api.isEmpty() && open(wanted, &why)) || openDefaults(wanted.bufferFrames, envRate, &why)) {
     pump_.start();
     return true;
   }
@@ -211,8 +239,9 @@ bool NativeAudio::start(QString *error) {
 /** The defaults: on Windows WASAPI — at a short period where the driver
  *  allows one, else through the mixer as every program plays — then
  *  RtAudio's APIs in order (Linux: PulseAudio, ALSA, JACK; Windows: ASIO, at
- *  the driver's own size). */
-bool NativeAudio::openDefaults(unsigned bufferFrames, QString *error) {
+ *  the driver's own size; macOS: Core Audio). `rate` 0 is the usual choice;
+ *  only MICROTONE_SAMPLE_RATE asks for another. */
+bool NativeAudio::openDefaults(unsigned bufferFrames, unsigned rate, QString *error) {
 #if MICROTONE_WASAPI
   for (const char *mode : {"lowLatency", "shared"}) {
     Config c;
@@ -226,6 +255,7 @@ bool NativeAudio::openDefaults(unsigned bufferFrames, QString *error) {
     Config c;
     c.api = QString::fromStdString(RtAudio::getApiName(api));
     c.bufferFrames = api == RtAudio::WINDOWS_ASIO ? 0 : bufferFrames;
+    c.rate = rate;
     if (open(c, error)) return true;
   }
   return false;
@@ -244,6 +274,7 @@ void NativeAudio::closeDevice() {
     if (dac_->isStreamOpen()) dac_->closeStream();
   }
   running_ = false;
+  followsDefault_ = false;
   format_.clear();
   latencyMs_ = 0.0;
   driverPanel_ = false;
@@ -296,7 +327,12 @@ void NativeAudio::deviceLost() {
     }
   }
 #endif
+  lostAtMs_ = steadyMs();
   lost_ = true;
+}
+
+void NativeAudio::defaultOutputChanged() {
+  if (followsDefault_) deviceLost();
 }
 
 /** On the pump: the device went away, or its driver asked to be reset (an
@@ -304,6 +340,10 @@ void NativeAudio::deviceLost() {
  *  if that will not open, the defaults, and the page is told why. */
 void NativeAudio::reopenLost() {
   if (!closerDone(0)) return;  // RtAudio is still closing it: the next tick
+  // A quarter of a second to settle: Core Audio's "device gone" closes the
+  // stream on a notification thread of its own, and plugging something in
+  // can change the default more than once.
+  if (steadyMs() - lostAtMs_.load() < 250) return;
   const qint64 now = QDateTime::currentMSecsSinceEpoch();
   if (now - lastReopenMs_ < 1000) return;  // a device that keeps going: once a second at most
   lastReopenMs_ = now;
@@ -315,7 +355,7 @@ void NativeAudio::reopenLost() {
   } else {
     lastError_ = why.isEmpty() ? QStringLiteral("the device went away") : why;
     QString more;
-    openDefaults(again.bufferFrames, &more);
+    openDefaults(again.bufferFrames, 0, &more);
   }
   sendStatus();
 }
@@ -363,8 +403,15 @@ bool NativeAudio::openRtAudio(const Config &want, QString *error) {
   const auto has = [&](unsigned int r) {
     return info.sampleRates.empty() || std::find(info.sampleRates.begin(), info.sampleRates.end(), r) != info.sampleRates.end();
   };
+  // Core Audio sets the device's own rate — for every app — when asked for
+  // another, so there "automatic" keeps the rate the system has it at, and
+  // the engine is converted to it. Elsewhere: 48 kHz where the device has it.
+  const bool keepsRate = api == RtAudio::MACOSX_CORE && info.currentSampleRate != 0;
   if (rate == 0 || !has(rate)) {
-    rate = has(kEngineRate) ? kEngineRate : info.preferredSampleRate ? info.preferredSampleRate : info.sampleRates.back();
+    rate = keepsRate          ? info.currentSampleRate
+           : has(kEngineRate) ? kEngineRate
+           : info.preferredSampleRate ? info.preferredSampleRate
+                                      : info.sampleRates.back();
   }
 
   RtAudio::StreamParameters out;
@@ -436,6 +483,7 @@ bool NativeAudio::openRtAudio(const Config &want, QString *error) {
     return false;
   }
   running_ = true;
+  followsDefault_ = api == RtAudio::MACOSX_CORE && want.device.isEmpty();
   return true;
 }
 
@@ -524,7 +572,7 @@ void NativeAudio::configure(const QByteArray &json) {
     lastError_ = why.isEmpty() ? QStringLiteral("the device would not open") : why;
     QString again;
     // Not even the old one: the defaults, rather than no sound at all.
-    if (!open(before, &again)) openDefaults(before.bufferFrames, &again);
+    if (!open(before, &again)) openDefaults(before.bufferFrames, 0, &again);
   }
   sendStatus();
 }
@@ -623,6 +671,7 @@ QJsonObject NativeAudio::devices() {
           {QStringLiteral("isDefault"), info.isDefaultOutput},
           {QStringLiteral("rates"), rates},
           {QStringLiteral("preferredRate"), int(info.preferredSampleRate)},
+          {QStringLiteral("currentRate"), int(info.currentSampleRate)},
       });
     }
     QJsonObject entry{
@@ -635,6 +684,8 @@ QJsonObject NativeAudio::devices() {
       entry.insert(QStringLiteral("driverBuffer"), true);
       entry.insert(QStringLiteral("driverPanel"), true);
     }
+    // Rate 0 keeps the device's own rate (above); another one changes it.
+    if (api == RtAudio::MACOSX_CORE) entry.insert(QStringLiteral("keepsDeviceRate"), true);
     apis.append(entry);
   }
   return QJsonObject{{QStringLiteral("apis"), apis}, {QStringLiteral("current"), status()}};

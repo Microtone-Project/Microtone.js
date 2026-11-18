@@ -1,0 +1,2 @@
+/* The system asks for the microphone with this (Info.plist). */
+"NSMicrophoneUsageDescription" = "Microtone records into the sampler from a microphone or another audio input.";

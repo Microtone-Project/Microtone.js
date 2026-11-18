@@ -83,6 +83,26 @@ web app in `www\`, `LICENSE.txt`, `wasapi-probe.exe` and `asio-probe.exe`)
 and `Microtone-<version>-windows-x64-setup` (the installer). It releases
 nothing.
 
+### macOS
+
+Xcode's command-line tools, CMake, Node and Qt ≥ 6.8 for macOS with the same
+modules (Qt's macOS build is universal, so the app can be too). macOS 12 is
+the floor (Qt 6.8's):
+
+```sh
+cmake -S desktop-qt -B build -DCMAKE_BUILD_TYPE=Release "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64"
+cmake --build build --parallel
+node desktop-qt/tools/stage-frontend.js build/Microtone.app/Contents/Resources/www
+macdeployqt build/Microtone.app
+codesign --force --deep --sign - build/Microtone.app
+```
+
+The workflow's `macos` job does this on `macos-latest` and keeps
+`Microtone-<version>-macos` (a .dmg: the app and an Applications link). Then,
+since nobody working on this has a Mac, it installs a virtual audio device
+(BlackHole) on the runner and runs the smoke test below against the packaged
+app; its report is in the run's summary.
+
 ## Running
 
 ```
@@ -118,6 +138,17 @@ overrides what is remembered:
   30): keep what the engine rendered, as interleaved stereo float, and write
   it out once full. This is how the host is checked against the WebAssembly
   engine.
+
+`MICROTONE_SAMPLE_RATE` asks for an output rate on a first start (nothing
+remembered).
+
+`tools/native-smoke.js <executable>` is the smoke test: it starts the app on
+a demo song (`--song`, default `Eighth.taud`) and checks, over the DevTools
+protocol, that the page is cross-origin isolated and has OPFS, and that the
+native host plays. It then captures `--seconds` (default 10) of the host's
+output at 48 kHz and compares it with the WebAssembly engine's render: it
+must be bit-identical. Exit 0 if all is well, 1 if anything failed, 3 if no
+audio device opened (the page was checked, the audio was not).
 
 Testing it headless on a Wayland session: Qt picks Wayland over `DISPLAY`
 and opens on the real desktop. Run on Xvfb with
@@ -280,10 +311,25 @@ then `PULSE_SINK=microtone_test` for the app.
   - `tools/asio-probe.cpp` (built beside the app) lists the drivers, their
     rates, formats and buffer sizes, plays a tone through one, or opens one's
     window.
-  - Not yet run against a real driver: Wine has none, and there is no MinGW
-    C++ compiler here. The tab's ASIO branch was checked on Linux against a
-    stubbed host (the driver's size, the limits, the window's button, and the
-    switch from WASAPI asking for the driver's size).
+  - On real Windows (2026-11-18): the CI build plays through ASIO as intended.
+    The tab's ASIO branch was first checked on Linux against a stubbed host
+    (the driver's size, the limits, the window's button, and the switch from
+    WASAPI asking for the driver's size).
+- **Core Audio** (macOS): RtAudio's backend.
+  - **"Automatic" keeps the device's rate.** Core Audio sets the device's own
+    rate, for every app, when a stream asks for another. So rate 0 is the rate
+    the system has the device at, and the engine's 48 kHz is converted to it.
+    A rate picked in the tab changes the device, as Audio MIDI Setup does, and
+    the tab says so. (Elsewhere rate 0 is 48 kHz where the device has it.)
+  - **"The default" follows the system's default output.** On Apple silicon,
+    plugging in headphones makes them another device. A listener on the
+    default output device reopens the stream when the default is what is
+    open.
+  - Any reopen waits a quarter of a second first. Core Audio's "device gone"
+    closes the stream on a notification thread of RtAudio's, and plugging
+    something in can change the default more than once.
+  - The callback runs on Core Audio's own I/O thread, which is already
+    real-time.
 - **`links`**: `docs.html` opens in the docs window, other pages of the app in
   the main window, `http(s):` and `mailto:` in the system browser. The window a
   link was clicked in never navigates away from an open project.
@@ -328,7 +374,41 @@ language):
   - "delete my projects" removes the Qt build's data and settings but not the
     Tauri build's;
   - the pages draw in English and Korean.
+- On real Windows (2026-11-18): install and uninstall work as intended.
 - Not code-signed, so Windows SmartScreen warns about an unknown publisher.
+
+## The macOS app
+
+- **`Microtone.app`** has the bundle id `cc.microtone.desktop`, the Tauri
+  build's. It is the same app, and the system keeps its grants (the
+  microphone) by that id.
+  - Dragged into Applications, it replaces the Tauri build's
+    `Microtone.app`. The Tauri build's projects are not deleted (they are in
+    WebKit's store), but the Qt build cannot see them until moving projects
+    over is done.
+- `macos/Info.plist.in`:
+  - the version, macOS 12 as the floor, the Music category;
+  - the text the system asks for the microphone with (the sampler's Record),
+    in English and Korean (`macos/*.lproj`).
+- **Where it keeps things:**
+  - the profile and every project: `~/Library/Application Support/Microtone/Microtone`;
+  - the settings: `~/Library/Preferences/com.microtone.Microtone.plist`.
+- **Signed ad hoc, not with a Developer ID, and not notarised.** An Apple
+  silicon Mac runs nothing unsigned, so the ad hoc signature is the least it
+  needs. Gatekeeper still refuses the first launch of a download: in System
+  Settings → Privacy & Security, choose *Open Anyway*. Or, in Terminal:
+  `xattr -dr com.apple.quarantine /Applications/Microtone.app`.
+- The server listens on loopback only, so macOS's firewall never asks.
+- Not run on a real Mac yet. CI builds it, and the runner's smoke test plays
+  it into a virtual device (above). To try on a Mac:
+  - the native audio and the Settings tab (Core Audio's devices and rates;
+    headphones in and out while playing);
+  - copy and paste in text fields (⌘C, ⌘V, ⌘A). A Qt bug report,
+    QTBUG-85050, had ⌘V and ⌘A failing in Qt WebEngine's editable fields on
+    macOS (Qt 5.15). An Edit menu with those shortcuts is not the fix: it
+    would take them from the tracker's own copy and paste;
+  - the sampler's Record (the microphone prompt);
+  - closing with an unsaved project (⌘Q as well as the window's button).
 
 ## Not yet done
 
@@ -337,13 +417,18 @@ language):
   answers them 404 for now.
 - The updater and the deep-link scheme. The installer already takes `/P /R`,
   the switches an updater runs it with.
-- Linux and macOS packaging (AppImage, .deb/.rpm, .dmg) and their CI.
-- Code signing, and the third-party notices a release must ship (Qt and
+- Linux packaging (AppImage, .deb/.rpm) and its CI.
+- Code signing (a Windows certificate; Apple's Developer ID and
+  notarisation), and the third-party notices a release must ship (Qt and
   Chromium's licences, RtAudio's, the ASIO SDK's).
+- Put project/soundfont dir to:
+  - Windows: %UserProfile%\Microtone
+  - Mac: ~/Microtone
+  - Linux: ~/Microtone
 - Moving projects over from the Tauri build.
 - The native audio host's next steps:
-  - ASIO on a real driver (above);
-  - the macOS build (CoreAudio), and JACK on Linux;
+  - JACK on Linux; following the default output on Windows (WASAPI keeps
+    the endpoint it opened until it goes away);
   - audio input for the sampler's Record, and MIDI;
   - whether PulseAudio's simple API reports underflows at all (RtAudio's
     status flag): the 0 above may mean "none", or "not reported".

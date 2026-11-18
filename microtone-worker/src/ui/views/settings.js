@@ -244,12 +244,16 @@ export class SettingsView {
     } else {
       const rates = (modeLimits?.rates ?? device?.rates ?? []).filter((r) => RATES.includes(r));
       const rateSel = el("select", "set-select");
-      rateSel.append(new Option(t("settings.rateAuto"), "0"));
+      // Core Audio: 0 keeps the rate the system has the device at (the open
+      // device's is what plays now), and any other changes the device itself.
+      const ownRate = api?.keepsDeviceRate ? (api.id === now.apiId ? now.rate : device?.currentRate) : 0;
+      rateSel.append(new Option(ownRate ? t("settings.rateDevice", { rate: ownRate }) : t("settings.rateAuto"), "0"));
       for (const r of rates) rateSel.append(new Option(`${r} Hz`, String(r)));
       rateSel.value = String(rates.includes(asked.rate) ? asked.rate : 0);
       rateSel.disabled = this.busy;
       rateSel.addEventListener("change", () => this._apply({ ...asked, rate: Number(rateSel.value) }));
       section.append(this._row(t("settings.rate"), rateSel));
+      if (api?.keepsDeviceRate) section.append(el("p", "set-note set-indent", t("settings.rateNoteDevice")));
     }
 
     // The buffer: the usual sizes, or those the mode (WASAPI) or the open

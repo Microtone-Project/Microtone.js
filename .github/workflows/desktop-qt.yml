@@ -1,9 +1,15 @@
-# The Qt desktop build (desktop-qt/, item 336) for Windows: the shell, the C
-# engine, the WASAPI backend and ASIO (RtAudio) built with MSVC against Qt 6.8
-# LTS, packaged with windeployqt, the C runtime and the staged web app, then
-# made into an installer (desktop-qt/installer/microtone.nsi). Both are kept as
-# build artifacts. Nothing here releases: the Tauri build (desktop.yml) still
-# does that, until the Qt build replaces it.
+# The Qt desktop build (desktop-qt/, item 336), against Qt 6.8 LTS:
+#   windows  the shell, the C engine, the WASAPI backend and ASIO (RtAudio)
+#            built with MSVC, packaged with windeployqt, the C runtime and the
+#            staged web app, then made into an installer
+#            (desktop-qt/installer/microtone.nsi);
+#   macos    a universal Microtone.app (Apple silicon and Intel, Core Audio),
+#            macdeployqt'd, signed ad hoc, in a .dmg — and, since nobody here
+#            has a Mac, smoke-tested on the runner (desktop-qt/tools/
+#            native-smoke.js: the page, the native audio into a virtual
+#            device, bit for bit against the WebAssembly engine).
+# Everything is kept as build artifacts. Nothing here releases: the Tauri
+# build (desktop.yml) still does that, until the Qt build replaces it.
 name: Desktop (Qt)
 
 on:
@@ -105,3 +111,74 @@ jobs:
           path: build/Microtone-${{ env.version }}-windows-x64-setup.exe
           if-no-files-found: error
           compression-level: 0  # LZMA already
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.8.3"
+          host: mac
+          target: desktop
+          arch: clang_64
+          modules: qtwebengine qtwebchannel qtpositioning qthttpserver qtwebsockets
+          aqtversion: ">=3.2.1"
+          cache: true
+
+      # One binary for both kinds of Mac (Qt's own is universal).
+      - name: Configure
+        run: cmake -S desktop-qt -B build -DCMAKE_BUILD_TYPE=Release "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64"
+
+      - name: Build
+        run: cmake --build build --parallel 4
+
+      - name: Package
+        run: |
+          version=$(node -p "require('./microtone-worker/package.json').version")
+          app=build/Microtone.app
+          # The web app where the binary looks for it, and the licence.
+          node desktop-qt/tools/stage-frontend.js "$app/Contents/Resources/www"
+          cp COPYING "$app/Contents/Resources/LICENSE.txt"
+          # Qt's frameworks, WebEngine's helper app and resources among them.
+          macdeployqt "$app" -always-overwrite
+          # An Apple-silicon Mac runs nothing unsigned: an ad hoc signature,
+          # not a Developer ID, so Gatekeeper still asks once (README).
+          codesign --force --deep --sign - "$app"
+          codesign --verify --deep --strict "$app"
+          lipo -archs "$app/Contents/MacOS/Microtone"
+          mkdir -p build/dmg
+          ditto "$app" build/dmg/Microtone.app
+          ln -s /Applications build/dmg/Applications
+          hdiutil create -volname "Microtone $version" -srcfolder build/dmg -ov -format UDZO "build/Microtone-$version-macos.dmg"
+          echo "version=$version" >> "$GITHUB_ENV"
+
+      # The runner has no sound device; BlackHole is a virtual one.
+      - name: A virtual audio device for the smoke test
+        continue-on-error: true
+        run: |
+          brew install --cask blackhole-2ch
+          sudo killall coreaudiod || true
+          sleep 5
+          system_profiler SPAudioDataType | sed -n '1,40p'
+
+      - name: Smoke test
+        continue-on-error: true
+        run: |
+          set +e
+          node desktop-qt/tools/native-smoke.js build/Microtone.app/Contents/MacOS/Microtone --seconds 10 | tee smoke.json
+          status=${PIPESTATUS[0]}
+          { echo "### macOS smoke test (exit $status)"; echo '```json'; cat smoke.json; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Microtone-${{ env.version }}-macos
+          path: build/Microtone-${{ env.version }}-macos.dmg
+          if-no-files-found: error
+          compression-level: 0  # the .dmg is compressed already

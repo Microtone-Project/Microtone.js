@@ -1,0 +1,2 @@
+/* 시스템이 마이크 권한을 물을 때 쓰는 문구 (Info.plist). */
+"NSMicrophoneUsageDescription" = "Microtone이 마이크나 다른 오디오 입력으로 샘플러에 녹음합니다.";

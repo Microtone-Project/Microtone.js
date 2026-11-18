@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Microtone.app's Info.plist (CMakeLists.txt configures it). The bundle id
+     is the Tauri build's, cc.microtone.desktop: the Qt build is the same app,
+     and the system's grants (the microphone) belong to the id. The
+     microphone text is per language in en.lproj / ko.lproj. -->
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>en</string>
+  <key>CFBundleAllowMixedLocalizations</key>
+  <true/>
+  <key>CFBundleExecutable</key>
+  <string>Microtone</string>
+  <key>CFBundleIconFile</key>
+  <string>microtone.icns</string>
+  <key>CFBundleIdentifier</key>
+  <string>cc.microtone.desktop</string>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <key>CFBundleName</key>
+  <string>Microtone</string>
+  <key>CFBundleDisplayName</key>
+  <string>Microtone</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>@MICROTONE_VERSION@</string>
+  <key>CFBundleVersion</key>
+  <string>@MICROTONE_VERSION@</string>
+  <key>NSHumanReadableCopyright</key>
+  <string>© CuriousTorvald and contributors. GNU GPL version 3 or later.</string>
+  <key>LSApplicationCategoryType</key>
+  <string>public.app-category.music</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>@CMAKE_OSX_DEPLOYMENT_TARGET@</string>
+  <key>NSPrincipalClass</key>
+  <string>NSApplication</string>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+  <key>NSSupportsAutomaticGraphicsSwitching</key>
+  <true/>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Microtone records into the sampler from a microphone or another audio input.</string>
+</dict>
+</plist>

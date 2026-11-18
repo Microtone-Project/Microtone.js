@@ -97,6 +97,10 @@ class NativeAudio : public QObject {
   /** RtAudio's word that the open device went away, or that its driver asked
    *  to be reset. Any thread: the GUI thread's pump opens it again. */
   void deviceLost();
+  /** macOS: the system's default output changed (headphones in, another
+   *  device chosen in the Sound settings). Followed when "the default" is
+   *  what is open. Any thread. */
+  void defaultOutputChanged();
 
  private:
   static int callback(void *out, void *in, unsigned int frames, double time, unsigned int status, void *user);
@@ -106,7 +110,7 @@ class NativeAudio : public QObject {
   void requestRealtime(long tid);
 
   bool open(const Config &config, QString *error);
-  bool openDefaults(unsigned bufferFrames, QString *error);
+  bool openDefaults(unsigned bufferFrames, unsigned rate, QString *error);
   bool openRtAudio(const Config &config, QString *error);
   void closeDevice();
   void reopenLost();
@@ -144,6 +148,8 @@ class NativeAudio : public QObject {
   // The open device went away (deviceLost); on Windows, the RtAudio thread
   // still closing it, which the reopen waits for.
   std::atomic<bool> lost_{false};
+  std::atomic<int64_t> lostAtMs_{0};       // steady clock, for the settling wait
+  std::atomic<bool> followsDefault_{false};  // macOS: "the default" is open
   std::atomic<void *> closer_{nullptr};
   unsigned long guiThread_ = 0;
   qint64 lastReopenMs_ = 0;
