@@ -43,6 +43,7 @@
 #include "diagnostics.h"
 #include "filestore.h"
 #include "online.h"
+#include "updater.h"
 #include "nativeaudio.h"
 #include "shell.h"
 
@@ -144,6 +145,8 @@ int main(int argc, char **argv) {
   // Online projects, through the site with the app's own token.
   Online online(dataDir);
   server.setOnline(&online);
+  // Updates: checked from the page, installed when the app quits.
+  Updater updater(dataDir);
   if (!server.start()) {
     QMessageBox::critical(nullptr, QStringLiteral("Microtone"), QStringLiteral("Microtone could not start its local server."));
     return 1;
@@ -174,8 +177,11 @@ int main(int argc, char **argv) {
 
   Shell shell(QUrl(QStringLiteral("http://") + QLatin1String(kAppHost) + u'/'), token, dataDir, nativeEngine,
               nativeEngine.isEmpty() ? QJsonObject() : native.status(),
-              QJsonObject{{QStringLiteral("files"), files.describe()}, {QStringLiteral("online"), online.describe()}});
+              QJsonObject{{QStringLiteral("files"), files.describe()},
+                          {QStringLiteral("online"), online.describe()},
+                          {QStringLiteral("updates"), updater.describe()}});
   QObject::connect(&online, &Online::authChanged, &shell, &Shell::onlineAuth);
+  server.setUpdater(&updater, [&shell] { shell.quit(); });
 
   // Chromium is up now, and may have put its own crash filter first.
   reinstallCrashReporter();
@@ -194,5 +200,10 @@ int main(int argc, char **argv) {
   QString page = cli.value(openOption);
   if (page.startsWith(u'/')) page.remove(0, 1);
   shell.openMain(shell.origin().resolved(QUrl(page.isEmpty() ? QStringLiteral("index.html") : page)));
-  return app.exec();
+  const int code = app.exec();
+  // An update asked for: the installer (or the new bundle) takes over once
+  // this process is gone. Nobody is to find this one still listening.
+  instances.close();
+  updater.installNow();
+  return code;
 }

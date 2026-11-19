@@ -49,3 +49,18 @@ Steinberg's own GPLv3 download (sdk.steinberg.net); the names match.
 | `iasiodrv.h` | `861f110bc7cf0756ee10e0ea4d57e2964f8d8359cd6c9483d8b47785bcc9e79c` |
 | `iasiothiscallresolver.cpp` | `1110eaa016c4b781dcb2ec5800fdbf94354e40c240cb62b01f3332906eafada1` |
 | `iasiothiscallresolver.h` | `9c4c229356003af61dbf191bcfe2140d7eab9b8d090d3ffbe879155fe040c807` |
+
+## Monocypher 4.0.2 — `monocypher/`
+
+- Source: https://monocypher.org/download/monocypher-4.0.2.tar.gz, sha512
+  `bf275d4c53ff94af6cdc723a4e002e9f080f4d1436c86c76bb37870b34807f1d7b32331d8ff8a1aeb369e946f3769021e03e63efac25b82efc5abf54dc084714`
+  (as published beside it at https://monocypher.org/download/).
+- Files: `src/monocypher.{c,h}`, `src/optional/monocypher-ed25519.{c,h}`
+  (Ed25519 with SHA-512, which minisign uses; Monocypher's own EdDSA hashes
+  with BLAKE2b), `LICENCE.md` (CC0-1.0, or BSD-2-Clause at the user's choice).
+  - `monocypher.c`         sha256 `afe2b098c8569577a84488e0b98d276d1fba6506adea68bb9241a52111734c59`
+  - `monocypher.h`         sha256 `f78bb31255cfb7beba66afd2137f5194c8a025cf40488b6cc1e295234d43f374`
+  - `monocypher-ed25519.c` sha256 `7c9b16056cbd27521919e8a6f56a228808b9e718afc42e3d33f28c08e5abdee2`
+  - `monocypher-ed25519.h` sha256 `bd546edcd468d64e28caa3dbf4b1d6bfad7435c0ce994723fd81aae26405121b`
+- Used by `src/minisign.cpp` only: checking an update's signature (BLAKE2b-512
+  of the file, then Ed25519), the updater key being the Tauri build's.

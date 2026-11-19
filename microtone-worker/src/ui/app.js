@@ -39,6 +39,7 @@ import { showNewProject } from "./popups/newproject.js";
 import { showModal, showNotice } from "./components/modal.js";
 import * as opfs from "../storage/opfs.js";
 import { carryOverFromOpfs, oldAppCopy, oldAppTold } from "../storage/carry-over.js";
+import { startDesktopUpdates } from "./desktopupdates.js";
 import { showBanner } from "./components/banner.js";
 import { pickFile } from "../storage/import-export.js";
 import { convertToTaud, converterFor, CONVERT_ACCEPT } from "../convert/convert.js";
@@ -2432,6 +2433,9 @@ carryOverFromOpfs().then((c) => {
     ],
   });
 }).catch((err) => console.warn("copying the app's stored projects into the folder:", err));
+
+// The desktop app: a newer version, offered in a banner (desktopupdates.js).
+startDesktopUpdates({ showBanner, showModal, t, isDirty: () => !!store.doc?.dirty });
 
 // ...and so does what the earlier desktop app kept, which the shell copies at
 // every start (desktop-qt/src/oldapp.h): said once, the first time.

@@ -1,0 +1,342 @@
+#include "updater.h"
+
+#include <QCoreApplication>
+#include <QDir>
+#include <QDirIterator>
+#include <QFile>
+#include <QFileInfo>
+#include <QJsonDocument>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+#include <QProcess>
+#include <QRegularExpression>
+#include <QSettings>
+#include <QSysInfo>
+#include <QUrl>
+#include <QUrlQuery>
+
+#include "minisign.h"
+#include "updatekey.h"
+
+#ifndef MICROTONE_UPDATE_CHANNEL
+#define MICROTONE_UPDATE_CHANNEL "stable"
+#endif
+
+namespace microtone {
+
+namespace {
+
+constexpr char kSite[] = "https://microtone.cc/api/desktop/update";
+const QString kCurrent = QStringLiteral(MICROTONE_VERSION);
+
+#if defined(Q_OS_MACOS)
+/** The running .app, or empty. */
+QString runningBundle() {
+  const QString bundle = QDir(QCoreApplication::applicationDirPath() + QStringLiteral("/../..")).canonicalPath();
+  return bundle.endsWith(QStringLiteral(".app")) ? bundle : QString();
+}
+#endif
+
+QString platformName() {
+#if defined(Q_OS_WIN)
+  return QStringLiteral("windows-x86_64");
+#elif defined(Q_OS_MACOS)
+  return QStringLiteral("darwin-universal");
+#else
+  return QStringLiteral("linux-x86_64");
+#endif
+}
+
+}  // namespace
+
+Updater::Updater(const QString &dataDir, QObject *parent) : QObject(parent) {
+  dir_ = dataDir + QStringLiteral("/update");
+  // Whatever an earlier run downloaded has been installed, or was not wanted.
+  QDir(dir_).removeRecursively();
+  channel_ = QStringLiteral(MICROTONE_UPDATE_CHANNEL);
+  testRun_ = qEnvironmentVariable("MICROTONE_UPDATE_TEST") == u"run";
+  manifest_ = qEnvironmentVariable("MICROTONE_UPDATE_URL");
+  if (manifest_.isEmpty()) {
+    QUrl url(QString::fromLatin1(kSite));
+    QUrlQuery q;
+    q.addQueryItem(QStringLiteral("channel"), channel_);
+    q.addQueryItem(QStringLiteral("version"), kCurrent);
+    q.addQueryItem(QStringLiteral("platform"), platformName());
+    url.setQuery(q);
+    manifest_ = url.toString(QUrl::FullyEncoded);
+  }
+
+  if (testRun_) {
+    updatable_ = true;
+  } else {
+#if defined(Q_OS_WIN)
+    // Where the installer says it put the app — not a copy run from a zip or
+    // a build tree.
+    QSettings uninstall(QStringLiteral("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\"
+                                       "cc.microtone.desktop"),
+                        QSettings::NativeFormat);
+    const QString where = QFileInfo(uninstall.value(QStringLiteral("InstallLocation")).toString()).canonicalFilePath();
+    const QString here = QFileInfo(QCoreApplication::applicationDirPath()).canonicalFilePath();
+    updatable_ = !where.isEmpty() && where.compare(here, Qt::CaseInsensitive) == 0;
+#elif defined(Q_OS_MACOS)
+    // An .app it may replace: not a disk image (read only), not a copy
+    // Gatekeeper translocated to a random read-only place.
+    const QString bundle = runningBundle();
+    updatable_ = !bundle.isEmpty() && !bundle.contains(QStringLiteral("/AppTranslocation/")) &&
+                 QFileInfo(bundle).isWritable() && QFileInfo(QFileInfo(bundle).absolutePath()).isWritable();
+#else
+    updatable_ = false;  // no packaged build yet
+#endif
+  }
+  qInfo("updates: %s, channel %s", updatable_ ? "this copy can update itself" : "this copy does not update itself",
+        qUtf8Printable(channel_));
+}
+
+QJsonObject Updater::describe() const {
+  return QJsonObject{{QStringLiteral("api"), QStringLiteral("/api/desktop/updates")},
+                     {QStringLiteral("current"), kCurrent},
+                     {QStringLiteral("channel"), channel_},
+                     {QStringLiteral("updatable"), updatable_}};
+}
+
+QJsonObject Updater::status() const {
+  return QJsonObject{{QStringLiteral("state"), state_},
+                     {QStringLiteral("current"), kCurrent},
+                     {QStringLiteral("version"), version_},
+                     {QStringLiteral("notes"), notes_},
+                     {QStringLiteral("progress"), progress_},
+                     {QStringLiteral("error"), error_},
+                     {QStringLiteral("updatable"), updatable_},
+                     {QStringLiteral("channel"), channel_},
+                     {QStringLiteral("installOnQuit"), installOnQuit_}};
+}
+
+void Updater::setState(const QString &state, const QString &error) {
+  state_ = state;
+  error_ = error;
+  if (!error.isEmpty()) qWarning("updates: %s", qUtf8Printable(error));
+  emit changed();
+}
+
+bool Updater::newer(const QString &a, const QString &b) {
+  static const QRegularExpression form(QStringLiteral(R"(^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+.*)?$)"));
+  const auto ma = form.match(a.trimmed()), mb = form.match(b.trimmed());
+  if (!ma.hasMatch() || !mb.hasMatch()) return false;
+  for (int i = 1; i <= 3; i++) {
+    const qlonglong x = ma.captured(i).toLongLong(), y = mb.captured(i).toLongLong();
+    if (x != y) return x > y;
+  }
+  const QString pa = ma.captured(4), pb = mb.captured(4);
+  if (pa.isEmpty() || pb.isEmpty()) return pa.isEmpty() && !pb.isEmpty();  // 1.0.0 > 1.0.0-rc
+  return pa > pb;  // rough, but releases here carry no pre-release tags
+}
+
+QStringList Updater::platformKeys() {
+#if defined(Q_OS_WIN)
+  return {QStringLiteral("windows-x86_64-nsis"), QStringLiteral("windows-x86_64")};
+#elif defined(Q_OS_MACOS)
+  const bool arm = QSysInfo::currentCpuArchitecture().startsWith(QStringLiteral("arm"));
+  return {QStringLiteral("darwin-universal"), arm ? QStringLiteral("darwin-aarch64") : QStringLiteral("darwin-x86_64")};
+#else
+  return {QStringLiteral("linux-x86_64-appimage"), QStringLiteral("linux-x86_64")};
+#endif
+}
+
+void Updater::check() {
+  if (!updatable_ || state_ == u"checking" || state_ == u"downloading" || state_ == u"ready") return;
+  setState(QStringLiteral("checking"));
+  QNetworkRequest request{QUrl(manifest_)};
+  request.setHeader(QNetworkRequest::UserAgentHeader, QByteArray("Microtone-desktop/") + MICROTONE_VERSION);
+  request.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::AlwaysNetwork);
+  request.setTransferTimeout(30000);
+  QNetworkReply *reply = net_.get(request);
+  connect(reply, &QNetworkReply::finished, this, [this, reply] {
+    reply->deleteLater();
+    const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    if (status == 404) {  // no release on this channel has a manifest (yet)
+      setState(QStringLiteral("none"));
+      return;
+    }
+    if (reply->error() != QNetworkReply::NoError) {
+      setState(QStringLiteral("error"), QStringLiteral("could not ask for updates: %1").arg(reply->errorString()));
+      return;
+    }
+    const QJsonObject m = QJsonDocument::fromJson(reply->readAll()).object();
+    const QString version = m.value(QStringLiteral("version")).toString();
+    if (version.isEmpty()) {
+      setState(QStringLiteral("error"), QStringLiteral("the update manifest is not one"));
+      return;
+    }
+    if (!newer(version, kCurrent)) {
+      setState(QStringLiteral("none"));
+      return;
+    }
+    const QJsonObject platforms = m.value(QStringLiteral("platforms")).toObject();
+    for (const QString &key : platformKeys()) {
+      const QJsonObject entry = platforms.value(key).toObject();
+      const QString url = entry.value(QStringLiteral("url")).toString();
+      const QString signature = entry.value(QStringLiteral("signature")).toString();
+      if (url.isEmpty() || signature.isEmpty()) continue;
+      version_ = version;
+      notes_ = m.value(QStringLiteral("notes")).toString();
+      url_ = url;
+      signature_ = signature.toUtf8();
+      qInfo("updates: %s is out (this is %s)", qUtf8Printable(version), qUtf8Printable(kCurrent));
+      setState(QStringLiteral("available"));
+      return;
+    }
+    setState(QStringLiteral("none"));  // nothing for this machine
+  });
+}
+
+void Updater::download() {
+  if (state_ != u"available") return;
+  QDir().mkpath(dir_);
+#if defined(Q_OS_MACOS)
+  const QString name = QStringLiteral("Microtone-%1.app.tar.gz").arg(version_);
+#elif defined(Q_OS_WIN)
+  const QString name = QStringLiteral("Microtone-%1-setup.exe").arg(version_);
+#else
+  const QString name = QStringLiteral("Microtone-%1-update").arg(version_);
+#endif
+  const QString path = dir_ + u'/' + name;
+  delete out_;
+  out_ = new QFile(path, this);
+  if (!out_->open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+    setState(QStringLiteral("error"), QStringLiteral("cannot write %1").arg(path));
+    return;
+  }
+  progress_ = 0;
+  setState(QStringLiteral("downloading"));
+  QNetworkRequest request{QUrl(url_)};
+  request.setHeader(QNetworkRequest::UserAgentHeader, QByteArray("Microtone-desktop/") + MICROTONE_VERSION);
+  // GitHub's API asset links (Tauri's latest.json) answer the file itself only so.
+  request.setRawHeader("Accept", "application/octet-stream");
+  request.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::AlwaysNetwork);
+  request.setTransferTimeout(60000);  // of silence, not of the whole download
+  reply_ = net_.get(request);
+  connect(reply_, &QNetworkReply::readyRead, this, [this] {
+    if (reply_ && out_) out_->write(reply_->readAll());
+  });
+  connect(reply_, &QNetworkReply::downloadProgress, this, [this](qint64 got, qint64 total) {
+    if (total <= 0) return;
+    const double p = double(got) / double(total);
+    if (p - progress_ >= 0.01 || p >= 1) {
+      progress_ = p;
+      emit changed();
+    }
+  });
+  connect(reply_, &QNetworkReply::finished, this, [this, path] {
+    QNetworkReply *reply = reply_;
+    reply->deleteLater();
+    out_->write(reply->readAll());
+    const bool written = out_->flush();
+    out_->close();
+    if (reply->error() != QNetworkReply::NoError || !written) {
+      QFile::remove(path);
+      setState(QStringLiteral("error"), QStringLiteral("could not download the update: %1")
+                                            .arg(written ? reply->errorString() : out_->errorString()));
+      return;
+    }
+    file_ = path;
+    verifyAndPrepare();
+  });
+}
+
+void Updater::verifyAndPrepare() {
+  QString why;
+  const QByteArray keyText =
+      qEnvironmentVariableIsSet("MICROTONE_UPDATE_KEY") ? qgetenv("MICROTONE_UPDATE_KEY") : QByteArray(kUpdateKey);
+  const auto key = minisign::parsePublicKey(keyText, &why);
+  QString trusted;
+  if (!key || !minisign::verifyFile(*key, file_, signature_, &why, &trusted)) {
+    QFile::remove(file_);
+    file_.clear();
+    setState(QStringLiteral("error"), QStringLiteral("the download is not signed by Microtone (%1)").arg(why));
+    return;
+  }
+  qInfo("updates: %s downloaded and its signature checked (%s)", qUtf8Printable(version_), qUtf8Printable(trusted));
+  progress_ = 1;
+#if defined(Q_OS_MACOS)
+  if (!testRun_) {
+    // Unpacked now, so quitting is quick and nothing can fail half-way then.
+    const QString into = dir_ + QStringLiteral("/new");
+    QDir(into).removeRecursively();
+    QDir().mkpath(into);
+    auto *tar = new QProcess(this);
+    connect(tar, &QProcess::finished, this, [this, tar, into](int code, QProcess::ExitStatus how) {
+      tar->deleteLater();
+      QString app;
+      for (const QFileInfo &f : QDir(into).entryInfoList({QStringLiteral("*.app")}, QDir::Dirs | QDir::NoDotAndDotDot)) {
+        if (QFileInfo(f.filePath() + QStringLiteral("/Contents/MacOS")).isDir()) app = f.filePath();
+      }
+      if (how != QProcess::NormalExit || code != 0 || app.isEmpty()) {
+        setState(QStringLiteral("error"), QStringLiteral("could not unpack the update"));
+        return;
+      }
+      prepared_ = app;
+      setState(QStringLiteral("ready"));
+    });
+    tar->start(QStringLiteral("/usr/bin/tar"), {QStringLiteral("-xzf"), file_, QStringLiteral("-C"), into});
+    return;
+  }
+#endif
+  QFile::setPermissions(file_, QFile::permissions(file_) | QFileDevice::ExeOwner | QFileDevice::ExeUser);
+  setState(QStringLiteral("ready"));
+}
+
+void Updater::installOnQuit(bool restart) {
+  if (state_ != u"ready") return;
+  installOnQuit_ = true;
+  restart_ = restart;
+  qInfo("updates: %s will be installed when the app quits%s", qUtf8Printable(version_),
+        restart ? ", and the app started again" : "");
+  emit changed();
+}
+
+void Updater::installNow() {
+  if (!installOnQuit_) return;
+  installOnQuit_ = false;
+#if defined(Q_OS_MACOS)
+  if (!testRun_) {
+    const QString bundle = runningBundle();
+    const QString old = bundle + QStringLiteral(".old-%1").arg(QCoreApplication::applicationPid());
+    if (bundle.isEmpty() || !QDir().rename(bundle, old)) {
+      qWarning("updates: could not move %s aside", qUtf8Printable(bundle));
+      return;
+    }
+    bool placed = QDir().rename(prepared_, bundle);
+    if (!placed) {  // another volume: copied, attributes and all
+      placed = QProcess::execute(QStringLiteral("/usr/bin/ditto"), {prepared_, bundle}) == 0;
+    }
+    if (!placed) {
+      QDir(bundle).removeRecursively();
+      QDir().rename(old, bundle);
+      qWarning("updates: could not put the new version in place; the old one stays");
+      return;
+    }
+    // The old bundle goes once this process has (it is running from it), and
+    // the new one starts then — not before, or it would find this one still
+    // holding the instance socket and the browser profile.
+    QProcess::startDetached(
+        QStringLiteral("/bin/sh"),
+        {QStringLiteral("-c"),
+         QStringLiteral("while kill -0 \"$1\" 2>/dev/null; do sleep 0.2; done; rm -rf \"$2\"; "
+                        "if [ \"$3\" = 1 ]; then /usr/bin/open \"$4\"; fi"),
+         QStringLiteral("sh"), QString::number(QCoreApplication::applicationPid()), old,
+         restart_ ? QStringLiteral("1") : QStringLiteral("0"), bundle});
+    qInfo("updates: %s is in place", qUtf8Printable(version_));
+    return;
+  }
+#endif
+  // Windows (and the test mode): the installer, which waits for this process.
+  QStringList args{QStringLiteral("/P")};
+  if (restart_) args << QStringLiteral("/R");
+  if (!QProcess::startDetached(file_, args)) {
+    qWarning("updates: could not start %s", qUtf8Printable(file_));
+    return;
+  }
+  qInfo("updates: the installer of %s has started", qUtf8Printable(version_));
+}
+
+}  // namespace microtone

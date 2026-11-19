@@ -9,6 +9,9 @@
 #include <QHttpServerRequest>
 #include <QHttpServerResponder>
 #include <QHttpServerWebSocketUpgradeResponse>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QTimer>
 #include <QTcpServer>
 #include <QUrl>
 #include <QUrlQuery>
@@ -19,6 +22,7 @@
 
 #include "filestore.h"
 #include "online.h"
+#include "updater.h"
 
 namespace microtone {
 
@@ -159,6 +163,31 @@ void AppServer::handle(const QHttpServerRequest &request, QHttpServerResponder &
   // in (from the page itself: its Origin says so).
   if (online_ != nullptr && Online::handles(request.url())) {
     online_->handle(request, responder);
+    return;
+  }
+  // Updates: the state for anyone of the app's, the steps from the page itself.
+  if (updater_ != nullptr && request.url().path() == u"/api/desktop/updates") {
+    const auto method = request.method();
+    if (method == QHttpServerRequest::Method::Post) {
+      if (in.value(QHttpHeaders::WellKnownHeader::Origin) != kAppOrigin) {
+        responder.write(Status::Forbidden);
+        return;
+      }
+      const QUrlQuery q(request.url());
+      if (q.hasQueryItem(QStringLiteral("check"))) updater_->check();
+      if (q.hasQueryItem(QStringLiteral("download"))) updater_->download();
+      const QString install = q.queryItemValue(QStringLiteral("install"));
+      if (install == u"quit" || install == u"now") updater_->installOnQuit(install == u"now");
+      if (install == u"now" && updater_->installPending() && quitForUpdate_) {
+        QTimer::singleShot(200, quitForUpdate_);  // after this answer is on its way
+      }
+    } else if (method != QHttpServerRequest::Method::Get) {
+      responder.write(Status::MethodNotAllowed);
+      return;
+    }
+    QHttpHeaders h = appHeaders();
+    h.append(QHttpHeaders::WellKnownHeader::ContentType, "application/json");
+    responder.write(QJsonDocument(updater_->status()).toJson(QJsonDocument::Compact), h, Status::Ok);
     return;
   }
   if (online_ != nullptr && request.url().path() == u"/api/desktop/online-sign-in") {

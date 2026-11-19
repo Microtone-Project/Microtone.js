@@ -34,6 +34,7 @@ namespace microtone {
 
 class FileStore;
 class Online;
+class Updater;
 
 /** The app's origin, without a port: what the page's storage is keyed by. */
 inline constexpr char kAppHost[] = "microtone.localhost";
@@ -62,6 +63,12 @@ class AppServer : public QObject {
    *  http://127.0.0.1:<port>/signed-in is the one page served without the
    *  token — the system's browser coming back from a sign-in. */
   void setOnline(Online *online) { online_ = online; }
+  /** Updates (updater.h): /api/desktop/updates, from the page. `quit` ends
+   *  the app for "Restart now" (the page has asked about unsaved work). */
+  void setUpdater(Updater *updater, std::function<void()> quit) {
+    updater_ = updater;
+    quitForUpdate_ = std::move(quit);
+  }
 
  private:
   void handle(const QHttpServerRequest &request, QHttpServerResponder &responder) const;
@@ -73,6 +80,8 @@ class AppServer : public QObject {
   std::function<void(std::unique_ptr<QWebSocket>)> engineSockets_;
   const FileStore *files_ = nullptr;
   Online *online_ = nullptr;
+  Updater *updater_ = nullptr;
+  std::function<void()> quitForUpdate_;
 };
 
 /** The origin the page is served from, as its requests' Origin header says it. */

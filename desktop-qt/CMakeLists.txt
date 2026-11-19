@@ -114,6 +114,13 @@ elseif(APPLE)
   target_link_libraries(rtaudio PUBLIC "-framework CoreAudio" "-framework CoreFoundation")
 endif()
 
+# Monocypher (vendor/monocypher): the Ed25519 and BLAKE2b that check an
+# update's signature (src/minisign.cpp). Plain C, built as it ships.
+add_library(monocypher STATIC
+  vendor/monocypher/monocypher.c vendor/monocypher/monocypher.h
+  vendor/monocypher/monocypher-ed25519.c vendor/monocypher/monocypher-ed25519.h)
+set_target_properties(monocypher PROPERTIES AUTOMOC OFF POSITION_INDEPENDENT_CODE ON)
+
 qt_add_executable(microtone
   src/main.cpp
   src/appserver.cpp src/appserver.h
@@ -125,18 +132,24 @@ qt_add_executable(microtone
   src/filestore.cpp src/filestore.h
   src/oldapp.cpp src/oldapp.h
   src/online.cpp src/online.h
+  src/minisign.cpp src/minisign.h src/updatekey.h
+  src/updater.cpp src/updater.h
 )
 
 target_link_libraries(microtone PRIVATE
   Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::HttpServer Qt6::WebSockets
   Qt6::WebEngineCore Qt6::WebEngineWidgets
-  taudengine rtaudio)
+  taudengine rtaudio monocypher)
 
 # What the earlier desktop app kept, as the app reads it (src/oldapp.cpp):
 # for trying the reader on a real profile, and for diagnostics. Qt Core only.
 add_executable(oldapp-dump tools/oldapp-dump.cpp src/oldapp.cpp src/oldapp.h)
 target_link_libraries(oldapp-dump PRIVATE Qt6::Core)
 set_target_properties(oldapp-dump PROPERTIES AUTOMOC OFF)
+# An update's signature, checked as the updater checks it (tools/update-test.js).
+add_executable(minisign-check tools/minisign-check.cpp src/minisign.cpp src/minisign.h src/updatekey.h)
+target_link_libraries(minisign-check PRIVATE Qt6::Core monocypher)
+set_target_properties(minisign-check PROPERTIES AUTOMOC OFF)
 
 # WASAPI: the real backend on Windows; elsewhere, only for trying the host's
 # WASAPI glue and the Settings tab's modes, a stand-in (never shipped).
@@ -168,8 +181,15 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   target_link_libraries(microtone PRIVATE Qt6::DBus)
 endif()
 
+# The update channel this build asks for (src/updater.h, and the site's
+# server/desktop-update.js): "stable", or "preview" — CI's builds before the
+# switch from the Tauri build.
+set(MICROTONE_UPDATE_CHANNEL "stable" CACHE STRING "Update channel: stable or preview")
+set_property(CACHE MICROTONE_UPDATE_CHANNEL PROPERTY STRINGS stable preview)
+
 target_compile_definitions(microtone PRIVATE
   MICROTONE_VERSION="${MICROTONE_VERSION}"
+  MICROTONE_UPDATE_CHANNEL="${MICROTONE_UPDATE_CHANNEL}"
   # Where a build run from its build tree finds the web app when no staged
   # copy sits beside the binary: the working tree itself.
   MICROTONE_DEV_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/../microtone-worker")

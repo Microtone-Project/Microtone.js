@@ -335,6 +335,82 @@ the browser itself (its header has the recipe):
 The smoke test asks the real site whether anyone is signed in, through the
 app. That makes CI check the packaged builds' TLS too.
 
+## Updates
+
+A few seconds after start the page asks the shell whether a newer Microtone
+is out (`src/updater.cpp`; the page's side is `src/ui/desktopupdates.js`). A
+banner offers it in the Tauri build's words. Nothing is downloaded until the
+person says **Download**, and nothing is installed until the app quits:
+**Restart now** (after the page's own unsaved-work question) quits it,
+**When I quit** waits.
+
+- **Where it asks:** `https://microtone.cc/api/desktop/update?channel=…`.
+  The site redirects to the channel's manifest on GitHub
+  (`server/desktop-update.js`), so the releases can move without stranding
+  installed copies. `stable` is the latest release's `desktop.json`, which no
+  release has until the switch from the Tauri build, so until then copies hear
+  "nothing new". `preview` is the `desktop-preview` pre-release's. The channel
+  is a build option (`-DMICROTONE_UPDATE_CHANNEL`, default `stable`); CI
+  builds `preview` until the switch.
+- **The manifest is the Tauri updater's `latest.json` shape** (version, notes,
+  pub_date, platforms → url + signature; `windows-x86_64`,
+  `darwin-universal`/`-aarch64`/`-x86_64`). Downloads are fetched with
+  `Accept: application/octet-stream`, which GitHub's API asset links (Tauri's
+  manifest has those) need.
+- **Signed with the Tauri build's updater key.** `src/updatekey.h` is
+  `desktop/tauri.conf.json`'s `pubkey`, and a test keeps the two equal. The
+  check is `src/minisign.cpp`: minisign's prehashed Ed25519 (and the legacy
+  form), the key id, and the signed trusted comment, with Monocypher
+  (`vendor/monocypher`). It verifies the real v5.0.5 Tauri release's
+  signatures with the built-in key. One key is needed for the switch anyway:
+  the Tauri updater will only install a Qt build signed with it.
+- **Installing:**
+  - **Windows:** the downloaded installer, run at quit with `/P` (and `/R`).
+    It waits up to ten seconds for this process's mutex to go.
+  - **macOS:** the `.app.tar.gz` is unpacked right after the download. At quit
+    the running bundle is renamed aside, the new one is moved in (copied with
+    `ditto` across volumes, rolled back on failure), and a small `sh` helper
+    waits for this process to end, removes the old bundle, and `open`s the new
+    one if asked.
+  - **Linux:** nothing until there is a packaged build.
+- **Only an installed copy updates:**
+  - Windows: the exe sits where the uninstall key's `InstallLocation` says;
+  - macOS: an `.app` in a folder it may write — not a disk image, not
+    translocated.
+  - A dev build never offers anything.
+- **Publishing a preview is by hand:** run "Desktop (Qt)" with
+  *publish-preview* ticked. It signs the installer and the `.app.tar.gz` with
+  the `TAURI_SIGNING_PRIVATE_KEY` secrets (`tauri signer sign
+  --app-version`), checks each signature with `minisign-check` against the
+  built-in key, and replaces the `desktop-preview` pre-release (never
+  "latest") with them, the `.dmg` and their `desktop.json`. A push publishes
+  nothing.
+- `MICROTONE_UPDATE_URL`, `MICROTONE_UPDATE_KEY` and
+  `MICROTONE_UPDATE_TEST=run` are for tests (`updater.h`).
+
+Tested:
+- `tools/update-test.js` (the test signs its own updates in Node, in
+  minisign's format), run on Linux in test mode: offered a few seconds after
+  start; nothing downloaded until asked; signature good; Restart now quits;
+  the update runs with `/P /R`; an update signed by another key is refused and
+  never runs.
+- In CI, for real:
+  - Windows reinstalls through the NSIS installer and starts again;
+  - macOS swaps a copy of the bundle for a marked one and starts again.
+- `test/node/desktop-updates.test.js` (the banner flow, the unsaved-work
+  question) and `desktop-update.test.js` (the redirect, the key pinned to
+  Tauri's).
+- `tools/minisign-check` against Tauri-made signatures: good, a tampered file,
+  another key, an edited trusted comment, a 50 MB file; and the real release.
+
+**The switch from the Tauri build** (not done yet) will be a release whose
+`latest.json` (what Tauri copies read) and `desktop.json` both point at this
+build's files, signed with the one key:
+- Windows: the Tauri updater runs our installer with `/UPDATE /P /R`, which
+  it accepts. The Tauri app stays installed beside it, under its own uninstall
+  entry.
+- macOS: its `.app.tar.gz` replaces the Tauri bundle (the same bundle id).
+
 ## When it goes wrong: logs, crash reports, diagnostics
 
 Nobody working on this has the Windows machines or the Macs it runs on, so
@@ -676,8 +752,10 @@ language):
 
 - Deploying the site's `port` parameter for the desktop sign-in (online
   projects, above) — a release of the website, before this build is.
-- The updater and the deep-link scheme. The installer already takes `/P /R`,
-  the switches an updater runs it with.
+- Deploying the site's update redirect (`/api/desktop/update`). Until then a
+  copy asks and hears 404: "nothing new".
+- The switch from the Tauri build (Updates, above): a release that serves
+  both apps, and what becomes of the Tauri install on Windows.
 - Linux packaging (AppImage, .deb/.rpm) and its CI.
 - Code signing (a Windows certificate; Apple's Developer ID and
   notarisation), and the third-party notices a release must ship (Qt and
