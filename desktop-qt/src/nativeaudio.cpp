@@ -40,6 +40,7 @@
 #endif
 
 #include "RtAudio.h"
+#include "asiotiers.h"
 #if MICROTONE_ASIO
 #include "asiodriver.h"
 #endif
@@ -175,6 +176,23 @@ QString formatName(RtAudioFormat f) {
   return {};
 }
 #endif
+
+/** ASIO has no system default: the first driver of the best tier
+ *  (asiotiers.h), never a blocked one. 0 when there is none. */
+unsigned int preferredAsioDriver(RtAudio *dac) {
+  unsigned int best = 0;
+  int bestTier = -1;
+  for (unsigned int id : dac->getDeviceIds()) {
+    const RtAudio::DeviceInfo info = dac->getDeviceInfo(id);
+    if (info.outputChannels < 2) continue;
+    const int tier = int(asio::tierOf(info.name));
+    if (tier > bestTier) {  // a blocked driver (-1) never beats "none"
+      best = id;
+      bestTier = tier;
+    }
+  }
+  return best;
+}
 
 }  // namespace
 
@@ -492,20 +510,30 @@ bool NativeAudio::openRtAudio(const Config &want, QString *error) {
   const QString apiName = QString::fromStdString(RtAudio::getApiDisplayName(api));
 
   // The device by name (ids are not stable across runs); none, or one that
-  // has gone, is the system's default output.
+  // has gone, is the system's default output — for ASIO, which has no such
+  // thing, the best driver by asiotiers.h. A driver known to crash the app is
+  // never opened, even when a setting names it.
+  const bool asioApi = api == RtAudio::WINDOWS_ASIO;
   unsigned int id = 0;
   RtAudio::DeviceInfo info;
   for (unsigned int candidate : dac_->getDeviceIds()) {
     const RtAudio::DeviceInfo i = dac_->getDeviceInfo(candidate);
     if (i.outputChannels >= 2 && !want.device.isEmpty() && QString::fromStdString(i.name) == want.device) {
+      if (asioApi && asio::tierOf(i.name) == asio::Tier::Blocked) {
+        qWarning("audio: the ASIO driver \"%s\" is known to crash the app: not opening it", i.name.c_str());
+        break;
+      }
       id = candidate;
       info = i;
       break;
     }
   }
   if (id == 0) {
-    id = dac_->getDefaultOutputDevice();
+    id = asioApi ? preferredAsioDriver(dac_.get()) : dac_->getDefaultOutputDevice();
     if (id != 0) info = dac_->getDeviceInfo(id);
+    if (id != 0 && asioApi) {
+      qInfo("audio: ASIO's default is \"%s\" (%s)", info.name.c_str(), asio::tierName(asio::tierOf(info.name)));
+    }
   }
   if (id == 0) {
     if (error) *error = QStringLiteral("no output device for %1").arg(apiName);
@@ -780,10 +808,18 @@ QJsonObject NativeAudio::devices(bool full) {
     // holds from a second one can fail.
     std::unique_ptr<RtAudio> temp;
     RtAudio *dac = dac_ && dac_->getCurrentApi() == api ? dac_.get() : (temp = makeDac(api)).get();
+    // ASIO: the default is the best driver (asiotiers.h), and one known to
+    // crash the app is not offered at all.
+    const bool asioApi = api == RtAudio::WINDOWS_ASIO;
+    const unsigned int asioDefault = asioApi ? preferredAsioDriver(dac) : 0;
     QJsonArray list;
     for (unsigned int id : dac->getDeviceIds()) {
-      const RtAudio::DeviceInfo info = dac->getDeviceInfo(id);
+      RtAudio::DeviceInfo info = dac->getDeviceInfo(id);
       if (info.outputChannels < 2) continue;
+      if (asioApi) {
+        if (asio::tierOf(info.name) == asio::Tier::Blocked) continue;
+        info.isDefaultOutput = id == asioDefault;
+      }
       QJsonArray rates;
       for (unsigned int r : info.sampleRates) rates.append(int(r));
       list.append(QJsonObject{

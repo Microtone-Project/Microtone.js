@@ -9,10 +9,14 @@
 //                                 driver n (frames 0 or none: the driver's own
 //                                 size, as the app asks by default)
 //   asio-probe all                the list, then that tone through each driver
+//                                 the app may use, best first (src/asiotiers.h:
+//                                 hardware, Steinberg's built-in, generic) — a
+//                                 blocked one only when asked for by number
 //   asio-probe panel <n>          driver n's own settings window
 //
 // A driver's sizes are only told while it is loaded, so the list opens each
 // driver in turn, briefly, without playing.
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -25,6 +29,7 @@
 
 #include "RtAudio.h"
 #include "../src/asiodriver.h"
+#include "../src/asiotiers.h"
 
 namespace {
 
@@ -110,7 +115,9 @@ int list(RtAudio &dac) {
   }
   for (size_t i = 0; i < ids.size(); i++) {
     const RtAudio::DeviceInfo info = dac.getDeviceInfo(ids[i]);
-    std::printf("[%zu] %s\n", i, info.name.c_str());
+    const microtone::asio::Tier tier = microtone::asio::tierOf(info.name);
+    std::printf("[%zu] %s (%s)\n", i, info.name.c_str(), microtone::asio::tierName(tier));
+    if (tier == microtone::asio::Tier::Blocked) continue;  // not even opened
     std::printf("    outputs: %u, inputs: %u; sample format: %s\n", info.outputChannels, info.inputChannels,
                 formatName(info.nativeFormats));
     std::printf("    rates:");
@@ -186,9 +193,17 @@ int main(int argc, char **argv) {
   if (argc <= 1) return list(dac);
   if (std::strcmp(argv[1], "all") == 0) {
     list(dac);
-    const size_t n = dac.getDeviceIds().size();
+    // Best first, as the app ranks them, so one that dies cannot hide the
+    // rest; blocked drivers are left out.
+    const std::vector<unsigned int> ids = dac.getDeviceIds();
+    std::vector<std::pair<int, size_t>> order;
+    for (size_t i = 0; i < ids.size(); i++) {
+      const int tier = int(microtone::asio::tierOf(dac.getDeviceInfo(ids[i]).name));
+      if (tier >= 0) order.push_back({-tier, i});
+    }
+    std::stable_sort(order.begin(), order.end());
     int failed = 0;
-    for (size_t i = 0; i < n; i++) {
+    for (const auto &[tier, i] : order) {
       std::printf("\ntone through driver %zu:\n", i);
       failed |= play(dac, i, 0, 0);
     }
@@ -197,7 +212,7 @@ int main(int argc, char **argv) {
   if (std::strcmp(argv[1], "panel") == 0) return argc > 2 ? panel(dac, size_t(std::atoi(argv[2]))) : 1;
   if (std::strcmp(argv[1], "-h") == 0 || std::strcmp(argv[1], "--help") == 0) {
     std::printf("asio-probe                   list the ASIO drivers\n"
-                "asio-probe all               …and a tone through each\n"
+                "asio-probe all               …and a tone through each the app may use, best first\n"
                 "asio-probe <n> [rate] [frames]  a tone through driver n (frames 0: its own size)\n"
                 "asio-probe panel <n>          driver n's settings window\n");
     return 0;

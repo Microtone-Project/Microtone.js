@@ -611,7 +611,13 @@ under Wine's cmd.
     allowed only 480 frames in low-latency shared mode, and crashed when the
     mode changed and on ASIO. Its owner sees the same in other programs, so
     the driver is the likely cause. The exclusive retries above came of it.
-    If it still crashes, the crash report names the module it died in.
+  - The ASIO crash, found (2026-11-19, the diagnostics folder): ASIO's
+    "default device" was simply the first registered driver, Cubase's old
+    "Generic Low Latency ASIO Driver" (`asioglld.dll`), and it was not the
+    MOTU. The minidump's crashing thread jumps to address 0 from inside
+    `asioglld.dll`, called from our own call into it. The one host callback
+    that is null is RtAudio's `bufferSwitchTimeInfo`. Fixed by ranking the
+    drivers (below).
 - **ASIO** (Windows): RtAudio's backend, with Steinberg's SDK files from the
   same release. A driver is a device. Unlike WASAPI, the buffer and the clock
   belong to the driver, which has a settings window of its own:
@@ -628,6 +634,22 @@ under Wine's cmd.
     runs on the driver's own thread, at the priority the driver gives it.
   - ASIO is never the first choice: a first start goes to WASAPI, and ASIO is
     the last fallback.
+  - **Which driver is "default device"** (`src/asiotiers.h`): Windows' order
+    means nothing, so drivers are ranked, and the default is the first of the
+    best tier:
+    1. hardware — an interface's own driver, everything not named below;
+    2. generic wrappers: FlexASIO, ASIO2WASAPI;
+    3. Steinberg's built-in ASIO driver;
+    4. ASIO4ALL (FlexASIO does its job better);
+    5. hardware drivers to avoid: anything ASUS (its Xonar line too),
+       Realtek's, the generic "USB Audio CODEC". "ASUS" and "Xonar" count only
+       as the start of a word.
+
+    The "Generic Low Latency ASIO Driver" is **blocked**: it is left out of
+    the list and never opened, even when a remembered setting names it (the
+    log says so). The probe ranks them alike: `asio-probe all` plays through
+    the best first and skips a blocked driver, while `asio-probe <n>` plays
+    through any.
   - `tools/asio-probe.cpp` (built beside the app) lists the drivers, their
     rates, formats and buffer sizes, plays a tone through one, or opens one's
     window.
