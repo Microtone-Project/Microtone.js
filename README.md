@@ -1,4 +1,4 @@
-# Microtone.js
+# Microtone
 
 ![Microtone screenshot](Screenshot1.png)
 
