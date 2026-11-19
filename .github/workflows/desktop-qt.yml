@@ -1,0 +1,332 @@
+# The Qt desktop build (desktop-qt/, item 336), against Qt 6.8 LTS:
+#   windows  the shell, the C engine, the WASAPI backend and ASIO (RtAudio)
+#            built with MSVC, packaged with windeployqt, the C runtime and the
+#            staged web app, then made into an installer
+#            (desktop-qt/installer/microtone.nsi);
+#   macos    a universal Microtone.app (Apple silicon and Intel, Core Audio),
+#            macdeployqt'd, signed ad hoc, in a .dmg — and, since nobody here
+#            has a Mac, smoke-tested on the runner (desktop-qt/tools/
+#            native-smoke.js: the page, the native audio into the runner's
+#            virtual device, bit for bit against the WebAssembly engine).
+# Both run the updater end to end (desktop-qt/tools/update-test.js: Windows
+# reinstalling through the NSIS installer, macOS putting a new bundle in
+# place) and ask the "preview" update channel (server/desktop-update.js).
+# Everything is kept as build artifacts. Nothing here releases on a push: the
+# Tauri build (desktop.yml) still does that, until the Qt build replaces it.
+# Only a run started by hand with "publish-preview" ticked signs the updates
+# with the updater key (the Tauri build's TAURI_SIGNING_PRIVATE_KEY secrets)
+# and puts them, with their desktop.json, on the desktop-preview pre-release —
+# the preview channel testers' copies update from. Never "latest".
+name: Desktop (Qt)
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish-preview:
+        description: "Publish this build to the desktop-preview pre-release (the testers' update channel)"
+        type: boolean
+        default: false
+  push:
+    branches: [qt-native]
+    paths:
+      - "desktop-qt/**"
+      - "core/**"
+      - "microtone-worker/**"
+      - "tools/stage-site.js"
+      - "COPYING"
+      - ".github/workflows/desktop-qt.yml"
+
+concurrency:
+  group: desktop-qt-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Qt for MSVC with what the shell needs: WebEngine (and the two modules
+      # it stands on), the HTTP server the app is served from, WebSockets for
+      # the native audio host.
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.8.3"
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          modules: qtwebengine qtwebchannel qtpositioning qthttpserver qtwebsockets
+          # Qt 6.8 moved WebEngine out of the modules into "extensions" in its
+          # online repository; aqtinstall installs those from 3.2 on.
+          aqtversion: ">=3.2.1"
+          cache: true
+
+      - uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Configure
+        run: cmake -S desktop-qt -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DMICROTONE_UPDATE_CHANNEL=preview
+
+      - name: Build
+        run: cmake --build build
+
+      # Bringing over what the earlier desktop app kept (src/oldapp.cpp): the
+      # copy's rules, and the Chromium reader on a real Edge profile — the
+      # engine and storage WebView2 is — under the earlier app's own origin.
+      - name: Earlier app's projects
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $edge = "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe"
+          node desktop-qt/tools/oldapp-test.js build/oldapp-dump.exe --browser $edge | Tee-Object -FilePath oldapp.txt
+          $status = $LASTEXITCODE
+          $fence = '```'
+          "### Earlier app's projects (exit $status)", $fence, (Get-Content oldapp.txt -Raw), $fence | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+          exit $status
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $version = node -p "require('./microtone-worker/package.json').version"
+          $out = "build/Microtone-$version-windows-x64"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          Copy-Item build/microtone.exe, build/wasapi-probe.exe, build/asio-probe.exe $out
+          # The debug information beside the exe, so a crash report names its
+          # frames (src/crashlog.c); and the failure-report collector, which
+          # the installer puts in the Start menu.
+          Copy-Item build/microtone.pdb, desktop-qt/installer/diagnostics.cmd $out
+          # The Qt runtime, WebEngine's process and resources among it — but
+          # not vc_redist.x64.exe, which needs an administrator to run: the C
+          # runtime's own DLLs go beside the app instead (Microsoft's "local
+          # deployment"), so a per-user install needs nothing else.
+          windeployqt --release --no-compiler-runtime --no-system-d3d-compiler --no-opengl-sw "$out/microtone.exe"
+          $crt = Get-ChildItem "$env:VCToolsRedistDir\x64" -Directory -Filter "Microsoft.VC*.CRT" | Select-Object -First 1
+          if (-not $crt) { throw "no C runtime under '$env:VCToolsRedistDir'" }
+          Copy-Item "$($crt.FullName)\*.dll" $out
+          Copy-Item COPYING "$out/LICENSE.txt"
+          # The web app, where the binary looks for it: www/ beside itself.
+          node desktop-qt/tools/stage-frontend.js "$out/www"
+          "version=$version" >> $env:GITHUB_ENV
+
+      # The packaged app on the runner: the page, the file store (a 40 MB
+      # project in and out of a folder of the test's own). The runner has no
+      # sound device, so the audio half is skipped: exit 3, which is fine.
+      - name: Smoke test
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          node desktop-qt/tools/native-smoke.js "build/Microtone-$env:version-windows-x64/microtone.exe" --seconds 5 | Tee-Object -FilePath smoke.json
+          $status = $LASTEXITCODE
+          $fence = '```'
+          "### Windows smoke test (exit $status; 3 = no sound device on the runner)", "${fence}json", (Get-Content smoke.json -Raw), $fence | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+          if ($status -ne 0 -and $status -ne 3) { exit $status }
+          exit 0
+
+      # NSIS: on the runner image, or from Chocolatey where it is not.
+      - name: Installer
+        shell: pwsh
+        run: |
+          $makensis = (Get-Command makensis -ErrorAction SilentlyContinue).Source
+          if (-not $makensis) {
+            $makensis = "${env:ProgramFiles(x86)}\NSIS\makensis.exe"
+            if (-not (Test-Path $makensis)) { choco install nsis -y --no-progress }
+          }
+          $root = (Get-Location).Path
+          $stage = "$root\build\Microtone-$env:version-windows-x64"
+          node desktop-qt/tools/installer-files.js $stage build/installer-lists
+          $numeric = [regex]::Match($env:version, '^\d+\.\d+\.\d+').Value
+          & $makensis /V3 /INPUTCHARSET UTF8 "/DVERSION=$env:version" "/DFILEVERSION=$numeric.0" `
+            "/DSTAGE=$stage" "/DLISTS=$root\build\installer-lists" `
+            "/DOUTFILE=$root\build\Microtone-$env:version-windows-x64-setup.exe" desktop-qt/installer/microtone.nsi
+          if ($LASTEXITCODE -ne 0) { throw "makensis failed ($LASTEXITCODE)" }
+
+      # The updater, for real: the app installed by its installer, offered a
+      # "99.0.0" that is that installer (signed with a key of the test's own),
+      # Download, Restart now — the app quits, the installer runs with /P /R
+      # and starts it again.
+      - name: Updater
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $setup = "build\Microtone-$env:version-windows-x64-setup.exe"
+          Start-Process -Wait -FilePath $setup -ArgumentList "/S"
+          $exe = "$env:LOCALAPPDATA\Programs\Microtone\microtone.exe"
+          node desktop-qt/tools/update-test.js $exe --mode windows --installer $setup | Tee-Object -FilePath update.json
+          $status = $LASTEXITCODE
+          $fence = '```'
+          "### Windows updater (exit $status)", "${fence}json", (Get-Content update.json -Raw), $fence | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+          exit $status
+
+      # Signed for the preview channel, and checked against the key the app
+      # trusts before anything is published.
+      - name: Sign the update
+        if: github.event_name == 'workflow_dispatch' && inputs.publish-preview
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          $setup = "build/Microtone-$env:version-windows-x64-setup.exe"
+          npx --yes -p @tauri-apps/cli@2.12.1 tauri signer sign --app-version $env:version $setup
+          if ($LASTEXITCODE -ne 0) { throw "signing failed" }
+          build/minisign-check.exe - $setup "$setup.sig"
+          if ($LASTEXITCODE -ne 0) { throw "the signature is not one the app accepts" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Microtone-${{ env.version }}-windows-x64
+          path: build/Microtone-${{ env.version }}-windows-x64
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Microtone-${{ env.version }}-windows-x64-setup
+          path: |
+            build/Microtone-${{ env.version }}-windows-x64-setup.exe
+            build/Microtone-${{ env.version }}-windows-x64-setup.exe.sig
+          if-no-files-found: error
+          compression-level: 0  # LZMA already
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.8.3"
+          host: mac
+          target: desktop
+          arch: clang_64
+          modules: qtwebengine qtwebchannel qtpositioning qthttpserver qtwebsockets
+          aqtversion: ">=3.2.1"
+          cache: true
+
+      # One binary for both kinds of Mac (Qt's own is universal).
+      - name: Configure
+        run: cmake -S desktop-qt -B build -DCMAKE_BUILD_TYPE=Release "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64" -DMICROTONE_UPDATE_CHANNEL=preview
+
+      - name: Build
+        run: cmake --build build --parallel 4
+
+      # Bringing over what the earlier desktop app kept (src/oldapp.cpp): on a
+      # Mac it kept them as WebKit does, which the copy's rules test uses.
+      - name: Earlier app's projects
+        continue-on-error: true
+        run: |
+          set +e
+          node desktop-qt/tools/oldapp-test.js build/oldapp-dump | tee oldapp.txt
+          status=${PIPESTATUS[0]}
+          { echo "### Earlier app's projects (exit $status)"; echo '```'; cat oldapp.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
+      - name: Package
+        run: |
+          version=$(node -p "require('./microtone-worker/package.json').version")
+          app=build/Microtone.app
+          # The web app where the binary looks for it, and the licence.
+          node desktop-qt/tools/stage-frontend.js "$app/Contents/Resources/www"
+          cp COPYING "$app/Contents/Resources/LICENSE.txt"
+          # Qt's frameworks, WebEngine's helper app and resources among them.
+          macdeployqt "$app" -always-overwrite
+          # An Apple-silicon Mac runs nothing unsigned: an ad hoc signature,
+          # not a Developer ID, so Gatekeeper still asks once (README).
+          codesign --force --deep --sign - "$app"
+          codesign --verify --deep --strict "$app"
+          lipo -archs "$app/Contents/MacOS/Microtone"
+          mkdir -p build/dmg
+          ditto "$app" build/dmg/Microtone.app
+          ln -s /Applications build/dmg/Applications
+          hdiutil create -volname "Microtone $version" -srcfolder build/dmg -ov -format UDZO "build/Microtone-$version-macos.dmg"
+          # The update: the bundle as a tarball, as Tauri's .app.tar.gz is.
+          tar -czf "build/Microtone-$version-macos.app.tar.gz" -C build Microtone.app
+          echo "version=$version" >> "$GITHUB_ENV"
+
+      # The runner's own "Apple Virtual Sound Device" is the output (a driver
+      # like BlackHole would need a reboot to appear).
+      - name: Smoke test
+        continue-on-error: true
+        run: |
+          set +e
+          node desktop-qt/tools/native-smoke.js build/Microtone.app/Contents/MacOS/Microtone --seconds 10 | tee smoke.json
+          status=${PIPESTATUS[0]}
+          { echo "### macOS smoke test (exit $status)"; echo '```json'; cat smoke.json; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
+      # The updater, for real: a copy of the bundle is the installed app,
+      # offered a "99.0.0" that is the bundle again, marked (signed with a key
+      # of the test's own); Restart now — the marked bundle takes the old
+      # one's place, the old one goes, and the app starts again.
+      - name: Updater
+        continue-on-error: true
+        run: |
+          set +e
+          node desktop-qt/tools/update-test.js build/Microtone.app/Contents/MacOS/Microtone --mode mac | tee update.json
+          status=${PIPESTATUS[0]}
+          { echo "### macOS updater (exit $status)"; echo '```json'; cat update.json; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
+      - name: Sign the update
+        if: github.event_name == 'workflow_dispatch' && inputs.publish-preview
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          update="build/Microtone-$version-macos.app.tar.gz"
+          npx --yes -p @tauri-apps/cli@2.12.1 tauri signer sign --app-version "$version" "$update"
+          build/minisign-check - "$update" "$update.sig"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Microtone-${{ env.version }}-macos
+          path: |
+            build/Microtone-${{ env.version }}-macos.dmg
+            build/Microtone-${{ env.version }}-macos.app.tar.gz
+            build/Microtone-${{ env.version }}-macos.app.tar.gz.sig
+          if-no-files-found: error
+          compression-level: 0  # the .dmg is compressed already
+
+  # The preview channel: only by hand, only with publish-preview ticked.
+  publish-preview:
+    needs: [windows, macos]
+    if: github.event_name == 'workflow_dispatch' && inputs.publish-preview
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(node -p "require('./microtone-worker/package.json').version")
+          win="Microtone-$version-windows-x64-setup.exe"
+          mac="Microtone-$version-macos.app.tar.gz"
+          # The Tauri updater's latest.json shape (desktop-qt/src/updater.h).
+          VERSION="$version" WIN="$win" MAC="$mac" node -e '
+            const fs = require("fs");
+            const e = process.env;
+            const base = `https://github.com/${e.GITHUB_REPOSITORY}/releases/download/desktop-preview/`;
+            const entry = (f) => ({ url: base + f, signature: fs.readFileSync(`dist/${f}.sig`, "utf8").trim() });
+            const win = entry(e.WIN), mac = entry(e.MAC);
+            fs.writeFileSync("dist/desktop.json", JSON.stringify({
+              version: e.VERSION, notes: "A preview of the next Microtone desktop app.", pub_date: new Date().toISOString(),
+              platforms: { "windows-x86_64": win, "windows-x86_64-nsis": win,
+                           "darwin-universal": mac, "darwin-aarch64": mac, "darwin-x86_64": mac },
+            }, null, 1));'
+          gh release delete desktop-preview --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes 2> /dev/null || true
+          gh release create desktop-preview --repo "$GITHUB_REPOSITORY" --prerelease --latest=false --target "$GITHUB_SHA" \
+            --title "Microtone $version — desktop preview" \
+            --notes "A preview of the next Microtone desktop app, for testing. Copies of it update from here." \
+            "dist/$win" "dist/$win.sig" "dist/$mac" "dist/$mac.sig" "dist/Microtone-$version-macos.dmg" dist/desktop.json
