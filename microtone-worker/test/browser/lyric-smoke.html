@@ -56,15 +56,19 @@
         last.click();
         const slot = await waitFor(() => doc.usedInstrumentSlots().find((s) => !before.has(s)));
         const inst = () => doc.instruments[slot];
-        log(`$${slot.toString(16)} is a formant instrument with lyrics [la], made in one undo step: ` +
-          ok(inst().isFormant && doc.isLyricSlot(slot) && doc.lyricEntry(slot).editor.text === "la" &&
+        const JIVA = "a.(.(.*.( | *.(.).(\nd͡ʒɪ.va.ɛ.ɾɪ.ɸʊ\n*.*.( | (.(.(.* | *.(";
+        log(`$${slot.toString(16)} is a formant instrument with Jiva's three lines, 23 syllables, made in one undo step: ` +
+          ok(inst().isFormant && doc.isLyricSlot(slot) && doc.lyricEntry(slot).editor.text === JIVA &&
+             doc.lyricEntry(slot).syllables.length === 23 &&
              store.undo.undoStack.length === depth0 + 1));
         await waitFor(() => iv.panel.querySelector(".lyr-text"));
         const tabs = [...iv.tabBar.querySelectorAll("button")].map((b) => b.textContent);
         log(`tabs ${tabs.join("|")}: ` +
           ok(tabs.join("|") === "Lyrics|Formant|General|Vol env|Pan env|Pitch/Filter|Mixing" && iv.tab === "lyrics"));
         const badge = () => iv.rowEls.find((r) => r.slot === slot)?.el.querySelector(".badge-sm")?.textContent;
-        log(`list badge "${badge()}": ${ok(badge() === "LYR·1")}`);
+        log(`list badge "${badge()}": ${ok(badge() === "LYR·23")}`);
+        log(`the box shows the three lines, and the Draw row is there from the start: ` +
+          ok(iv.panel.querySelector(".lyr-text").value === JIVA && !!iv.panel.querySelector(".lyr-draw")));
         const heads = () => [...iv.panel.querySelectorAll(".inst-group-head")].map((h) => h.textContent);
         log(`groups ${heads().join(", ")}: ${ok(heads().join("|") === "Lyrics|Consonant length|Syllables")}`);
 
@@ -75,14 +79,14 @@
         area.dispatchEvent(new win.Event("input", { bubbles: true }));
         const status = () => iv.panel.querySelector(".lyr-status").textContent;
         log(`typed, not yet applied ("${status()}"): ` +
-          ok(/10 syllables/.test(status()) && /not applied/.test(status()) && doc.lyricEntry(slot).syllables.length === 1));
+          ok(/10 syllables/.test(status()) && /not applied/.test(status()) && doc.lyricEntry(slot).syllables.length === 23));
         area.value += ".zx!";
         area.dispatchEvent(new win.Event("input", { bubbles: true }));
         log(`a syllable that cannot be read is pointed at ("${status()}"): ` +
           ok(/^Syllable 11: \[zx!\]/.test(status()) && iv.panel.querySelector(".lyr-status").classList.contains("bad")));
         area.dispatchEvent(new win.Event("change", { bubbles: true }));
         await sleep(100);
-        log(`…and is not applied: ${ok(doc.lyricEntry(slot).syllables.length === 1)}`);
+        log(`…and is not applied: ${ok(doc.lyricEntry(slot).syllables.length === 23)}`);
         const area2 = iv.panel.querySelector(".lyr-text");
         area2.value = "de.zi.de.zi gim.mi.jɝ.an.sɝ.du";
         area2.dispatchEvent(new win.Event("input", { bubbles: true }));
@@ -190,6 +194,39 @@
              iv.panel.querySelector(".lyr-pal-box").hidden));
         [...iv.panel.querySelectorAll(".sl-buttons button")].find((b) => b.textContent === "IPA").click();
         await waitFor(() => !doc.lyricEntry(slot).editor.xsampa);
+
+        // ── Jiva: Eri's marks, the draw, the sample lyrics ──
+        const areaJ = iv.panel.querySelector(".lyr-text");
+        log(`no mark, no Draw row: ${ok(!iv.panel.querySelector(".lyr-draw"))}`);
+        const keyStar = [...iv.panel.querySelectorAll(".char-pal-key")].find((k) => k.textContent === "*");
+        log(`the IPA keyboard has the marks: ${ok(!!keyStar)}`);
+        areaJ.value = "(.*.a).ko.(e";
+        areaJ.dispatchEvent(new win.Event("input", { bubbles: true }));
+        areaJ.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true }));
+        await waitFor(() => doc.lyricEntry(slot).syllables.length === 5 && iv.panel.querySelector(".lyr-draw"));
+        const drawnChips = () => [...iv.panel.querySelectorAll(".lyr-syl")].map((c) => c.classList.contains("drawn"));
+        log(`"(.*.a).ko.(e" sings five, four of them drawn (${drawnChips().join()}; "${status()}"): ` +
+          ok(drawnChips().join() === "true,true,true,false,true" && /4 of them drawn/.test(status()) &&
+             doc.lyricEntry(slot).editor.seed === 0));
+        const sylsJ = JSON.stringify(doc.lyricEntry(slot).syllables);
+        const chipsJ = [...iv.panel.querySelectorAll(".lyr-syl-ipa")].map((c) => c.textContent);
+        log(`chips ${chipsJ.join(" ")}: ${ok(chipsJ[3] === "ko" && chipsJ[2].startsWith("a") && chipsJ[4].endsWith("e"))}`);
+        iv.panel.querySelector(".lyr-draw-again").click();
+        await waitFor(() => doc.lyricEntry(slot).editor.seed !== 0);
+        const seedJ = doc.lyricEntry(slot).editor.seed;
+        await waitFor(() => +iv.panel.querySelector(".lyr-draw .sl-num")?.value === seedJ);
+        log(`Draw again: seed ${seedJ}, the field shows it, other syllables: ` +
+          ok(JSON.stringify(doc.lyricEntry(slot).syllables) !== sylsJ));
+        store.undo.undo();
+        await waitFor(() => doc.lyricEntry(slot).editor.seed === 0);
+        log(`undo brings the last draw back: ${ok(JSON.stringify(doc.lyricEntry(slot).syllables) === sylsJ)}`);
+        const seedField = iv.panel.querySelector(".lyr-draw .sl-num");
+        seedField.value = String(seedJ);
+        seedField.dispatchEvent(new win.Event("change", { bubbles: true }));
+        await waitFor(() => doc.lyricEntry(slot).editor.seed === seedJ);
+        log(`typing the noted draw back brings its syllables: ` +
+          ok(JSON.stringify(doc.lyricEntry(slot).syllables) !== sylsJ));
+        log(`no Sample lyrics picker: ${ok(!iv.panel.querySelector(".lyr-samples"))}`);
 
         // ── the Formant tab holds what is shared ──
         [...iv.tabBar.querySelectorAll("button")].find((b) => b.textContent === "Formant").click();

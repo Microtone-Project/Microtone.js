@@ -25,6 +25,7 @@ import { defaultFormantRecord, canSourceFormant, FORMANT_RANGE_NONE } from "../.
 import { FormantMachine, rangeCandidates, poolSpan } from "../../doc/formantrecipe.js";
 import { importBankOp, compositeOp, setLyricsOp } from "../../doc/ops.js";
 import { deriveLyrics } from "../../doc/lyrics.js";
+import { JIVA_LYRICS } from "../../doc/jiva.js";
 import { blankLyricEditor } from "../../../core/format/lyric-section.js";
 import { TaudInst } from "../../../core/engine/inst.js";
 import { META_MAX_LAYERS, metaLayers } from "../../doc/metaedit.js";
@@ -388,12 +389,13 @@ function createFormant(store, lyric = false) {
   const doc = store.doc;
   const name = lyric ? "Lyrics" : "Formant";
   // A LYRIC instrument (item 280) is the same record with lyrics, made in the
-  // same undo step: it starts singing [la], its noise the range's best.
+  // same undo step: it starts singing Jiva's lyrics (doc/jiva.js), its noise
+  // the range's best.
   const withLyrics = (plan, record, machine) => {
     if (!lyric) return importBankOp(plan);
     const inst = new TaudInst(plan.metaSlot);
     inst.loadRecord(record);
-    const res = deriveLyrics(inst.formant, { ...blankLyricEditor(), text: DEFAULT_LYRICS }, machine);
+    const res = deriveLyrics(inst.formant, { ...blankLyricEditor(), text: JIVA_LYRICS }, machine);
     return compositeOp([importBankOp(plan), setLyricsOp(doc.lyricPayloadWith(plan.metaSlot, res.entry))]);
   };
   // Sung from a chip instrument: the first OPL or PSG one, its consonants'
@@ -431,9 +433,6 @@ function createFormant(store, lyric = false) {
   store.undo.apply(withLyrics(plan, record, machine));
   return { firstSlot: plan.metaSlot, count: 1 };
 }
-
-/** What a new lyric instrument sings until it is given words. */
-const DEFAULT_LYRICS = "la";
 
 /**
  * A new OPL instrument (item 209): IMS Studio's starting patch in the first free

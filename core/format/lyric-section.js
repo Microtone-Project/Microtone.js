@@ -21,7 +21,7 @@
 //   S × 12  syllables
 //   …the rest of the L bytes, the EDITOR's: U8 flags · U8 convergence (0…100)
 //           · U8 O · O × (U8 consonant id, U8 timing) · U16 P · P × (U16 syllable,
-//           U8 timing) · the lyrics as written, UTF-8
+//           U8 timing) · [U32 seed, when flags bit 1] · the lyrics as written, UTF-8
 //
 // A syllable: U8 frontness · U8 openness · U8 roundness · U8 flags (bit 0 the
 // syllable has a vowel, bit 1 it is nasalised) · U8 glide/articulations/R (the
@@ -48,12 +48,16 @@ export const LYRIC_VOWEL = 0x01;
 export const LYRIC_NASAL = 0x02;
 /** Editor flags. */
 export const LYRIC_ED_XSAMPA = 0x01;
+/** A U32 seed follows the syllable lengths: the draws of the lyrics' Eri marks
+ *  (item 348, src/doc/jiva.js). Written only for a seed other than 0, so
+ *  lyrics without one keep the layout every earlier version wrote. */
+export const LYRIC_ED_SEED = 0x02;
 /** The editor's convergence towards the median onset runs 0…100 (percent). */
 export const LYRIC_CONVERGE_MAX = 100;
 
 /** An editor's part with nothing set. */
 export function blankLyricEditor() {
-  return { xsampa: false, converge: 0, overrides: [], sylOverrides: [], text: "" };
+  return { xsampa: false, converge: 0, overrides: [], sylOverrides: [], seed: 0, text: "" };
 }
 
 const u16 = (b, o) => b[o] | (b[o + 1] << 8);
@@ -130,6 +134,10 @@ function readEntryBody(b) {
         editor.sylOverrides.push({ index: u16(b, o), timing: b[o + 2] });
       }
     }
+    if ((fl & LYRIC_ED_SEED) !== 0 && o + 4 <= b.length) {
+      editor.seed = u32(b, o);
+      o += 4;
+    }
     editor.text = utf8.decode(b.subarray(Math.min(o, b.length)));
   }
   return { syllables, recipes, editor };
@@ -174,8 +182,9 @@ export function buildLyricEntry(e) {
   const ovr = ed.overrides ?? [];
   const syl = ed.sylOverrides ?? [];
   if (ovr.length > 0xff || syl.length > 0xffff) throw new RangeError("ILyr: too many overrides");
+  const seed = (ed.seed ?? 0) >>> 0;
   const bodyLen = 4 + R * LYRIC_RECIPE_BYTES + S * LYRIC_SYLLABLE_BYTES
-    + 3 + ovr.length * 2 + 2 + syl.length * 3 + text.length;
+    + 3 + ovr.length * 2 + 2 + syl.length * 3 + (seed !== 0 ? 4 : 0) + text.length;
   const out = new Uint8Array(6 + bodyLen);
   const id = e.instId & 0x3ff;
   out[0] = id & 0xff; out[1] = id >>> 8;
@@ -202,7 +211,7 @@ export function buildLyricEntry(e) {
     for (let k = 0; k < 4; k++) out[o + 8 + k] = s.timing[k] & 0xff;
     o += LYRIC_SYLLABLE_BYTES;
   }
-  out[o] = ed.xsampa ? LYRIC_ED_XSAMPA : 0;
+  out[o] = (ed.xsampa ? LYRIC_ED_XSAMPA : 0) | (seed !== 0 ? LYRIC_ED_SEED : 0);
   out[o + 1] = Math.max(0, Math.min(LYRIC_CONVERGE_MAX, ed.converge | 0));
   out[o + 2] = ovr.length;
   o += 3;
@@ -212,6 +221,11 @@ export function buildLyricEntry(e) {
   for (const v of syl) {
     out[o] = v.index & 0xff; out[o + 1] = (v.index >>> 8) & 0xff; out[o + 2] = v.timing & 0xff;
     o += 3;
+  }
+  if (seed !== 0) {
+    out[o] = seed & 0xff; out[o + 1] = (seed >>> 8) & 0xff;
+    out[o + 2] = (seed >>> 16) & 0xff; out[o + 3] = seed >>> 24;
+    o += 4;
   }
   out.set(text, o);
   return out;
@@ -252,6 +266,7 @@ export function cloneLyricEntry(e) {
       xsampa: !!e.editor?.xsampa, converge: e.editor?.converge | 0,
       overrides: (e.editor?.overrides ?? []).map((v) => ({ ...v })),
       sylOverrides: (e.editor?.sylOverrides ?? []).map((v) => ({ ...v })),
+      seed: (e.editor?.seed ?? 0) >>> 0,
       text: e.editor?.text ?? "",
     },
   };

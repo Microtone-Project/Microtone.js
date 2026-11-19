@@ -1046,10 +1046,10 @@ whichever is there.
 
 Built and tested here or on CI's runners, but not yet on the machines that
 matter:
-- Everything new since the last push, on CI: the Linux jobs (22.04, 24.04
+- ~~Everything new since the last push, on CI: the Linux jobs (22.04, 24.04
   natively on Wayland, Fedora), Windows and macOS on Qt 6.11.3, the
   Windows portable copy's notice, and MSVC's build of the ASIO check and
-  RtAudio's two patches.
+  RtAudio's two patches.~~
 - Windows with ASIO drivers (the friend's): the out-of-process checks (the
   log's "tried in a process of its own" lines, the Settings tab's notes) and
   patch 2.
@@ -1057,8 +1057,8 @@ matter:
   dropdown lists), GNOME (the Adwaita title bar), a real GPU under Wayland,
   Ubuntu 23.10+'s sandbox switch, and a real pkexec prompt for a .deb/.rpm
   update.
-- macOS 13+ with the Qt 6.11 build (the older MacBook Air, if it runs 13).
-- Linux: an ALSA card plugged in and out (`/dev/snd`), and a real-time JACK
-  server's thread kept as it is.
-- The earlier app's projects from a real Tauri install on Windows (WebView2)
-  and on macOS.
+- ~~macOS 13+ with the Qt 6.11 build (the older MacBook Air, if it runs 13).~~
+- ~~Linux: an ALSA card plugged in and out (`/dev/snd`), and a real-time JACK
+  server's thread kept as it is.~~
+- ~~The earlier app's projects from a real Tauri install on Windows (WebView2)
+  and on macOS.~~

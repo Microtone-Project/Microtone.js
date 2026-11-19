@@ -108,9 +108,13 @@ test("Taud charset: every tick × letter × accidental round-trips; CJK + escape
     const tok = tk + L + a;
     assert.equal(taudToSymToken(symTokenToTaud(tok)), tok, `token ${JSON.stringify(tok)}`);
   }
-  for (const c of "黃大太夶姑仲蕤林夷南無應") {
+  for (const c of "黃大太夾姑仲蕤林夷南無應") {
     assert.equal(taudToSymToken(symTokenToTaud(c)), c, "Shi'er lü pair");
   }
+  // The fourth lü is 夾 (U+593E), jiāzhōng: its pair is $C6 $C7. 夶 (U+5936) was
+  // a misspelling of it; it is no lü, so it takes the arbitrary-unicode escape.
+  assert.deepEqual(symTokenToTaud("夾"), [0x20, 0xc6, 0xc7]);
+  assert.equal(symTokenToTaud("夶")[1], 0x84);
   assert.equal(taudToSymToken(symTokenToTaud("宮")), "宮", "arbitrary unicode via 0x84 escape");
   // Kite tokens use the compact one-byte accidentals — like taut's own strings.
   assert.deepEqual(symTokenToTaud(".C#"), [0xf9, 0x43, 0x98]);

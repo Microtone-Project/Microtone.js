@@ -185,6 +185,37 @@ script and a rebuild (a width also wants a token in `microtone.css`).
 `test/node/opensans-font.test.js` checks the generated stylesheet against the
 files and the table, and that no page reaches for a font variation.
 
+## Korean: Pretendard and Microtone Hanja
+
+Neither Open Sans nor Motif has Hangul, so Korean used to come out in
+whatever the platform had (or as boxes, in a desktop build on a machine
+without a Korean font). `korean.py` writes `microtone-worker/fonts/korean.css`
+and `korean/`, and every font stack in `microtone.css` names the two families
+right after its own faces; their `unicode-range`s keep them off every other
+character, so nothing but Hangul and ideographs changes face.
+
+- **Pretendard** is NOT rebuilt here: it is its author's own web build (the
+  variable font cut into 92 files by character, npm package `pretendard`
+  1.3.9), copied byte for byte. `korean.py` keeps the 86 files that hold Hangul
+  and narrows each one's range to the Hangul and CJK punctuation in it, so a
+  page fetches only the files for the syllables it shows (2.8 MB in all).
+  Pretendard declares a Reserved Font Name; shipping its own files unmodified
+  keeps that out of question.
+- **Microtone Hanja** is the few ideographs the interface writes (`HANJA` in
+  the script: 十二律, the lü as the notation spells them, a language's own
+  name, a glossed Korean word) cut from Chiron Hei HK, as the lü in Motif
+  are, and kept variable (wght 200…900). Pretendard has no hanja.
+
+```sh
+python3 korean.py                                   # deterministic
+python3 korean.py --pretendard PKG                  # refresh from an unpacked npm package
+python3 korean.py --chiron ChironHeiHKVF.otf        # refresh the hanja cut (a new HANJA)
+```
+
+`test/node/korean-font.test.js` checks the stylesheet against the files, that
+every syllable has exactly one file, and that every ideograph in the app's
+sources is in `HANJA` — a new one fails it until it is added and cut.
+
 ## Licence
 
 The fonts are under the [SIL Open Font License 1.1](OFL.txt), as their sources
@@ -202,7 +233,12 @@ Sources, as copied in on 2026-10-20:
 | `sources/ChironHeiHK-lu.otf` | cut from `ChironHeiHKVF.otf` 2.609 | (original: `6ae76cc51e033a8ba83d13b8261186706b6019a99ecdd8519500b5dda56ab53e`) |
 | `sources/OpenSans-VF.ttf` | `OpenSans[wdth,wght].ttf`, Open Sans 3.003 (google/fonts `ofl/opensans/` at `db398e70ce14`, copied 2026-11-05) | `36643644f318a812aab2d2ed3bb98f8cf0872527f835fe9398d95fe6b9adb878` |
 | `sources/OpenSans-Italic-VF.ttf` | `OpenSans-Italic[wdth,wght].ttf`, 3.003 | `fe269381e992f32e135801740998544d6235061e37c93ec067ad2be3edd5b17b` |
+| `sources/ChironHeiHK-hanja.otf` | cut from the same `ChironHeiHKVF.otf` 2.609 (2026-11-20) | — |
+| `sources/Pretendard-dynamic-subset.css` | `dist/web/variable/pretendardvariable-dynamic-subset.css` of npm `pretendard` 1.3.9 (tarball `0ffc240cee83be02520fb4ac1b2a0a51052b9d13506ade0ba90c591dbbb3bd53`), with the files `microtone-worker/fonts/korean/pretendard/` holds | — |
 
 Open Sans is © 2020 The Open Sans Project Authors under the OFL 1.1
 (`sources/OpenSans-OFL.txt`, shipped as `microtone-worker/fonts/open-sans/OFL.txt`),
-with no Reserved Font Name.
+with no Reserved Font Name. Pretendard is © 2021 Kil Hyung-jin under the OFL
+1.1 **with Reserved Font Name Pretendard** (`sources/Pretendard-OFL.txt`,
+shipped as `microtone-worker/fonts/korean/pretendard/OFL.txt`); we ship its
+files unmodified.

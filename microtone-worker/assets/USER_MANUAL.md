@@ -2232,6 +2232,55 @@ chosen from the range, as it is for any formant instrument, and chosen again
 when the range changes. Any formant instrument can be given lyrics there, with
 **Sing lyrics…**, starting from the syllable it says.
 
+#### Jiva: gibberish lyrics
+
+A lyric instrument can sing words that are not words. **Jiva** leaves a
+syllable, or part of one, to be **drawn** rather than written, with three
+marks (its notation, **Eri**):
+
+| Written | Sings |
+|---|---|
+| `*` | a whole syllable drawn: onset, vowel and coda |
+| `(` | a drawn onset and vowel (an open syllable) |
+| `)` | a drawn vowel and coda, with no onset |
+| `(a` | a drawn onset before your [a] |
+| `(a)` | a drawn onset, your [a], a drawn coda |
+| `a)` | your [a] and a drawn coda |
+| `(ak` | a drawn onset before your [ak] |
+| `ka)` | your [ka] and a drawn coda |
+
+A bracket stands where the part it draws would be, so what is between the
+brackets is a vowel with, at most, the part the brackets leave alone: `(pa`
+is refused, as [p] and `(` both claim the onset. The marks mix freely with
+written syllables, in IPA or in X-SAMPA: `a.(.(.*.( | *.(.).(`. They are on
+the IPA keyboard, under **Drawn**. A new lyric instrument starts with three
+lines of them, to sing until you give it words:
+
+```
+a.(.(.*.( | *.(.).(
+d͡ʒɪ.va.ɛ.ɾɪ.ɸʊ
+*.*.( | (.(.(.* | *.(
+```
+
+The drawn sounds come from these, the more common at the left; a cluster is
+drawn about one onset in seven:
+
+| Part | Drawn from |
+|---|---|
+| Onset | [t] [k] [m] [n] [l] [s] [d] [ɾ] [v] [p] [b] [ɡ] [f] [j] [r] [z] [θ] [ð] [x] [ʃ] [d͡ʒ] [t͡ʃ] [h] [w] [ɣ] [ʒ] [ɸ] [β], and the clusters [pɾ] [tɾ] [kɾ] [dɾ] [ɡɾ] [fɾ] [θɾ] [pl] [kl] [ɡl] [fl] [st] [sp] [sk] [sm] |
+| Vowel | [a] [i] [o] [e] [u] [ɛ] [ɔ] [ɪ] [ʊ] |
+| Coda | [n] [s] [m] [l] [ɾ] [k] [t] [ŋ] [r] |
+
+**A draw is not a dice roll each time.** The same lyrics sing the same
+syllables every time, on every computer, until you ask for others: while
+the lyrics have a mark, **Draw** shows the number of the draw they sing
+(0 to begin with) and **Draw again** draws every mark anew — undo brings the
+last draw back, and typing a number you noted brings that one. Each syllable
+is drawn on its own, by its place in the lyrics: editing one leaves the
+others as they were (as long as they keep their places), and writing a vowel
+into a `(` keeps the onset it drew. Under **Syllables**, a syllable with drawn
+parts is underlined with dots, spelt as it is sung.
+
 ### Duplicating an instrument
 
 The **Duplicate** button beside an instrument's name copies it into the lowest

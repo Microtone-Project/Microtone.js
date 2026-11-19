@@ -72,7 +72,7 @@ const TAUD_TO_ACC1 = Object.fromEntries(
   Object.entries(ACC1_TO_TAUD).map(([k, v]) => [v, k]));
 
 // Shi'er lü glyph pairs 0xC0C1.. in file order (matches preset 10123's sym).
-const CJK_LU = "黃大太夶姑仲蕤林夷南無應";
+const CJK_LU = "黃大太夾姑仲蕤林夷南無應";
 
 export const FALLBACK_SYM = " ?-";
 

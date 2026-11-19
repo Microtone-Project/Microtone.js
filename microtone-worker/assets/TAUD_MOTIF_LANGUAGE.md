@@ -481,7 +481,7 @@ instrument AIR  { formant: { onset: [{ consonant: "s", tilt: 40 }], vowel: [255,
 
 **Lyric instruments.** `lyrics` makes a formant instrument a **lyric instrument**: it sings its lyrics one syllable a note, as the Instruments view's Lyrics tab has it sing them. Its `formant` record — which may then be left out, for one sung from a saw — says only what every syllable shares: `source`, `size_follows_pitch`, `reference`, `vowel_glide`, and `consonant_length`, the base every consonant is timed from. Each syllable says the rest, so the record's own syllable fields (`syl_ipa`, `onset`, `vowel` and the others) are an error beside `lyrics`.
 
-`lyrics` is the text in the IPA, or a list of strings that are read one after another, or a record. Syllables are separated by spaces, full stops, hyphens, commas or bars, and the stress marks begin one. Each is read as a formant instrument's syllable is (above), with one difference: a syllable with no vowel needs no syllabic mark, so `"n"` is [n̩] and `"s"` a held [s]. A syllable that cannot be read stops the build, which names it, counting from 0. As a record:
+`lyrics` is the text in the IPA, or a list of strings that are read one after another, or a record. Syllables are separated by spaces, full stops, hyphens, commas or bars, and the stress marks begin one. Each is read as a formant instrument's syllable is (above), with one difference: a syllable with no vowel needs no syllabic mark, so `"n"` is [n̩] and `"s"` a held [s]. A syllable may leave parts of itself to be drawn, as in the Lyrics tab: `*` is a whole syllable drawn, `(` before a vowel a drawn onset, `)` after one a drawn coda, and with nothing between the brackets the vowel is drawn too (`"a.(.(.*.( | *.(.).("`). What can be drawn, and how, is the User Manual's ([Jiva](USER_MANUAL.md#jiva-gibberish-lyrics)); the draw is the `seed`'s, so the same program builds the same syllables. A syllable that cannot be read stops the build, which names it, counting from 0. As a record:
 
 | Field | Default | |
 |---|---|---|
@@ -489,6 +489,7 @@ instrument AIR  { formant: { onset: [{ consonant: "s", tilt: 40 }], vowel: [255,
 | `sampa` | — | The same in X-SAMPA, where `"` and `%` begin a syllable as the stress marks do. One of the two, not both |
 | `towards_median` | 0 | How far, 0–1, each syllable's onset (its consonants and glide, up to the vowel) is drawn towards the lyrics' median onset, shortened or lengthened. At 1 every vowel begins the same time after its note, and the vowels fall on the beat together |
 | `consonant_lengths` | — | A record of consonants, written in the lyrics' alphabet, each given a length that scales the base as `consonant_length` does (0.25–3.96): `{ "s": 1.5, "t͡ʃ": 0.8 }`. Each must be a consonant the lyrics say |
+| `seed` | 0 | Which draw the lyrics' `*`, `(` and `)` sing, 0–4294967295: the Lyrics tab's **Draw**. The lyrics' own, not the song's (§10), so a song's seed never changes its words |
 | `syllable_lengths` | — | A list of `[syllable, length]` pairs, syllables counted from 0: every consonant of that syllable scaled by the length, and the syllable left out of `towards_median`, as a run of foreign words keeps its own pace |
 
 ```
@@ -1728,6 +1729,7 @@ Additions that leave every program building as it did:
 | 2026-10-29 | The transient shaper in a mixing chain, `transient_shaper_1`, and the expander / gate, `expander` (§7.7) |
 | 2026-11-04 | `chord_line`, a melody or bass line made from a chord progression (§8.8; TML 2) |
 | 2026-11-05 | Lyric instruments, `lyrics` (§7.3) |
+| 2026-11-20 | Drawn syllables in `lyrics` (`*`, `(`, `)`) and the lyrics' `seed` (§7.3) |
 
 Changes to what a TML 2 program builds (a TML 1 program builds as it did):
 

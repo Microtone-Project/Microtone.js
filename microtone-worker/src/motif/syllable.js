@@ -277,7 +277,8 @@ const IPA_TO_XSAMPA = (() => {
 /**
  * IPA text → X-SAMPA, character for character: {text, ok}. Whatever the
  * table does not know (a space, a hyphen, a symbol no formant instrument has)
- * is kept as it is, and `ok` is false when that was anything but a separator.
+ * is kept as it is, and `ok` is false when that was anything but a separator
+ * or one of Eri's marks * ( ), which both notations share.
  */
 export function ipaToXsampa(text) {
   let out = "";
@@ -287,7 +288,7 @@ export function ipaToXsampa(text) {
     const hit = IPA_TO_XSAMPA.find(([ipa]) => text.startsWith(ipa, i));
     if (hit) { out += hit[1]; i += hit[0].length; continue; }
     const ch = text[i];
-    if (!/[\s\-,|]/u.test(ch)) ok = false;
+    if (!/[\s\-,|*()]/u.test(ch)) ok = false;  // a break, or one of Jiva's marks (doc/jiva.js)
     out += ch;
     i++;
   }

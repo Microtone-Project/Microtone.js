@@ -37,6 +37,7 @@ import { chainOf } from "./chain.js";
 import { readIpaSyllable, xsampaToIpa, consonantId, vowelOf } from "./syllable.js";
 import { FormantPatch, SEMIVOWELS, CONSONANTS, FORMANT_DEFAULT_REF } from "../../core/engine/formant.js";
 import { readLyrics, timingByteOf } from "../doc/lyrics.js";
+import { JIVA_SEED_MAX } from "../doc/jiva.js";
 import { fitOffset, splitOffset, splitNote, OFFSET_EXT_MIN, OFFSET_EXT_MAX } from "../doc/pitchedit.js";
 import { LYRIC_MAX_SYLLABLES, LYRIC_CONVERGE_MAX } from "../../core/format/lyric-section.js";
 
@@ -150,6 +151,7 @@ const FORMANT_SYLLABLE = ["syl_ipa", "syl_sampa", "onset", "coda", "vowel", "fro
 // A lyric instrument's lyrics, in the Lyrics tab's words.
 const LYRICS = {
   ipa: any, sampa: any, towards_median: num(0, 1), consonant_lengths: any, syllable_lengths: any,
+  seed: int(0, JIVA_SEED_MAX),
 };
 /** A consonant's or a syllable's length, as a scale of the base: what a
  *  timing byte holds (2^((b − 128) ÷ 64), b 0…255). */
@@ -636,7 +638,8 @@ export class Score {
       if (typeof v !== "string" && !Array.isArray(v)) throw fail(`${what} is the lyrics: a string of syllables in the IPA, a list of them, or a record ({ ipa: …, sampa: …, … })`);
       text = textOf(v, what);
     }
-    const { syllables, errors } = readLyrics(text, xsampa);
+    const seed = o.seed ?? 0;
+    const { syllables, errors } = readLyrics(text, xsampa, seed);
     if (errors.length) {
       const e = errors[0];
       throw fail(`${what}: syllable ${e.index} ("${e.text}") — ${e.message}`);
@@ -675,7 +678,7 @@ export class Score {
     }
     return {
       text, xsampa, converge: Math.round((o.towards_median ?? 0) * LYRIC_CONVERGE_MAX),
-      overrides, sylOverrides,
+      overrides, sylOverrides, seed,
     };
   }
 

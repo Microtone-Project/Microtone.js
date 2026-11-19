@@ -13,6 +13,12 @@
  * files at three named widths, so 86.67 and 96 never reached it. Geist (the
  * wordmark) still comes from Google Fonts: weights it serves to every agent. */
 @import url("../fonts/open-sans.css");
+/* Korean (fonts/korean.css, design-system/fonts/korean.py): Pretendard for
+ * Hangul and the CJK punctuation, and "Microtone Hanja" for the few ideographs
+ * the interface writes (十二律). Every stack below names both, right after its
+ * own faces; their unicode-ranges keep them off every other character, and a
+ * page fetches only the Pretendard files holding the syllables it shows. */
+@import url("../fonts/korean.css");
 @import url('https://fonts.googleapis.com/css2?family=Geist:wght@400..900&display=swap');
 
 /* ── MOTIF: Microtone's own faces (design-system/fonts, item 220) ────────
@@ -531,17 +537,18 @@
  *   --code-font       Motif Code: the Motif editor and its panels, the
  *                     manual's code.
  * Motif Mono carries every character Chivo Mono has, so it stands behind
- * Grid and Transport for the odd one they leave out (ƒ, ‥, –); past it, the
- * platform's own monospace (Hangul, mostly). */
+ * Grid and Transport for the odd one they leave out (ƒ, ‥, –). Hangul, in
+ * every stack, is Pretendard and the odd ideograph Microtone Hanja (the
+ * fonts/korean.css); past them, the platform's own fonts. */
 :root {
-  --ui-font: "Open Sans W87", sans-serif;
-  --ui-small-font: "Open Sans W96", sans-serif;
-  --ui-full-font: "Open Sans W100", sans-serif;
-  --ui-condensed-font: "Open Sans W75", sans-serif;
-  --cv-font: "Motif Grid", "Motif Mono", ui-monospace, "Cascadia Mono", "DejaVu Sans Mono", monospace;
-  --mono-font: "Motif Mono", ui-monospace, "Cascadia Mono", "DejaVu Sans Mono", monospace;
-  --transport-font: "Motif Transport", "Motif Mono", ui-monospace, "Cascadia Mono", "DejaVu Sans Mono", monospace;
-  --code-font: "Motif Code", ui-monospace, "Cascadia Mono", "DejaVu Sans Mono", monospace;
+  --ui-font: "Open Sans W87", "Pretendard", "Microtone Hanja", sans-serif;
+  --ui-small-font: "Open Sans W96", "Pretendard", "Microtone Hanja", sans-serif;
+  --ui-full-font: "Open Sans W100", "Pretendard", "Microtone Hanja", sans-serif;
+  --ui-condensed-font: "Open Sans W75", "Pretendard", "Microtone Hanja", sans-serif;
+  --cv-font: "Motif Grid", "Motif Mono", "Pretendard", "Microtone Hanja", ui-monospace, "Cascadia Mono", "DejaVu Sans Mono", monospace;
+  --mono-font: "Motif Mono", "Pretendard", "Microtone Hanja", ui-monospace, "Cascadia Mono", "DejaVu Sans Mono", monospace;
+  --transport-font: "Motif Transport", "Motif Mono", "Pretendard", "Microtone Hanja", ui-monospace, "Cascadia Mono", "DejaVu Sans Mono", monospace;
+  --code-font: "Motif Code", "Pretendard", "Microtone Hanja", ui-monospace, "Cascadia Mono", "DejaVu Sans Mono", monospace;
 }
 
 /* ── SHAPE AND WEIGHT ──────────────────────────────────────────────────
@@ -2800,6 +2807,10 @@ button.nota-assign { font-size: 0.85rem; }
 .lyr-syl.own { border-color: var(--meter); }
 .lyr-syl.own .lyr-syl-ms { color: var(--meter); }
 .lyr-syl.picked { background: var(--cv-sel); box-shadow: inset 0 0 0 1px var(--fg2); }
+/* Jiva: a syllable Eri drew some of, its draw number and the sample lyrics. */
+.lyr-syl.drawn .lyr-syl-ipa { text-decoration: underline dotted var(--dim); text-underline-offset: 0.2em; }
+.lyr-draw .sl-num { width: 8.5em; }
+.lyr-draw-again { margin-left: 0.4rem; }
 .lyr-pick { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; max-width: 560px; }
 .lyr-pick .slider-row { flex: 1 1 22rem; }
 .lyr-cons-box .lyr-pal-head { margin-top: 0.2rem; }

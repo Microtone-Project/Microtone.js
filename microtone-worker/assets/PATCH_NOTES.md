@@ -4,6 +4,21 @@ Every entry below is one version of Microtone, newest first, with the date it wa
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone-project/Microtone.js).
 
+## Version 5.1.0 (2026-11-20)
+
+**Lyric instruments can sing gibberish**: a syllable of the lyrics can leave its sounds to be drawn — `*` a whole syllable, `(` its onset, `)` its coda — so a voice sings words that sound like a language and are not one.
+
+- Write `*` for a syllable drawn whole, `(` for a drawn onset and vowel, `)` for a drawn vowel and coda, or put the brackets around a vowel of your own: `(a`, `ka)`, `(a)`. They mix freely with written syllables, in IPA or X-SAMPA, and are on the IPA keyboard under Drawn.
+- The draw is not a dice roll each time: the same lyrics sing the same syllables every time and on every computer. Draw shows which draw the lyrics sing, Draw again draws every mark anew, and undo brings the last draw back.
+- Editing one syllable leaves the others' draws alone, and writing a vowel into a `(` keeps the onset it drew.
+- A new lyric instrument now starts with three lines of gibberish, most of it drawn, instead of a lone [la].
+- Motif's `lyrics` read the same marks, with a `seed` for the draw.
+
+**Korean text has a typeface of its own**: the interface now shows Hangul in Pretendard, which comes with Microtone, rather than in whatever font your system has — or as empty boxes where it has none.
+
+- Only the Hangul and the Korean punctuation change face; everything else looks as it did, and a page loads just the part of the font holding the syllables it shows.
+- The few Chinese characters the interface writes, such as 十二律 in the Shi'er lü keymap's name, come with it too.
+
 ## Version 5.0.5 (2026-11-17)
 
 **MIDI import keeps drum kits in tune, uses up to 64 lanes, and can play through your own soundfonts**: a song that sends a pitch bend to its drum part no longer detunes the whole kit.

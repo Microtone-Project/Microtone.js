@@ -1,7 +1,8 @@
 // A lyric instrument's lyrics, as written → its `ILyr` entry (item 280).
 //
 // The lyrics are text: syllables in IPA (or X-SAMPA), one a note, separated by
-// a space, a full stop or a hyphen — "de.zi.de.zi gim.mi". Each is read as a
+// a space, a full stop or a hyphen — "de.zi.de.zi gim.mi" — any of them with
+// parts left to be drawn, in Jiva's Eri notation ("(a.*.ko)", jiva.js). Each is read as a
 // formant instrument's syllable is (motif/syllable.js), leniently: a syllable
 // with no vowel holds its consonant in the vowel's place without the syllabic
 // mark ("n" is [n̩]). What the record holds is shared: the source, the pool
@@ -33,6 +34,7 @@ import {
 import { LYRIC_MAX_SYLLABLES, LYRIC_MAX_RECIPES, LYRIC_CONVERGE_MAX } from "../../core/format/lyric-section.js";
 import { readIpaSyllable, xsampaToIpa } from "../motif/syllable.js";
 import { isNoPoolRange } from "./formantedit.js";
+import { expandEri } from "./jiva.js";
 import { poolSpan } from "./formantrecipe.js";
 
 /** What separates syllables: white space, a full stop (IPA's and X-SAMPA's
@@ -59,18 +61,20 @@ export function lyricTokens(text, xsampa = false) {
 }
 
 /**
- * Read the lyrics: {syllables: [{ipa, syl}], errors: [{index, at, text, message}]}
+ * Read the lyrics: {syllables: [{ipa, syl, drawn}], errors: [{index, at, text, message}]}
  * — `syl` as readIpaSyllable gives it, `ipa` the syllable in IPA (an X-SAMPA
- * one converted).
+ * one converted), `drawn` true where Eri's marks drew some of it (jiva.js),
+ * from `seed`.
  */
-export function readLyrics(text, xsampa = false) {
+export function readLyrics(text, xsampa = false, seed = 0) {
   const syllables = [];
   const errors = [];
   lyricTokens(text, xsampa).forEach((tok, index) => {
     try {
-      const ipa = xsampa ? xsampaToIpa(tok.text, `[${tok.text}]`) : tok.text;
+      const eri = expandEri(tok.text, index, seed, xsampa);
+      const ipa = eri ?? (xsampa ? xsampaToIpa(tok.text, `[${tok.text}]`) : tok.text);
       const syl = readIpaSyllable(ipa, `[${ipa}]`, { lenient: true });
-      syllables.push({ ipa, syl });
+      syllables.push({ ipa, syl, drawn: eri !== null });
     } catch (err) {
       if (!err || err.name !== "MotifError") throw err;
       errors.push({ index, at: tok.at, text: tok.text, message: err.message });
@@ -231,14 +235,15 @@ export function lyricRange(doc, f) {
  * The lyrics → an `ILyr` entry for the formant instrument whose decoded patch
  * is `rec` (a FormantPatch: the record as it stands): {entry, errors, median,
  * natural}. `editor` is {text, xsampa, converge (0…100), overrides: [{cons,
- * timing}], sylOverrides: [{index, timing}]}; `natural` is each syllable's
+ * timing}], sylOverrides: [{index, timing}], seed (Eri's draws, jiva.js)}; `natural` is each syllable's
  * onset in ms before the convergence and its own override. `machine`
  * a FormantMachine over the record's range, or null (every consonant on the
  * noise generator). With an error — a syllable that cannot be read, or none
  * at all — `entry` is null and nothing should be applied.
  */
 export function deriveLyrics(rec, editor, machine = null) {
-  const { syllables: read, errors } = readLyrics(editor.text ?? "", !!editor.xsampa);
+  const seed = (editor.seed ?? 0) >>> 0;
+  const { syllables: read, errors } = readLyrics(editor.text ?? "", !!editor.xsampa, seed);
   if (errors.length > 0 || read.length === 0) {
     return { entry: null, errors, median: 0, natural: [], count: read.length };
   }
@@ -283,7 +288,7 @@ export function deriveLyrics(rec, editor, machine = null) {
     syllables,
     recipes,
     editor: {
-      text: editor.text ?? "", xsampa: !!editor.xsampa, converge,
+      text: editor.text ?? "", xsampa: !!editor.xsampa, converge, seed,
       overrides: [...over].sort((a, b) => a[0] - b[0]).map(([cons, timing]) => ({ cons, timing })),
       sylOverrides: [...sylOver].sort((a, b) => a[0] - b[0]).map(([index, timing]) => ({ index, timing })),
     },

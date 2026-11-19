@@ -1784,15 +1784,18 @@ What follows the syllables is the lyrics as an editor keeps them, to edit them a
 
 | Type | Field |
 |---|---|
-| `U8` | Bit 0: the lyrics are written in X-SAMPA rather than IPA. Bits 1…7 **RESERVED** |
+| `U8` | Bit 0: the lyrics are written in X-SAMPA rather than IPA. Bit 1: a seed follows the syllable lengths. Bits 2…7 **RESERVED** |
 | `U8` | The **convergence**, 0…100: how far, in percent, each syllable's onset is drawn towards the lyrics' median onset |
 | `U8` | `O`, the number of consonant lengths that follow |
 | 2 bytes × `O` | A consonant id and its timing byte: that consonant's own length, read as a syllable's timing byte is |
 | `U16` | `P`, the number of syllable lengths that follow |
 | 3 bytes × `P` | A `U16` syllable index (0 = the first) and a timing byte: that syllable's own length, which the convergence leaves alone |
+| `U32` | Only with bit 1 set: the **seed** the lyrics' drawn parts are drawn from (below). Absent, the seed is 0 |
 | `Byte[*]` | The lyrics as written, UTF-8, to the end of the entry |
 
 Microtone writes the lyrics as syllables separated by spaces, full stops or hyphens, and derives the rest from them: each consonant at its own length, then every onset (its consonants and glide) moved towards the median of the onsets — of the syllables that have one and no length of their own — by the convergence, shortened or lengthened, and last each syllable with a length of its own scaled by it. A missing or short editor's part is lyrics no editor wrote, which play the same.
+
+A syllable of the lyrics may leave parts of itself to be **drawn**: `*` is a whole syllable drawn, `(` before it a drawn onset, `)` after it a drawn coda, and with nothing between the brackets the vowel is drawn too (`(`, `)`, `(a`, `ka)`, `(a)`). Microtone draws them from the seed, keyed by the syllable's place and the part, out of tables of its own (the [User Manual](USER_MANUAL.md#jiva-gibberish-lyrics) lists them), and writes the syllables it drew; a player sings those syllables as it sings any. A writer sets bit 1 only for a seed other than 0, so lyrics with no seed keep the layout they always had.
 
 ### 9.18 `IPit` — pitch extensions
 
@@ -1919,3 +1922,4 @@ A writer producing a file that any conforming reader will accept must satisfy al
 | 2026-11-13 | Easy Mode: an operator's **multiplier** is written into its ratio with the `IPit` extension, `4096 × log₂ m` to the sixteenth of a unit, and read back as the nearest multiplier plus a detune; the oscillator's **harmonic** stays readable but is no longer written |
 | 2026-11-14 | Reorganised, no byte changing meaning: pitch is described as 65536-TET throughout — a note word is a pitch's top sixteen bits, and a sixteen-bit pitch field or effect argument counts in note-word units, sixteen steps each; the 16-byte cell is [§5.1](#5-1-the-pattern-cell), "The pattern cell" (it was "Format version 3 — the wide cell"), and the 8-byte cell of versions 1 and 2 is [§5.2](#5-2-legacy-format-the-8-byte-cell), the legacy format |
 | 2026-11-17 | `sLan` — lane settings ([§9.19](#9-19-slan-lane-settings)): per-song, per-lane editor settings in self-sized records (a lane count up to 256 and a record size), the first field whether a lane shows its second effect column. A player ignores it |
+| 2026-11-20 | `ILyr`: the editor's part's bit 1 and its **seed**, from which an editor draws the parts of the lyrics written to be drawn (`*`, `(`, `)`); players are unaffected |

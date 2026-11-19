@@ -115,7 +115,8 @@ test("the ILyr codec round-trips an entry, the editor's tail included", () => {
   const e = entry(LYRICS, [{ cons: id("z"), ptr: 0x123456, len: 4000, offset: 12, rate: 22050, tilt: -32, gain: 7 }]);
   e.editor = {
     xsampa: true, converge: 65, overrides: [{ cons: id("s"), timing: 150 }],
-    sylOverrides: [{ index: 1, timing: 90 }, { index: 300, timing: 200 }], text: "de.zi gim.mi — 가사",
+    sylOverrides: [{ index: 1, timing: 90 }, { index: 300, timing: 200 }], seed: 0xdeadbeef,
+    text: "de.zi gim.mi — 가사",
   };
   e.syllables[1].nasal = true;
   e.syllables[2].vowel = false;

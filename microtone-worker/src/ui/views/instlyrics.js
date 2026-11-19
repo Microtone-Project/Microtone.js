@@ -6,7 +6,11 @@
 // the source, how the formants follow pitch, the base consonant length, the
 // vowel glide. This tab holds what differs:
 //
-//   Lyrics            the text, in IPA or X-SAMPA, under an IPA keyboard; read
+//   Lyrics            the text, in IPA or X-SAMPA, under an IPA keyboard — any
+//                     syllable of it with parts left to be drawn, in Jiva's Eri
+//                     notation (* ( ), jiva.js), the draw numbered and redrawn
+//                     on a click (a new lyric instrument starts with three
+//                     lines of it, jiva.js JIVA_LYRICS); read
 //                     as it is typed (the count, or the first syllable that
 //                     cannot be read) and applied when the box is left or on
 //                     Ctrl+Enter — a half-typed word never reaches playback.
@@ -31,6 +35,7 @@ import {
   deriveLyrics, readLyrics, lyricRange, onsetMs, lyricTokens, remapSyllableOverrides,
 } from "../../doc/lyrics.js";
 import { ipaToXsampa, xsampaToIpa } from "../../motif/syllable.js";
+import { eriOf, hasEri, nextSeed, JIVA_SEED_MAX } from "../../doc/jiva.js";
 import { VOWEL_MARKS, SECONDARY_MARKS, syllabicIpa } from "../../doc/formantedit.js";
 import { CONSONANTS, CONSONANT_LIST, SEMIVOWELS, timingScale } from "../../../core/engine/formant.js";
 import { TOTAL_VOICES } from "../../../core/engine/constants.js";
@@ -45,9 +50,6 @@ function el(tag, cls, text) {
   if (text !== undefined) e.textContent = text;
   return e;
 }
-
-/** What a lyric instrument starts with: one syllable, [la]. */
-export const DEFAULT_LYRICS = "la";
 
 /** Text typed and not yet applied, per document and slot — kept across the
  *  panel's rebuilds (an edit elsewhere, playback), dropped once applied. */
@@ -85,6 +87,13 @@ function paletteGroups() {
       ],
     },
     { label: t("lyr.palBreaks"), keys: [{ text: ".", title: t("lyr.breakSyllable") }, { text: " ", label: "␣", title: t("lyr.breakWord") }] },
+    {
+      label: t("lyr.palEri"),
+      keys: [
+        { text: "*", title: t("lyr.eriWhole") }, { text: "(", title: t("lyr.eriOnset") },
+        { text: ")", title: t("lyr.eriCoda") },
+      ],
+    },
   ];
 }
 
@@ -163,7 +172,8 @@ export function renderLyricsTab(view, inst) {
   status.setAttribute("aria-live", "polite");
   const paintStatus = () => {
     const text = area.value;
-    const { syllables, errors } = readLyrics(text, xsampa);
+    // A draft is read with the draw in use, as it will be applied.
+    const { syllables, errors } = readLyrics(text, xsampa, edNow().seed);
     status.classList.toggle("bad", errors.length > 0 || syllables.length === 0);
     status.onclick = null;
     if (errors.length > 0) {
@@ -175,7 +185,9 @@ export function renderLyricsTab(view, inst) {
       status.textContent = t("lyr.empty");
     } else {
       const pending = text !== ed.text || xsampa !== ed.xsampa;
-      status.textContent = t(pending ? "lyr.countPending" : "lyr.count", { n: syllables.length });
+      const drawn = syllables.filter((x) => x.drawn).length;
+      status.textContent = t(pending ? "lyr.countPending" : drawn > 0 ? "lyr.countDrawn" : "lyr.count",
+        { n: syllables.length, d: drawn });
     }
   };
   const apply = () => {
@@ -220,14 +232,28 @@ export function renderLyricsTab(view, inst) {
   palBox.append(palHead, palette.element);
   makeFoldable(palBox, { head: palHead, body: palette.element, name: palName, key: "lyrics-ipa-keyboard", label: t("lyr.paletteFold") });
   palBox.hidden = xsampa;
-  view.group(t("lyr.grpLyrics"), notationRow, textWrap, status, palBox);
+
+  // Jiva: the draw the lyrics' * ( ) make — shown while they have any.
+  const drawRows = [];
+  if (hasEri(ed.text)) {
+    const seedRow = view.numRow(t("lyr.seed"), ed.seed ?? 0, 0, JIVA_SEED_MAX,
+      (v) => commit({ ...edNow(), seed: v }), { title: t("lyr.seedTitle") });
+    const again = el("button", "lyr-draw-again", t("lyr.drawAgain"));
+    again.type = "button";
+    again.title = t("lyr.drawAgainTitle");
+    again.addEventListener("click", () => commit({ ...edNow(), seed: nextSeed(edNow().seed ?? 0) }));
+    seedRow.appendChild(again);
+    seedRow.classList.add("lyr-draw");
+    drawRows.push(seedRow);
+  }
+  view.group(t("lyr.grpLyrics"), notationRow, textWrap, status, ...drawRows, palBox);
 
   // ── Consonant length ──
   // What the lyrics come to before the convergence and the syllables' own
   // lengths (`natural`), and the median the convergence draws towards.
   const plan = deriveLyrics(rec, ed, null);
   const natural = plan.natural;
-  const read = readLyrics(ed.text, ed.xsampa).syllables;
+  const read = readLyrics(ed.text, ed.xsampa, ed.seed).syllables;
   const used = new Set();
   for (const { syl } of read) {
     for (const c of [...syl.onset, syl.coda]) if (c) used.add(c);
@@ -290,6 +316,8 @@ export function renderLyricsTab(view, inst) {
     const ms = el("span", "lyr-syl-ms");
     li.append(el("span", "lyr-syl-n", String(i + 1)), el("span", "lyr-syl-ipa ipa", ipa), ms);
     li.dataset.ipa = ipa;
+    // A syllable some of whose parts Eri drew (jiva.js).
+    if (read[i]?.drawn) li.classList.add("drawn");
     li.addEventListener("click", (e) => {
       const r = pickedRange();
       if (e.shiftKey && pick) setPick({ anchor: pick.anchor, focus: i });
@@ -318,7 +346,8 @@ export function renderLyricsTab(view, inst) {
       const on = !!r && i >= r[0] && i <= r[1];
       li.classList.toggle("picked", on);
       li.setAttribute("aria-selected", String(on));
-      li.title = t("lyr.syllableTitle", { n: i + 1, ipa: li.dataset.ipa, ms: Math.round(len) });
+      li.title = t(li.classList.contains("drawn") ? "lyr.syllableDrawnTitle" : "lyr.syllableTitle",
+        { n: i + 1, ipa: li.dataset.ipa, ms: Math.round(len) });
     });
   }
 
@@ -440,11 +469,16 @@ function scrollToMark(live) {
   live.back.scrollTop = a.scrollTop;
 }
 
-/** X-SAMPA text → IPA, syllable by syllable, the breaks kept; a syllable that
- *  cannot be read is kept as it was typed. */
+/** X-SAMPA text → IPA, syllable by syllable, the breaks and Eri's marks kept;
+ *  a syllable that cannot be read is kept as it was typed. */
 function toIpa(text) {
   return text.split(/([\s.\-,|"%]+)/u).map((p) => {
     if (p === "" || /^[\s.\-,|"%]+$/u.test(p)) return p;
-    try { return xsampaToIpa(p); } catch { return p; }
+    try {
+      const e = eriOf(p);
+      if (e === null) return xsampaToIpa(p);
+      if (p === "*") return p;
+      return (e.onset ? "(" : "") + (e.middle ? xsampaToIpa(e.middle) : "") + (e.coda ? ")" : "");
+    } catch { return p; }
   }).join("");
 }

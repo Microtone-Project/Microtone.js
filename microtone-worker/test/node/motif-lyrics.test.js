@@ -57,6 +57,7 @@ test("lyrics are the entry the Lyrics tab derives from the same text and setting
     text: "la la l_jA", xsampa: true, converge: 50,
     overrides: [{ cons: chorus.editor.overrides[0].cons, timing: 128 + 37 }], // 64·log2 1.5 = 37.4
     sylOverrides: [{ index: 2, timing: 128 - 33 }],                          // 64·log2 0.7 = −32.9
+    seed: 0,
   });
   const f = back.instruments[I.CHORUS].formant;
   assert.equal(f.srcInst, I.BUZZ, "sung from the PSG");
@@ -135,4 +136,17 @@ test("lyrics say what is wrong with them", async () => {
   await fails(`instrument V { lyrics: { ipa: "la", consonant_lengths: { "l": 9 } } }`, /0\.25…/);
   await fails(`instrument V { lyrics: { ipa: "la la", syllable_lengths: [[2, 1]] } }`, /no syllable 2 \(the lyrics have 2, from 0\)/);
   await fails(`instrument V { lyrics: { ipa: "la", towards_median: 2 } }`, /towards_median must be 0…1/);
+});
+
+test("Jiva: lyrics with drawn parts build with their seed, as the Lyrics tab draws them", async () => {
+  const src = SONG.replace(`lyrics: "twɪŋ.kəl twɪŋ.kəl lɪ.təl stɑɹ"`, `lyrics: { ipa: "a.(.(.*.( | *.(.).(", seed: 1234 }`);
+  const { back, I } = await build(src);
+  const verse = back.lyricEntry(I.VERSE);
+  assert.equal(verse.editor.seed, 1234);
+  assert.equal(verse.syllables.length, 9);
+  const want = deriveLyrics(back.instruments[I.VERSE].formant, { ...blankLyricEditor(), text: "a.(.(.*.( | *.(.).(", seed: 1234 }, null);
+  assert.deepEqual(verse.syllables, want.entry.syllables);
+  const again = await build(src);
+  assert.deepEqual(again.back.lyricEntry(again.I.VERSE).syllables, verse.syllables, "the same program builds the same draw");
+  await assert.rejects(build(src.replace("seed: 1234", "seed: -1")), /seed must be 0…4294967295/);
 });
