@@ -95,8 +95,14 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   src("projects/c.taud", "C1");
   src("projects/d.taud", "D1");
   src("projects/e.taud", "E1");
-  src("projects/bad:name?.taud", "BAD");
-  src("projects/con.taud", "CON");
+  // A WebKit store on Windows is never real (the earlier app used WebView2
+  // there), and NTFS cannot hold these names in a folder: the Chromium leg
+  // below checks them on every system.
+  const unportableHere = process.platform === "win32";
+  if (!unportableHere) {
+    src("projects/bad:name?.taud", "BAD");
+    src("projects/con.taud", "CON");
+  }
   mkdirSync(join(fs, "projects", "Empty folder"), { recursive: true });
   src("soundfonts/s.taud.sf2.gz", "S1");
   src("soundfonts/index.json", JSON.stringify({ "s.taud.sf2.gz": { notes: "old app's" }, "t.taud.sf2.gz": { notes: "t" } }));
@@ -112,13 +118,13 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
     "the app's origin is found, not the dev server's");
 
   let c = copy();
-  check(same(c, { projects: 6, soundfonts: 1, keymaps: 1, beside: 2, failed: 0 }), `first copy: ${JSON.stringify(c)}`);
+  check(same(c, { projects: unportableHere ? 4 : 6, soundfonts: 1, keymaps: 1, beside: 2, failed: 0 }), `first copy: ${JSON.stringify(c)}`);
   check(text(dst("Projects/a.taud")) === "A1" && text(dst("Projects/Album/b.taud")) === "B1", "new files are created, folders and all");
   check(text(dst("Projects/d.taud")) === "MINE" && text(dst("Projects/d (from the old app).taud")) === "D1",
     "someone's own file is kept; the copy goes beside it");
   check(text(dst("Projects/e (from the old app).taud")) === "E1", "a folder in the way: the copy goes beside it");
-  check(text(dst("Projects/bad_name_.taud")) === "BAD" && text(dst("Projects/_con.taud")) === "CON",
-    "names every system can hold");
+  if (unportableHere) console.log("skip names every system can hold (NTFS cannot hold the originals; the Chromium leg checks them)");
+  else check(text(dst("Projects/bad_name_.taud")) === "BAD" && text(dst("Projects/_con.taud")) === "CON", "names every system can hold");
   check(statSync(dst("Projects/Empty folder")).isDirectory(), "an empty folder comes too");
   check(text(dst("Soundfonts/nested.taud.sf2.gz")) === null && text(dst("Soundfonts/sub/nested.taud.sf2.gz")) === null,
     "soundfonts are flat, as the page keeps them");
