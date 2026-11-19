@@ -11,9 +11,12 @@
 #include <QProcess>
 #include <QRegularExpression>
 #include <QSettings>
+#include <QStandardPaths>
 #include <QSysInfo>
 #include <QUrl>
 #include <QUrlQuery>
+
+#include <cstdio>
 
 #include "minisign.h"
 #include "updatekey.h"
@@ -28,6 +31,34 @@ namespace {
 
 constexpr char kSite[] = "https://microtone.cc/api/desktop/update";
 const QString kCurrent = QStringLiteral(MICROTONE_VERSION);
+
+/** Where a person downloads a release, when the manifest does not say. */
+QString defaultPage(const QString &channel) {
+  const QString releases = QStringLiteral("https://github.com/Microtone-Project/Microtone.js/releases");
+  return channel == u"preview" ? releases + QStringLiteral("/tag/desktop-preview") : releases + QStringLiteral("/latest");
+}
+
+#if defined(Q_OS_LINUX)
+/** The running AppImage's file, when this is one: the runtime says so in
+ *  APPIMAGE, and this binary is inside its mount (APPDIR) — not a program
+ *  started from inside one. */
+QString runningAppImage() {
+  const QString file = qEnvironmentVariable("APPIMAGE"), mount = qEnvironmentVariable("APPDIR");
+  if (file.isEmpty() || mount.isEmpty()) return {};
+  const QString dir = QFileInfo(QCoreApplication::applicationDirPath()).canonicalFilePath();
+  const QString root = QFileInfo(mount).canonicalFilePath();
+  if (root.isEmpty() || !(dir == root || dir.startsWith(root + u'/'))) return {};
+  return QFileInfo(file).absoluteFilePath();
+}
+
+/** A package's mark of its kind (tools/linux-package.sh): "deb" or "rpm". */
+QString packageKind() {
+  QFile mark(QCoreApplication::applicationDirPath() + QStringLiteral("/../share/microtone/package"));
+  if (!mark.open(QIODevice::ReadOnly)) return {};
+  const QString kind = QString::fromUtf8(mark.readAll()).trimmed();
+  return kind == u"deb" || kind == u"rpm" ? kind : QString();
+}
+#endif
 
 #if defined(Q_OS_MACOS)
 /** The running .app, or empty. */
@@ -54,9 +85,13 @@ Updater::Updater(const QString &dataDir, QObject *parent) : QObject(parent) {
   // Whatever an earlier run downloaded has been installed, or was not wanted.
   QDir(dir_).removeRecursively();
   channel_ = QStringLiteral(MICROTONE_UPDATE_CHANNEL);
+  page_ = defaultPage(channel_);
   testRun_ = qEnvironmentVariable("MICROTONE_UPDATE_TEST") == u"run";
+  testSudo_ = qEnvironmentVariable("MICROTONE_UPDATE_TEST") == u"sudo";
   manifest_ = qEnvironmentVariable("MICROTONE_UPDATE_URL");
-  if (manifest_.isEmpty()) {
+  if (manifest_ == u"none") {
+    manifest_.clear();
+  } else if (manifest_.isEmpty()) {
     QUrl url(QString::fromLatin1(kSite));
     QUrlQuery q;
     q.addQueryItem(QStringLiteral("channel"), channel_);
@@ -68,6 +103,7 @@ Updater::Updater(const QString &dataDir, QObject *parent) : QObject(parent) {
 
   if (testRun_) {
     updatable_ = true;
+    kind_ = QStringLiteral("installer");
   } else {
 #if defined(Q_OS_WIN)
     // Where the installer says it put the app — not a copy run from a zip or
@@ -78,25 +114,50 @@ Updater::Updater(const QString &dataDir, QObject *parent) : QObject(parent) {
     const QString where = QFileInfo(uninstall.value(QStringLiteral("InstallLocation")).toString()).canonicalFilePath();
     const QString here = QFileInfo(QCoreApplication::applicationDirPath()).canonicalFilePath();
     updatable_ = !where.isEmpty() && where.compare(here, Qt::CaseInsensitive) == 0;
+    if (updatable_) kind_ = QStringLiteral("installer");
 #elif defined(Q_OS_MACOS)
     // An .app it may replace: not a disk image (read only), not a copy
     // Gatekeeper translocated to a random read-only place.
     const QString bundle = runningBundle();
     updatable_ = !bundle.isEmpty() && !bundle.contains(QStringLiteral("/AppTranslocation/")) &&
                  QFileInfo(bundle).isWritable() && QFileInfo(QFileInfo(bundle).absolutePath()).isWritable();
+    if (updatable_) kind_ = QStringLiteral("bundle");
 #else
-    updatable_ = false;  // no packaged build yet
+    // An AppImage whose file and folder it may write: its file is replaced.
+    // A .deb or .rpm install: its package is installed over it, through
+    // pkexec. Anything else (a build tree) is only told.
+    appImage_ = runningAppImage();
+    if (!appImage_.isEmpty()) {
+      const QFileInfo f(appImage_);
+      if (f.isFile() && f.isWritable() && QFileInfo(f.absolutePath()).isWritable()) kind_ = QStringLiteral("appimage");
+      // An update an earlier run prepared beside it and never put in place.
+      for (const QFileInfo &left : QDir(f.absolutePath())
+                                       .entryInfoList({QStringLiteral(".") + f.fileName() + QStringLiteral(".update-*")},
+                                                      QDir::Files | QDir::Hidden)) {
+        QFile::remove(left.filePath());
+      }
+    } else {
+      const QString package = packageKind();
+      if (!package.isEmpty() && (testSudo_ || !QStandardPaths::findExecutable(QStringLiteral("pkexec")).isEmpty()))
+        kind_ = package;
+    }
+    updatable_ = !kind_.isEmpty();
 #endif
   }
-  qInfo("updates: %s, channel %s", updatable_ ? "this copy can update itself" : "this copy does not update itself",
-        qUtf8Printable(channel_));
+  if (manifest_.isEmpty()) qInfo("updates: not asked for (MICROTONE_UPDATE_URL=none)");
+  else
+    qInfo("updates: %s, channel %s", updatable_ ? qUtf8Printable(QStringLiteral("this copy can update itself (%1)").arg(kind_))
+                                                : "this copy does not update itself: it is told of new versions",
+          qUtf8Printable(channel_));
 }
 
 QJsonObject Updater::describe() const {
   return QJsonObject{{QStringLiteral("api"), QStringLiteral("/api/desktop/updates")},
                      {QStringLiteral("current"), kCurrent},
                      {QStringLiteral("channel"), channel_},
-                     {QStringLiteral("updatable"), updatable_}};
+                     {QStringLiteral("updatable"), updatable_},
+                     {QStringLiteral("kind"), kind_},
+                     {QStringLiteral("asks"), !manifest_.isEmpty()}};
 }
 
 QJsonObject Updater::status() const {
@@ -107,6 +168,8 @@ QJsonObject Updater::status() const {
                      {QStringLiteral("progress"), progress_},
                      {QStringLiteral("error"), error_},
                      {QStringLiteral("updatable"), updatable_},
+                     {QStringLiteral("kind"), kind_},
+                     {QStringLiteral("page"), page_},
                      {QStringLiteral("channel"), channel_},
                      {QStringLiteral("installOnQuit"), installOnQuit_}};
 }
@@ -131,19 +194,25 @@ bool Updater::newer(const QString &a, const QString &b) {
   return pa > pb;  // rough, but releases here carry no pre-release tags
 }
 
-QStringList Updater::platformKeys() {
+QStringList Updater::platformKeys() const {
 #if defined(Q_OS_WIN)
   return {QStringLiteral("windows-x86_64-nsis"), QStringLiteral("windows-x86_64")};
 #elif defined(Q_OS_MACOS)
   const bool arm = QSysInfo::currentCpuArchitecture().startsWith(QStringLiteral("arm"));
   return {QStringLiteral("darwin-universal"), arm ? QStringLiteral("darwin-aarch64") : QStringLiteral("darwin-x86_64")};
 #else
-  return {QStringLiteral("linux-x86_64-appimage"), QStringLiteral("linux-x86_64")};
+  // A package installs only its own kind; a copy that is only told hears of
+  // any Linux build.
+  if (kind_ == u"deb" || kind_ == u"rpm") return {QStringLiteral("linux-x86_64-") + kind_};
+  if (kind_ == u"appimage" || kind_ == u"installer")
+    return {QStringLiteral("linux-x86_64-appimage"), QStringLiteral("linux-x86_64")};
+  return {QStringLiteral("linux-x86_64-appimage"), QStringLiteral("linux-x86_64"), QStringLiteral("linux-x86_64-deb"),
+          QStringLiteral("linux-x86_64-rpm")};
 #endif
 }
 
 void Updater::check() {
-  if (!updatable_ || state_ == u"checking" || state_ == u"downloading" || state_ == u"ready") return;
+  if (manifest_.isEmpty() || state_ == u"checking" || state_ == u"downloading" || state_ == u"ready") return;
   setState(QStringLiteral("checking"));
   QNetworkRequest request{QUrl(manifest_)};
   request.setHeader(QNetworkRequest::UserAgentHeader, QByteArray("Microtone-desktop/") + MICROTONE_VERSION);
@@ -179,6 +248,11 @@ void Updater::check() {
       if (url.isEmpty() || signature.isEmpty()) continue;
       version_ = version;
       notes_ = m.value(QStringLiteral("notes")).toString();
+      // Where to get it, for a copy that does not update itself: the
+      // manifest's page when it gives one on the web, else the channel's.
+      const QUrl page(m.value(QStringLiteral("page")).toString());
+      page_ = page.isValid() && (page.scheme() == u"https" || page.scheme() == u"http") ? page.toString()
+                                                                                       : defaultPage(channel_);
       url_ = url;
       signature_ = signature.toUtf8();
       qInfo("updates: %s is out (this is %s)", qUtf8Printable(version), qUtf8Printable(kCurrent));
@@ -190,14 +264,17 @@ void Updater::check() {
 }
 
 void Updater::download() {
-  if (state_ != u"available") return;
+  if (state_ != u"available" || !updatable_) return;
   QDir().mkpath(dir_);
 #if defined(Q_OS_MACOS)
   const QString name = QStringLiteral("Microtone-%1.app.tar.gz").arg(version_);
 #elif defined(Q_OS_WIN)
   const QString name = QStringLiteral("Microtone-%1-setup.exe").arg(version_);
 #else
-  const QString name = QStringLiteral("Microtone-%1-update").arg(version_);
+  const QString name = kind_ == u"appimage" ? QStringLiteral("Microtone-%1.AppImage").arg(version_)
+                       : kind_ == u"deb"    ? QStringLiteral("Microtone-%1.deb").arg(version_)
+                       : kind_ == u"rpm"    ? QStringLiteral("Microtone-%1.rpm").arg(version_)
+                                            : QStringLiteral("Microtone-%1-update").arg(version_);
 #endif
   const QString path = dir_ + u'/' + name;
   delete out_;
@@ -281,6 +358,27 @@ void Updater::verifyAndPrepare() {
     return;
   }
 #endif
+#if defined(Q_OS_LINUX)
+  if (kind_ == u"appimage") {
+    // Beside the running AppImage now (the same folder, so putting it in
+    // place at quit is a rename, which cannot fail half-way), executable as
+    // the running one is.
+    const QFileInfo running(appImage_);
+    prepared_ = running.absolutePath() + QStringLiteral("/.") + running.fileName() +
+                QStringLiteral(".update-%1").arg(QCoreApplication::applicationPid());
+    QFile::remove(prepared_);
+    if (!QFile::copy(file_, prepared_) ||
+        !QFile::setPermissions(prepared_, QFile::permissions(appImage_) | QFileDevice::ExeOwner | QFileDevice::ReadOwner)) {
+      QFile::remove(prepared_);
+      prepared_.clear();
+      setState(QStringLiteral("error"), QStringLiteral("could not put the update beside %1").arg(appImage_));
+      return;
+    }
+    QFile::remove(file_);
+    setState(QStringLiteral("ready"));
+    return;
+  }
+#endif
   QFile::setPermissions(file_, QFile::permissions(file_) | QFileDevice::ExeOwner | QFileDevice::ExeUser);
   setState(QStringLiteral("ready"));
 }
@@ -326,6 +424,49 @@ void Updater::installNow() {
          QStringLiteral("sh"), QString::number(QCoreApplication::applicationPid()), old,
          restart_ ? QStringLiteral("1") : QStringLiteral("0"), bundle});
     qInfo("updates: %s is in place", qUtf8Printable(version_));
+    return;
+  }
+#endif
+#if defined(Q_OS_LINUX)
+  // The helpers below wait for this process to end before they start
+  // anything: the app's instance socket and browser profile are this one's
+  // until then.
+  const QString pid = QString::number(QCoreApplication::applicationPid());
+  const QString restart = restart_ ? QStringLiteral("1") : QStringLiteral("0");
+  if (kind_ == u"appimage") {
+    // rename(2) replaces the name in one step; the running copy goes on
+    // reading the file it opened.
+    if (std::rename(QFile::encodeName(prepared_).constData(), QFile::encodeName(appImage_).constData()) != 0) {
+      QFile::remove(prepared_);
+      qWarning("updates: could not put %s in place of %s", qUtf8Printable(prepared_), qUtf8Printable(appImage_));
+      return;
+    }
+    qInfo("updates: %s is in place", qUtf8Printable(version_));
+    if (restart_) {
+      // Started afresh, not as this one's child: what the AppImage runtime
+      // set for this copy names this copy's mount.
+      QProcess::startDetached(
+          QStringLiteral("/bin/sh"),
+          {QStringLiteral("-c"),
+           QStringLiteral("while kill -0 \"$1\" 2>/dev/null; do sleep 0.2; done; "
+                          "exec env -u APPIMAGE -u APPDIR -u ARGV0 -u OWD \"$2\""),
+           QStringLiteral("sh"), pid, appImage_});
+    }
+    return;
+  }
+  if (kind_ == u"deb" || kind_ == u"rpm") {
+    // The system's own installer, as an administrator: pkexec asks for the
+    // password (the session's agent shows the prompt). Started again either
+    // way, when asked — the old version if the install was refused.
+    const QString install = kind_ == u"deb" ? QStringLiteral("dpkg -i") : QStringLiteral("rpm -U");
+    const QString elevate = testSudo_ ? QStringLiteral("sudo -n") : QStringLiteral("pkexec");
+    QProcess::startDetached(
+        QStringLiteral("/bin/sh"),
+        {QStringLiteral("-c"),
+         QStringLiteral("while kill -0 \"$1\" 2>/dev/null; do sleep 0.2; done; ") + elevate + u' ' + install +
+             QStringLiteral(" \"$2\"; if [ \"$3\" = 1 ]; then exec \"$4\"; fi"),
+         QStringLiteral("sh"), pid, file_, restart, QCoreApplication::applicationFilePath()});
+    qInfo("updates: %s will be installed by %s once the app has quit", qUtf8Printable(version_), qUtf8Printable(install));
     return;
   }
 #endif

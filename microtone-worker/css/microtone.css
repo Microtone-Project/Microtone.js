@@ -3993,8 +3993,67 @@ button.nota-assign { font-size: 0.85rem; }
 .mt-pick > select[data-mt] { cursor: pointer; }
 .mt-pick > select[data-mt]:disabled, .mt-spin > input[data-mt]:disabled { color: var(--dim); }
 /* The dropdown list is the platform's, and it is painted on the platform's own
- * ground — give it ink that reads there whatever the app theme is doing. */
-.mt-pick > select option { background: var(--panel-2); color: var(--fg); }
+ * ground — give it ink that reads there whatever the app theme is doing. A
+ * group's label too (Chromium's list paints an unstyled <optgroup> on white,
+ * under the light ink it inherits): the same ground, in the dim ink of a
+ * heading; its options keep their own. */
+.mt-pick > select option, .mt-pick > select optgroup { background: var(--panel-2); color: var(--fg); }
+.mt-pick > select optgroup { color: var(--dim); }
+
+/* Chromium (Chrome, and the desktop app's QtWebEngine from Qt 6.11) draws
+ * that list as a small page of its own, whose scrollbar stays the light
+ * default whatever the select says (color-scheme, scrollbar-color: both
+ * tried). Where it can draw the list IN the page instead — a customizable
+ * select, `appearance: base-select` — the list is ours: the context menu's
+ * panel, its highlight, the theme's scrollbar. Firefox and Safari keep their
+ * own list, which already follows the theme. The closed control must not
+ * change, so base-select's own look (an arrow, wrapping, its padding and
+ * sizing) is taken back off it. */
+@supports (appearance: base-select) {
+  .mt-pick > select[data-mt],
+  .mt-pick > select[data-mt]::picker(select) { appearance: base-select; }
+  .mt-pick > select[data-mt] {
+    align-items: center;
+    /* Centred until it does not fit, then from the start — what fitAlign's
+     * .mt-clip does for the plain control. */
+    justify-content: safe center;
+    white-space: nowrap;
+    overflow: hidden;
+    gap: 0;
+    min-block-size: 0;
+  }
+  .mt-pick > select[data-mt].mt-clip { justify-content: flex-start; }
+  .mt-pick > select[data-mt]::picker-icon { display: none; }
+  .mt-pick > select[data-mt]::picker(select) {
+    background: var(--panel);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: 0 6px 22px rgba(0, 0, 0, 0.45);
+    padding: 0.25rem;
+    scrollbar-color: var(--dim) var(--panel);
+  }
+  .mt-pick > select[data-mt] option {
+    background: transparent;
+    color: var(--fg);
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    padding: 0.15rem 0.6rem 0.15rem 0.3rem;
+    white-space: nowrap;
+  }
+  /* One highlight, as the context menu's .here: the pointer moves the focus. */
+  .mt-pick > select[data-mt] option:focus-visible,
+  .mt-pick > select[data-mt] option:hover {
+    background: var(--panel-2);
+    border-color: var(--accent);
+    color: var(--accent);
+    outline: none;
+  }
+  .mt-pick > select[data-mt] option::checkmark { color: var(--accent); }
+  .mt-pick > select[data-mt] option:disabled { color: var(--dim); }
+  .mt-pick > select[data-mt] optgroup { background: transparent; color: var(--dim); font-weight: 600; }
+  .mt-pick > select[data-mt] optgroup option { font-weight: normal; }
+}
 
 /* Where the bare control used to carry the width, the group carries it now. */
 .inst-field .mt-spin, .inst-field .mt-pick { width: 9.5rem; }

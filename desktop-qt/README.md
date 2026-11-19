@@ -9,15 +9,20 @@ Chromium does not.
 
 ## Building
 
-You need CMake ≥ 3.21, a C and C++17 compiler and Qt ≥ 6.8 with **WebEngine**,
+You need CMake ≥ 3.21, a C and C++17 compiler and Qt ≥ 6.11 (the releases:
+6.11.3, on all three systems) with **WebEngine**,
 **HttpServer** and **WebSockets** (and **DBus** on Linux), plus, on Linux, the
-ALSA and PulseAudio headers (JACK's too, if you want that backend). On
-openSUSE:
+ALSA and PulseAudio headers, and JACK's for that backend. Only JACK's headers:
+the app never links libjack, it loads the system's when there is one
+(`src/weakjack.c`). On openSUSE:
 
 ```sh
 sudo zypper in cmake gcc-c++ qt6-base-devel qt6-webenginecore-devel qt6-webenginewidgets-devel \
-  qt6-httpserver-devel qt6-websockets-devel qt6-dbus-devel alsa-devel libpulse-devel
+  qt6-httpserver-devel qt6-websockets-devel qt6-dbus-devel alsa-devel libpulse-devel libjack-devel
 ```
+
+The Linux packages are made by `tools/linux-package.sh` ("The Linux
+packages", below).
 
 RtAudio is vendored (`vendor/rtaudio`, see `vendor/VENDOR-VERSIONS.md`); the C
 engine is compiled from `../core/engine/c` with the WebAssembly build's flags
@@ -44,10 +49,12 @@ newer headers is not guaranteed to run on older libraries.
 
 ### Windows
 
-Visual Studio 2022 (MSVC: QtWebEngine has no MinGW build), Qt ≥ 6.8 for
+Visual Studio 2022 (MSVC: QtWebEngine has no MinGW build), Qt ≥ 6.11 for
 `msvc2022_64` with WebEngine (an *extension* in Qt's online installer since
-6.8, beside the modules), HttpServer and WebSockets, CMake, Ninja and Node. From
-an "x64 Native Tools" prompt:
+6.8, beside the modules), HttpServer and WebSockets, CMake, Ninja and Node.
+(From 6.11 Qt's Windows repository has a folder per compiler build, which no
+aqtinstall release reads yet: CI installs aqtinstall from a pinned commit of
+its master.) From an "x64 Native Tools" prompt:
 
 ```bat
 cmake -S desktop-qt -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -86,9 +93,9 @@ nothing.
 
 ### macOS
 
-Xcode's command-line tools, CMake, Node and Qt ≥ 6.8 for macOS with the same
-modules (Qt's macOS build is universal, so the app can be too). macOS 12 is
-the floor (Qt 6.8's):
+Xcode's command-line tools, CMake, Node and Qt ≥ 6.11 for macOS with the same
+modules (Qt's macOS build is universal, so the app can be too). macOS 13 is
+the floor (Qt 6.11's; it was 12 under Qt 6.8):
 
 ```sh
 cmake -S desktop-qt -B build -DCMAKE_BUILD_TYPE=Release "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64"
@@ -98,8 +105,8 @@ macdeployqt build/Microtone.app
 codesign --force --deep --sign - build/Microtone.app
 ```
 
-Qt 6.8.3's CMake files link Apple's AGL framework, which Xcode 26's SDK no
-longer has; `CMakeLists.txt` takes it off the link.
+Qt 6.8.3's CMake files linked Apple's AGL framework, which Xcode 26's SDK no
+longer has; `CMakeLists.txt` takes it off the link wherever a Qt still does.
 
 The workflow's `macos` job does this on `macos-latest` and keeps
 `Microtone-<version>-macos` (a .dmg: the app and an Applications link). Then
@@ -354,7 +361,9 @@ person says **Download**, and nothing is installed until the app quits:
   builds `preview` until the switch.
 - **The manifest is the Tauri updater's `latest.json` shape** (version, notes,
   pub_date, platforms → url + signature; `windows-x86_64`,
-  `darwin-universal`/`-aarch64`/`-x86_64`). Downloads are fetched with
+  `darwin-universal`/`-aarch64`/`-x86_64`, `linux-x86_64-appimage`/`-deb`/
+  `-rpm`, the keys Tauri's updater looks for too). Ours alone: `page`, where a
+  person downloads the release. Downloads are fetched with
   `Accept: application/octet-stream`, which GitHub's API asset links (Tauri's
   manifest has those) need.
 - **Signed with the Tauri build's updater key.** `src/updatekey.h` is
@@ -372,21 +381,43 @@ person says **Download**, and nothing is installed until the app quits:
     `ditto` across volumes, rolled back on failure), and a small `sh` helper
     waits for this process to end, removes the old bundle, and `open`s the new
     one if asked.
-  - **Linux:** nothing until there is a packaged build.
+  - **AppImage:** right after the download the new AppImage is copied beside
+    the running one (a hidden `.<name>.update-<pid>`, executable as the old
+    one is). At quit it takes the old one's name with `rename(2)`, which
+    cannot fail half-way; the running copy reads on from the file it opened.
+    A helper starts the new one once this process has ended, if asked,
+    without this copy's `APPIMAGE`/`APPDIR`. A leftover beside the AppImage
+    is removed at the next start.
+  - **.deb / .rpm:** at quit a helper waits for this process to end, then
+    runs `pkexec dpkg -i` / `pkexec rpm -U` on the download — the system asks
+    for an administrator's password, as the Tauri build's updater did — and
+    starts the app again if asked (the old version, if the install was
+    refused).
 - **Only an installed copy updates:**
   - Windows: the exe sits where the uninstall key's `InstallLocation` says;
   - macOS: an `.app` in a folder it may write — not a disk image, not
-    translocated.
-  - A dev build never offers anything.
+    translocated;
+  - Linux: an AppImage whose file and folder it may write (`APPIMAGE`, with
+    this binary inside the runtime's `APPDIR`), or a .deb/.rpm install (the
+    package writes its kind to `share/microtone/package`) on a system with
+    `pkexec`. A package installs only an update of its own kind
+    (`linux-x86_64-deb`, `-rpm`).
+- **Every other copy is told.** A Windows portable folder, a Mac app run from
+  its disk image, an AppImage in a folder it may not write, a build: the
+  banner says the new version is out and that this copy does not update
+  itself, and **Get it** opens the release's page (the manifest's `page`, else
+  the channel's GitHub release) in the system's browser. Nothing downloads:
+  the shell refuses. `MICROTONE_UPDATE_URL=none` asks nothing at all.
 - **Publishing a preview is by hand:** run "Desktop (Qt)" with
-  *publish-preview* ticked. It signs the installer and the `.app.tar.gz` with
-  the `TAURI_SIGNING_PRIVATE_KEY` secrets (`tauri signer sign
-  --app-version`), checks each signature with `minisign-check` against the
-  built-in key, and replaces the `desktop-preview` pre-release (never
-  "latest") with them, the `.dmg` and their `desktop.json`. A push publishes
-  nothing.
-- `MICROTONE_UPDATE_URL`, `MICROTONE_UPDATE_KEY` and
-  `MICROTONE_UPDATE_TEST=run` are for tests (`updater.h`).
+  *publish-preview* ticked. It signs the installer, the `.app.tar.gz`, the
+  AppImage, the `.deb` and the `.rpm` with the `TAURI_SIGNING_PRIVATE_KEY`
+  secrets (`tauri signer sign --app-version`), checks each signature with
+  `minisign-check` against the built-in key, and replaces the
+  `desktop-preview` pre-release (never "latest") with them, the `.dmg` and
+  their `desktop.json`. A push publishes nothing.
+- `MICROTONE_UPDATE_URL`, `MICROTONE_UPDATE_KEY`, `MICROTONE_UPDATE_TEST=run`
+  and `MICROTONE_UPDATE_TEST=sudo` (a package install through `sudo -n`, for
+  CI) are for tests (`updater.h`).
 
 Tested:
 - `tools/update-test.js` (the test signs its own updates in Node, in
@@ -396,7 +427,15 @@ Tested:
   never runs.
 - In CI, for real:
   - Windows reinstalls through the NSIS installer and starts again;
-  - macOS swaps a copy of the bundle for a marked one and starts again.
+  - macOS swaps a copy of the bundle for a marked one and starts again;
+  - Linux: an AppImage replaces its file with a marked one and starts again;
+    the .deb, installed by apt, installs a 99.0.0 of itself at quit and
+    starts again;
+  - the Windows portable folder and Linux's bare tree are told, with the
+    page (on Linux "Get it" is pressed and reaches a stand-in browser).
+- The same Linux legs here, on the packages built in an Ubuntu 22.04
+  container (2026-11-19): the AppImage on openSUSE Tumbleweed (FUSE), the
+  .deb in Ubuntu 22.04, the notice on a dev build.
 - `test/node/desktop-updates.test.js` (the banner flow, the unsaved-work
   question) and `desktop-update.test.js` (the redirect, the key pinned to
   Tauri's).
@@ -410,6 +449,13 @@ build's files, signed with the one key:
   it accepts. The Tauri app stays installed beside it, under its own uninstall
   entry.
 - macOS: its `.app.tar.gz` replaces the Tauri bundle (the same bundle id).
+- Linux: an AppImage replaces the Tauri AppImage's file; the Tauri .deb and
+  .rpm are upgraded by ours (`pkexec dpkg -i` / `rpm -U` — the Tauri updater's
+  way too), which are named `microtone` as Tauri's are.
+- **macOS 12:** this build needs macOS 13 (Qt 6.11). A Tauri copy on macOS 12
+  must not be offered it — the update would install an app that will not
+  open. Tauri's manifest cannot say "macOS 13 and later", so the hand-over
+  release has to decline the update itself on 12 (and say why).
 
 ## When it goes wrong: logs, crash reports, diagnostics
 
@@ -798,7 +844,7 @@ language):
     WebKit's store), but the Qt build cannot see them until moving projects
     over is done.
 - `macos/Info.plist.in`:
-  - the version, macOS 12 as the floor, the Music category;
+  - the version, macOS 13 as the floor (Qt 6.11's), the Music category;
   - the text the system asks for the microphone with (the sampler's Record),
     in English and Korean (`macos/*.lproj`).
 - **Where it keeps things:**
@@ -835,6 +881,102 @@ language):
   - the sampler's Record (the microphone prompt);
   - closing with an unsaved project (⌘Q as well as the window's button).
 
+## The Linux packages
+
+`tools/linux-package.sh` (CI's Linux job, Ubuntu 22.04) makes three packages of
+one tree: the app with Qt, QtWebEngine and the libraries a desktop may lack
+beside it, deployed by linuxdeploy and its Qt plugin (pinned releases,
+checksums in the script). Built on 22.04 (glibc 2.35), they run on systems as
+new or newer.
+
+**Qt 6.11, on every system** (it began on Linux; Windows and macOS followed,
+so one Qt is tested — and Windows gets the in-page dropdown list too). Under 6.8.3 on a
+fractionally scaled Wayland desktop, QtWebEngine drew a dropdown's list at the
+output's rounded-up whole scale: at 1.5×, three quarters of its size in the
+corner of a white frame (at 1.25×, five eighths). A new popup window starts
+at the output's integer scale before Wayland tells it its fractional one,
+and 6.8.3's WebEngine painted for the wrong one. QTBUG-113574's fix (6.8.0)
+covered the page itself, not its popups. 6.11 draws them right (seen with a
+real click on a headless KWin at 1.5×). Qt 6.11's binaries need glibc 2.34,
+so 22.04 still builds them; 6.11 has one Wayland platform plugin
+(`libqwayland.so`) where 6.8 had `-egl` and `-generic`, and the script takes
+whichever is there.
+
+- **AppImage** (`Microtone-<v>-linux-x86_64.AppImage`): runs from anywhere,
+  with the static type2 runtime (no libfuse2 needed); updates itself where it
+  may write its own file.
+- **.deb and .rpm** (`Microtone-<v>-linux-amd64.deb`, `-x86_64.rpm`): the tree
+  in `/opt/microtone`, `/usr/bin/microtone`, the desktop entry
+  (`linux/cc.microtone.qt.desktop`, the name Qt gives the window,
+  `setDesktopFileName`) and icons in `/usr/share`. The package is named
+  `microtone`, as the Tauri build's, so installing it over that one is an
+  upgrade. Their dependencies are worked out from the tree's programs and
+  libraries (dpkg-shlibdeps in a Debian package build's layout; rpmbuild's
+  own), less what the tree carries.
+- **Not carried, the system's:**
+  - glibc, libstdc++, X11's core, OpenGL, fontconfig, ALSA (linuxdeploy's
+    exclude list);
+  - OpenSSL, which Qt loads by name;
+  - **NSS**, all of it: it loads its own modules (softokn, freebl) from the
+    system's folders, which must match its libraries. Carried, 22.04's
+    `libnssutil3` beside Tumbleweed's `libsoftokn3` stopped QtWebEngine at
+    start ("version `NSSUTIL_3.108' not found");
+  - libjack (`src/weakjack.c`): the client library must be the one that
+    speaks to the system's server (jack2's, PipeWire's);
+  - Wayland's own libraries (`libwayland-client`, `-cursor`, `-egl`): the
+    system's Mesa loads its Wayland EGL against them.
+- **Carried:** PulseAudio's client library, ICU, CUPS's (QtWebEngine's print
+  plugin wants it: linuxdeploy's Qt plugin deploys in a process of its own
+  that does not see the exclude list), xcb's extensions, xkbcommon, GLib,
+  D-Bus.
+- **Native on Wayland.** Qt's Wayland platform (`libqwayland-egl`,
+  `-generic`) takes over where `XDG_SESSION_TYPE` is `wayland`; xcb serves X11
+  desktops; offscreen runs with no display at all. The Wayland platform loads
+  helpers by protocol that linuxdeploy's Qt plugin does not bring, so the
+  script copies them in: the xdg-shell integration, the EGL client
+  integration (without it no GPU drawing), and the decorations (Adwaita's,
+  which Qt picks on GNOME, where the compositor draws no title bar; bradient
+  elsewhere; KWin draws its own). Fractional scaling is Wayland's
+  `wp_fractional_scale_v1`, which Qt follows: on a 1.5× output the page's
+  `devicePixelRatio` is 1.5 — Chromium renders at that scale, where XWayland
+  would render at 1× and be stretched. The log's first line names the
+  platform (`Qt 6.8.3 (wayland)`).
+- **Chromium's sandbox needs unprivileged user namespaces.** Ubuntu 23.10 and
+  later have AppArmor refuse them to a program without a profile of its own,
+  and an AppImage can bring none; a page would then never render. The app
+  looks (`/proc/sys/kernel/apparmor_restrict_unprivileged_userns`, its own
+  AppArmor label, `unprivileged_userns_clone`, `max_user_namespaces`) and
+  there runs the renderers without the sandbox (`QTWEBENGINE_DISABLE_SANDBOX`),
+  saying so in the log. They only ever run this app's own pages; the web at
+  large opens in the system's browser.
+- **Tried** (2026-11-19, packages built in an Ubuntu 22.04 container as CI
+  builds them):
+  - the AppImage on openSUSE Tumbleweed: the native smoke test passes (the
+    page, the file store, online projects, native audio into a private
+    PipeWire's null sink, bit for bit), and it updates itself;
+  - the .deb installed by apt in Ubuntu 22.04 and 24.04 (the t64 libraries),
+    and updated over itself at quit;
+  - the .rpm installed by dnf in Fedora 42 and by zypper in Tumbleweed;
+  - in each, every program and plugin in the tree finds its libraries, and
+    the app starts (offscreen);
+  - natively on Wayland: on a headless KWin (`kwin_wayland --virtual`, its
+    own D-Bus, runtime and config folders) at 1.5×, the smoke test passes
+    and the page's `devicePixelRatio` is 1.5; on a headless Weston in Ubuntu
+    24.04, with no X server, the smoke test passes on `wayland`. (KWin's
+    `--scale` makes the virtual output bigger, not scaled: the 1.5 is set in
+    its `kwinoutputconfig.json`, with the output's mode, while it is
+    stopped.)
+  - a dropdown opened by a real click at 1.5× (KWin's fake-input protocol,
+    that test KWin started with `KWIN_WAYLAND_NO_PERMISSION_CHECKS=1`; a
+    Wayland popup needs the serial of real input, so DevTools' synthetic
+    clicks and `showPicker()` are no test of it): 6.8.3 shrunken, 6.11
+    right. The Qt 6.11.3 packages installed and started on Ubuntu 22.04 and
+    24.04, Fedora 42 and Tumbleweed as above.
+
+  CI repeats these: 22.04 (smoke into a PulseAudio null sink, the updater
+  legs), 24.04 (the AppImage and the .deb, smoke-tested; the AppImage on a
+  headless Weston, `--expect-platform wayland`), Fedora (the .rpm).
+
 ## Not yet done
 
 - Deploying the site's `port` parameter for the desktop sign-in (online
@@ -843,9 +985,9 @@ language):
   copy asks and hears 404: "nothing new".
 - The switch from the Tauri build (Updates, above): a release that serves
   both apps, and what becomes of the Tauri install on Windows.
-- Linux packaging (AppImage, .deb/.rpm) and its CI. The app links libpulse
-  and libjack (through RtAudio and `linuxaudiowatch.cpp`): a package depends
-  on them, or carries them.
+- An AppArmor profile in the .deb (Ubuntu 23.10+), which would give the
+  installed app Chromium's sandbox back; the AppImage would still need to go
+  without.
 - Code signing (a Windows certificate; Apple's Developer ID and
   notarisation), and the third-party notices a release must ship (Qt and
   Chromium's licences, RtAudio's, the ASIO SDK's).

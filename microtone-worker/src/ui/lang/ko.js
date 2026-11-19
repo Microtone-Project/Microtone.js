@@ -545,6 +545,8 @@ export default {
   "update.onQuit": "끝낼 때 설치",
   "update.deferred": "Microtone을 끝내면 {version} 업데이트가 설치됩니다.",
   "update.failed": "업데이트를 내려받지 못했습니다: {error}",
+  "update.availableElsewhere": "Microtone {version} 업데이트가 나왔습니다 — 지금 쓰는 버전은 {current}입니다. 이 사본은 스스로 업데이트하지 않으니 배포 페이지에서 새 버전을 받으세요.",
+  "update.getIt": "받기",
   "update.restartDirty": "저장하지 않은 변경 사항을 버리고 다시 시작할까요?",
   "files.oldAppCopied": "이전 Microtone 데스크톱 앱의 프로젝트가 이제 {folder}에 파일로 있습니다. 프로젝트 {projects}개, SoundFont {soundfonts}개, 건반 배열 {keymaps}개를 그곳으로 복사했습니다. 이전 앱의 것도 그대로 있으며, 그곳에서 바꾼 것은 이 앱을 다음에 시작할 때 다시 가져옵니다.",
   "files.oldAppBeside": "그중 {beside}개는 이름이 같은 파일이 이미 있어서 “… (from the old app)”라는 이름으로 그 옆에 두었습니다.",

@@ -1,4 +1,8 @@
-# The Qt desktop build (desktop-qt/, item 336), against Qt 6.8 LTS:
+# The Qt desktop build (desktop-qt/, item 336), against Qt 6.11 on all three
+# (macOS 13 and later, Windows 10 1809 and later). Not 6.8 LTS: its
+# QtWebEngine drew a dropdown's list at the output's rounded-up scale on a
+# fractionally scaled Wayland desktop, and its Chromium (122) cannot draw the
+# list in the page, where the theme reaches its scrollbar (135+):
 #   windows  the shell, the C engine, the WASAPI backend and ASIO (RtAudio)
 #            built with MSVC, packaged with windeployqt, the C runtime and the
 #            staged web app, then made into an installer
@@ -7,10 +11,19 @@
 #            macdeployqt'd, signed ad hoc, in a .dmg — and, since nobody here
 #            has a Mac, smoke-tested on the runner (desktop-qt/tools/
 #            native-smoke.js: the page, the native audio into the runner's
-#            virtual device, bit for bit against the WebAssembly engine).
-# Both run the updater end to end (desktop-qt/tools/update-test.js: Windows
-# reinstalling through the NSIS installer, macOS putting a new bundle in
-# place) and ask the "preview" update channel (server/desktop-update.js).
+#            virtual device, bit for bit against the WebAssembly engine);
+#   linux    on Ubuntu 22.04 (what it builds on, it runs on and after): an
+#            AppImage, a .deb and an .rpm of one tree with Qt beside the app
+#            (desktop-qt/tools/linux-package.sh), smoke-tested into a
+#            PulseAudio null sink; then run on Ubuntu 24.04 (the AppImage, and
+#            the .deb installed by apt; the AppImage again natively on
+#            Wayland) and installed in Fedora (the .rpm).
+# All three run the updater end to end (desktop-qt/tools/update-test.js:
+# Windows reinstalling through the NSIS installer, macOS putting a new bundle
+# in place, an AppImage replacing its file, a .deb installed over itself) and
+# a copy that does not update itself being told (Windows' portable folder,
+# Linux's bare tree); and they ask the "preview" update channel
+# (server/desktop-update.js).
 # Everything is kept as build artifacts. Nothing here releases on a push: the
 # Tauri build (desktop.yml) still does that, until the Qt build replaces it.
 # Only a run started by hand with "publish-preview" ticked signs the updates
@@ -55,14 +68,19 @@ jobs:
       # the native audio host.
       - uses: jurplel/install-qt-action@v4
         with:
-          version: "6.8.3"
+          version: "6.11.3"
           host: windows
           target: desktop
           arch: win64_msvc2022_64
-          modules: qtwebengine qtwebchannel qtpositioning qthttpserver qtwebsockets
-          # Qt 6.8 moved WebEngine out of the modules into "extensions" in its
-          # online repository; aqtinstall installs those from 3.2 on.
-          aqtversion: ">=3.2.1"
+          # qtserialport: the NMEA position plugin (QtWebEngine's Positioning)
+          # links it.
+          modules: qtwebengine qtwebchannel qtpositioning qthttpserver qtwebsockets qtserialport
+          # From 6.11 Qt's Windows repository has a folder per compiler build,
+          # which no aqtinstall release reads yet (3.3.0 asks for the old
+          # path and gets 404); its master does (3.3.1.dev168, tried on
+          # 6.11.3 with WebEngine, 2026-11-19). Pinned to that commit; back to
+          # `aqtversion` once a release has it (3.4.0).
+          aqtsource: "git+https://github.com/miurahr/aqtinstall.git@5a49f2b391ae8ee1d3c0dd87f8b33c1d49a4deb7"
           cache: true
 
       - uses: ilammy/msvc-dev-cmd@v1
@@ -160,6 +178,18 @@ jobs:
           "### Windows updater (exit $status)", "${fence}json", (Get-Content update.json -Raw), $fence | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
           exit $status
 
+      # The portable folder does not update itself: it is told, with the
+      # release's page (not pressed here: Windows has no stand-in browser).
+      - name: Updater (portable)
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          node desktop-qt/tools/update-test.js "build/Microtone-$env:version-windows-x64/microtone.exe" --mode notice | Tee-Object -FilePath notice.json
+          $status = $LASTEXITCODE
+          $fence = '```'
+          "### Windows portable copy told of an update (exit $status)", "${fence}json", (Get-Content notice.json -Raw), $fence | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+          exit $status
+
       # Signed for the preview channel, and checked against the key the app
       # trusts before anything is published.
       - name: Sign the update
@@ -201,11 +231,11 @@ jobs:
 
       - uses: jurplel/install-qt-action@v4
         with:
-          version: "6.8.3"
+          version: "6.11.3"
           host: mac
           target: desktop
           arch: clang_64
-          modules: qtwebengine qtwebchannel qtpositioning qthttpserver qtwebsockets
+          modules: qtwebengine qtwebchannel qtpositioning qthttpserver qtwebsockets qtserialport
           aqtversion: ">=3.2.1"
           cache: true
 
@@ -293,9 +323,224 @@ jobs:
           if-no-files-found: error
           compression-level: 0  # the .dmg is compressed already
 
+  linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # The audio APIs' headers (JACK's only: the system's libjack is loaded
+      # when there is one, src/weakjack.c); what Qt's xcb platform plugin and
+      # QtWebEngine need to run (linuxdeploy carries those a desktop may lack);
+      # rpmbuild; and a display and a sound server for the tests.
+      - name: Build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libasound2-dev libpulse-dev libjack-jackd2-dev \
+            libgl1-mesa-dev libegl1-mesa-dev libxkbcommon-dev libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 \
+            libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 \
+            libxcb-xkb1 libxcb-xinput0 libnss3 libxcomposite1 libxdamage1 libxrandr2 libxtst6 libxkbfile1 \
+            libxshmfence1 libxi6 libdbus-1-3 libcups2 libwayland-client0 libwayland-cursor0 libwayland-egl1 rpm xvfb pulseaudio
+
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.11.3"
+          host: linux
+          target: desktop
+          arch: linux_gcc_64
+          # qtserialport: as on Windows (linuxdeploy carries every position
+          # plugin, and fails on one whose library is missing).
+          modules: qtwebengine qtwebchannel qtpositioning qthttpserver qtwebsockets qtserialport
+          aqtversion: ">=3.2.1"
+          cache: true
+
+      - name: Configure
+        run: cmake -S desktop-qt -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DMICROTONE_UPDATE_CHANNEL=preview
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Earlier app's projects
+        continue-on-error: true
+        run: |
+          set +e
+          node desktop-qt/tools/oldapp-test.js build/oldapp-dump | tee oldapp.txt
+          status=${PIPESTATUS[0]}
+          { echo "### Earlier app's projects (exit $status)"; echo '```'; cat oldapp.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
+      - name: Package
+        run: |
+          QMAKE="$QT_ROOT_DIR/bin/qmake" bash desktop-qt/tools/linux-package.sh build build/linux
+          echo "version=$(node -p "require('./microtone-worker/package.json').version")" >> "$GITHUB_ENV"
+
+      # A sound server with a null sink as the default output, as a desktop
+      # has one; the AppImage unpacked and run (the runner has no FUSE).
+      - name: Smoke test
+        continue-on-error: true
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: |
+          set +e
+          pulseaudio --start --exit-idle-time=-1
+          pactl load-module module-null-sink sink_name=smoke
+          pactl set-default-sink smoke
+          xvfb-run -a -s "-screen 0 1600x1000x24" \
+            node desktop-qt/tools/native-smoke.js "build/linux/Microtone-$version-linux-x86_64.AppImage" --seconds 10 | tee smoke.json
+          status=${PIPESTATUS[0]}
+          { echo "### Linux smoke test, the AppImage (exit $status)"; echo '```json'; cat smoke.json; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
+      - name: Updater (AppImage)
+        continue-on-error: true
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: |
+          set +e
+          xvfb-run -a -s "-screen 0 1600x1000x24" \
+            node desktop-qt/tools/update-test.js "build/linux/Microtone-$version-linux-x86_64.AppImage" --mode appimage | tee update.json
+          status=${PIPESTATUS[0]}
+          { echo "### Linux updater, the AppImage (exit $status)"; echo '```json'; cat update.json; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
+      # The bare tree (no package's mark, not an AppImage) is a copy that
+      # does not update itself.
+      - name: Updater (bare tree)
+        continue-on-error: true
+        run: |
+          set +e
+          xvfb-run -a -s "-screen 0 1600x1000x24" \
+            node desktop-qt/tools/update-test.js build/linux/AppDir/usr/bin/microtone --mode notice | tee notice.json
+          status=${PIPESTATUS[0]}
+          { echo "### Linux bare tree told of an update (exit $status)"; echo '```json'; cat notice.json; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
+      # Installed by apt, then updated over itself at quit (sudo -n standing
+      # in for the pkexec a person's copy asks).
+      - name: Updater (.deb)
+        continue-on-error: true
+        run: |
+          set +e
+          sudo apt-get install -y "./build/linux/Microtone-$version-linux-amd64.deb"
+          xvfb-run -a -s "-screen 0 1600x1000x24" \
+            node desktop-qt/tools/update-test.js /opt/microtone/bin/microtone --mode deb \
+              --package "build/linux/Microtone-$version-linux-amd64.deb" | tee deb.json
+          status=${PIPESTATUS[0]}
+          { echo "### Linux updater, the .deb (exit $status)"; echo '```json'; cat deb.json; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
+      - name: What the packages ask of the system
+        run: |
+          {
+            echo "### .deb"; echo '```'; dpkg-deb -f "build/linux/Microtone-$version-linux-amd64.deb" Depends Installed-Size; echo '```'
+            echo "### .rpm"; echo '```'; rpm -qpR "build/linux/Microtone-$version-linux-x86_64.rpm"; echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Sign the update
+        if: github.event_name == 'workflow_dispatch' && inputs.publish-preview
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          for f in "Microtone-$version-linux-x86_64.AppImage" "Microtone-$version-linux-amd64.deb" "Microtone-$version-linux-x86_64.rpm"; do
+            npx --yes -p @tauri-apps/cli@2.12.1 tauri signer sign --app-version "$version" "build/linux/$f"
+            build/minisign-check - "build/linux/$f" "build/linux/$f.sig"
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Microtone-${{ env.version }}-linux
+          path: |
+            build/linux/Microtone-${{ env.version }}-linux-*
+          if-no-files-found: error
+          compression-level: 0  # all compressed already
+
+  # The Linux packages on systems newer than the one that built them: Ubuntu
+  # 24.04 (AppArmor's user namespace rule, the t64 libraries) and Fedora.
+  linux-newer:
+    needs: linux
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: Microtone-*-linux
+          path: dist
+          merge-multiple: true
+      - name: Ubuntu 24.04
+        continue-on-error: true
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: |
+          set +e
+          version=$(node -p "require('./microtone-worker/package.json').version")
+          sudo apt-get update
+          sudo apt-get install -y xvfb pulseaudio "./dist/Microtone-$version-linux-amd64.deb"
+          echo "apparmor_restrict_unprivileged_userns: $(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2> /dev/null)"
+          pulseaudio --start --exit-idle-time=-1
+          pactl load-module module-null-sink sink_name=smoke
+          pactl set-default-sink smoke
+          chmod +x "dist/Microtone-$version-linux-x86_64.AppImage"
+          xvfb-run -a -s "-screen 0 1600x1000x24" \
+            node desktop-qt/tools/native-smoke.js "dist/Microtone-$version-linux-x86_64.AppImage" --seconds 5 > appimage.json
+          a=$?
+          xvfb-run -a -s "-screen 0 1600x1000x24" \
+            node desktop-qt/tools/native-smoke.js /opt/microtone/bin/microtone --seconds 5 --port 9340 > deb.json
+          d=$?
+          {
+            echo "### Ubuntu 24.04: the AppImage (exit $a)"; echo '```json'; cat appimage.json; echo '```'
+            echo "### Ubuntu 24.04: the .deb, installed by apt (exit $d)"; echo '```json'; cat deb.json; echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          [ $a -eq 0 ] && [ $d -eq 0 ]
+      # Natively on Wayland: a headless Weston and no X server at all, so the
+      # AppImage must use Qt's Wayland platform (and its shell, EGL and
+      # decoration helpers) or fail; the smoke test checks the platform the
+      # log names.
+      - name: Ubuntu 24.04, Wayland
+        continue-on-error: true
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: |
+          set +e
+          version=$(node -p "require('./microtone-worker/package.json').version")
+          sudo apt-get install -y weston
+          export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/tmp/runtime-$(id -u)}
+          mkdir -p "$XDG_RUNTIME_DIR" && chmod 700 "$XDG_RUNTIME_DIR"
+          weston --backend=headless-backend.so --socket=wayland-ci --idle-time=0 --width=1600 --height=1000 > weston.log 2>&1 &
+          sleep 2
+          env -u DISPLAY WAYLAND_DISPLAY=wayland-ci XDG_SESSION_TYPE=wayland \
+            node desktop-qt/tools/native-smoke.js "dist/Microtone-$version-linux-x86_64.AppImage" --seconds 5 --port 9342 \
+              --expect-platform wayland > wayland.json
+          status=$?
+          { echo "### Ubuntu 24.04: the AppImage on Wayland (Weston, no X server; exit $status)"; echo '```json'; cat wayland.json; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+      - name: Fedora
+        continue-on-error: true
+        run: |
+          set +e
+          version=$(node -p "require('./microtone-worker/package.json').version")
+          # Installed by dnf (its dependencies resolved from Fedora's own);
+          # every program and library in the tree finds what it needs; it
+          # starts (offscreen: there is no display).
+          docker run --rm -v "$PWD/dist:/dist:ro" fedora:42 sh -c \
+            "dnf install -y /dist/Microtone-$version-linux-x86_64.rpm > /tmp/dnf.txt 2>&1 || { tail -20 /tmp/dnf.txt; exit 1; }; \
+             missing=\$(find /opt/microtone -type f \( -name '*.so*' -o -path '*/bin/microtone' -o -name QtWebEngineProcess \) \
+               -exec ldd {} \; 2> /dev/null | grep 'not found' | sort -u); \
+             echo \"unresolved: \${missing:-none}\"; [ -z \"\$missing\" ] || exit 1; \
+             QT_QPA_PLATFORM=offscreen /usr/bin/microtone --version" > fedora.txt 2>&1
+          status=$?
+          { echo "### Fedora 42: the .rpm installed by dnf, then run (exit $status)"; echo '```'; cat fedora.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
   # The preview channel: only by hand, only with publish-preview ticked.
   publish-preview:
-    needs: [windows, macos]
+    needs: [windows, macos, linux]
     if: github.event_name == 'workflow_dispatch' && inputs.publish-preview
     runs-on: ubuntu-latest
     permissions:
@@ -313,20 +558,29 @@ jobs:
           version=$(node -p "require('./microtone-worker/package.json').version")
           win="Microtone-$version-windows-x64-setup.exe"
           mac="Microtone-$version-macos.app.tar.gz"
-          # The Tauri updater's latest.json shape (desktop-qt/src/updater.h).
-          VERSION="$version" WIN="$win" MAC="$mac" node -e '
+          appimage="Microtone-$version-linux-x86_64.AppImage"
+          deb="Microtone-$version-linux-amd64.deb"
+          rpm="Microtone-$version-linux-x86_64.rpm"
+          # The Tauri updater's latest.json shape (desktop-qt/src/updater.h),
+          # with the page a copy that does not update itself sends people to.
+          VERSION="$version" WIN="$win" MAC="$mac" APPIMAGE="$appimage" DEB="$deb" RPM="$rpm" node -e '
             const fs = require("fs");
             const e = process.env;
-            const base = `https://github.com/${e.GITHUB_REPOSITORY}/releases/download/desktop-preview/`;
+            const releases = `https://github.com/${e.GITHUB_REPOSITORY}/releases`;
+            const base = `${releases}/download/desktop-preview/`;
             const entry = (f) => ({ url: base + f, signature: fs.readFileSync(`dist/${f}.sig`, "utf8").trim() });
-            const win = entry(e.WIN), mac = entry(e.MAC);
+            const win = entry(e.WIN), mac = entry(e.MAC), appimage = entry(e.APPIMAGE);
             fs.writeFileSync("dist/desktop.json", JSON.stringify({
               version: e.VERSION, notes: "A preview of the next Microtone desktop app.", pub_date: new Date().toISOString(),
+              page: `${releases}/tag/desktop-preview`,
               platforms: { "windows-x86_64": win, "windows-x86_64-nsis": win,
-                           "darwin-universal": mac, "darwin-aarch64": mac, "darwin-x86_64": mac },
+                           "darwin-universal": mac, "darwin-aarch64": mac, "darwin-x86_64": mac,
+                           "linux-x86_64": appimage, "linux-x86_64-appimage": appimage,
+                           "linux-x86_64-deb": entry(e.DEB), "linux-x86_64-rpm": entry(e.RPM) },
             }, null, 1));'
           gh release delete desktop-preview --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes 2> /dev/null || true
           gh release create desktop-preview --repo "$GITHUB_REPOSITORY" --prerelease --latest=false --target "$GITHUB_SHA" \
             --title "Microtone $version — desktop preview" \
             --notes "A preview of the next Microtone desktop app, for testing. Copies of it update from here." \
-            "dist/$win" "dist/$win.sig" "dist/$mac" "dist/$mac.sig" "dist/Microtone-$version-macos.dmg" dist/desktop.json
+            "dist/$win" "dist/$win.sig" "dist/$mac" "dist/$mac.sig" "dist/Microtone-$version-macos.dmg" \
+            "dist/$appimage" "dist/$appimage.sig" "dist/$deb" "dist/$deb.sig" "dist/$rpm" "dist/$rpm.sig" dist/desktop.json

@@ -561,6 +561,8 @@ export default {
   "update.onQuit": "When I quit",
   "update.deferred": "Microtone {version} will be installed when you quit.",
   "update.failed": "The update could not be downloaded: {error}",
+  "update.availableElsewhere": "Microtone {version} is out — you are running {current}. This copy does not update itself: get the new one from its page.",
+  "update.getIt": "Get it",
   "update.restartDirty": "Restart and discard unsaved changes?",
   "files.oldAppCopied": "Your projects from the earlier Microtone desktop app are now files in {folder}: {projects} projects, {soundfonts} soundfonts and {keymaps} keymaps were copied there. The earlier app keeps its own, and what you change there comes over the next time this one starts.",
   "files.oldAppBeside": "{beside} of them went beside a file of the same name, as “… (from the old app)”.",

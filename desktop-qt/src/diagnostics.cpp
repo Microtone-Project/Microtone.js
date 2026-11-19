@@ -4,6 +4,7 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
+#include <QGuiApplication>
 #include <QSysInfo>
 #include <QThread>
 
@@ -62,9 +63,10 @@ QString installDiagnostics(const QString &dataDir) {
     std::abort();
   });
 
-  qInfo("Microtone %s; Qt %s; %s (%s, %s); started as: %s", MICROTONE_VERSION, qVersion(),
-        qUtf8Printable(QSysInfo::prettyProductName()), qUtf8Printable(QSysInfo::kernelVersion()),
-        qUtf8Printable(QSysInfo::currentCpuArchitecture()),
+  // The windowing Qt chose (Linux: wayland or xcb) belongs in a report.
+  qInfo("Microtone %s; Qt %s (%s); %s (%s, %s); started as: %s", MICROTONE_VERSION, qVersion(),
+        qUtf8Printable(QGuiApplication::platformName()), qUtf8Printable(QSysInfo::prettyProductName()),
+        qUtf8Printable(QSysInfo::kernelVersion()), qUtf8Printable(QSysInfo::currentCpuArchitecture()),
         qUtf8Printable(QCoreApplication::arguments().join(u' ')));
   return g_dir;
 }

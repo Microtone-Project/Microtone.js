@@ -8,7 +8,7 @@ file(READ "${CMAKE_CURRENT_SOURCE_DIR}/../microtone-worker/package.json" MICROTO
 string(JSON MICROTONE_VERSION GET "${MICROTONE_PACKAGE_JSON}" version)
 
 # macOS: Qt 6.8's own floor. Before project(), or it does not take.
-set(CMAKE_OSX_DEPLOYMENT_TARGET "12.0" CACHE STRING "The oldest macOS the build runs on")
+set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0" CACHE STRING "The oldest macOS the build runs on (Qt 6.11's floor)")
 
 project(microtone-desktop VERSION ${MICROTONE_VERSION} LANGUAGES C CXX)
 if(WIN32)
@@ -18,7 +18,10 @@ endif()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Widgets Network HttpServer WebSockets WebEngineCore WebEngineWidgets)
+# 6.11: earlier QtWebEngine draws a dropdown's list at the wrong scale on a
+# fractional Wayland desktop, and cannot draw it in the page (README, "The
+# Linux packages"). Every platform builds with the same Qt.
+find_package(Qt6 6.11 REQUIRED COMPONENTS Core Gui Widgets Network HttpServer WebSockets WebEngineCore WebEngineWidgets)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   find_package(Qt6 REQUIRED COMPONENTS DBus)  # RealtimeKit (nativeaudio.cpp)
 endif()
@@ -92,8 +95,15 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_link_libraries(rtaudio PUBLIC PkgConfig::PULSE)
   endif()
   if(JACK_FOUND)
+    # JACK's headers only: libjack itself is the system's, loaded when there
+    # is one (src/weakjack.c), so the app starts without it and a package
+    # never carries a client library that does not match the server.
+    add_library(weakjack STATIC src/weakjack.c)
+    set_target_properties(weakjack PROPERTIES AUTOMOC OFF POSITION_INDEPENDENT_CODE ON)
+    target_include_directories(weakjack PUBLIC ${JACK_INCLUDE_DIRS})
+    target_link_libraries(weakjack PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
     target_compile_definitions(rtaudio PUBLIC __UNIX_JACK__)
-    target_link_libraries(rtaudio PUBLIC PkgConfig::JACK)
+    target_link_libraries(rtaudio PUBLIC weakjack)
   endif()
 elseif(WIN32)
   # WASAPI is ours (src/wasapi.c: shared, low-latency shared, exclusive);

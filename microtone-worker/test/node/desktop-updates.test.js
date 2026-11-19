@@ -1,6 +1,7 @@
 // The desktop app's update offer (src/ui/desktopupdates.js) against a fake
 // shell: nothing is downloaded until asked, the progress shows, "Restart now"
-// asks about unsaved work first, and the shell's steps are asked in order.
+// asks about unsaved work first, and the shell's steps are asked in order; a
+// copy that cannot update itself is told where to get the new version.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { updatePrompt } from "../../src/ui/desktopupdates.js";
@@ -9,7 +10,7 @@ import ko from "../../src/ui/lang/ko.js";
 
 function fakeShell(script) {
   const asked = [];
-  let state = { state: "idle", current: "5.0.5" };
+  let state = { state: "idle", current: "5.0.5", updatable: true };
   const fetch = async (url, init) => {
     const query = url.split("?")[1] ?? "";
     asked.push(`${init.method} ${query}`);
@@ -98,8 +99,30 @@ test("nothing new is nothing to say; a failed download says why; When I quit", a
   assert.equal(w.banners.at(-1).now.text, 'update.deferred {"version":"5.1.0"}');
 });
 
+test("a copy that does not update itself is told, and Get it opens the release's page", async () => {
+  const page = "https://github.com/Microtone-Project/Microtone.js/releases/tag/desktop-preview";
+  const shell = fakeShell((q, s) => {
+    const portable = { ...s, updatable: false };
+    if (q === "check") return { ...portable, state: "checking" };
+    if (q === "" && s.state === "checking") return { ...portable, state: "available", version: "5.1.0", page };
+    return portable;
+  });
+  const u = ui();
+  const opened = [];
+  const p = updatePrompt({ ...u, fetch: shell.fetch, api: "/u", isDirty: () => false, showModal: async () => true,
+    wait: async () => {}, openPage: (url) => opened.push(url) });
+  assert.equal((await p.check()).state, "available");
+  assert.equal(u.banners.length, 1);
+  assert.equal(u.banners[0].now.text, 'update.availableElsewhere {"version":"5.1.0","current":"5.0.5"}');
+  assert.deepEqual(u.banners[0].now.actions.map((a) => a.label), ["update.getIt", "update.later"]);
+  click(u.banners[0], "update.getIt");
+  assert.deepEqual(opened, [page]);
+  assert.ok(!shell.asked.some((a) => /download|install/.test(a)), "nothing is downloaded or installed");
+});
+
 test("every word is in both languages", () => {
-  for (const key of ["available", "download", "later", "downloading", "ready", "restart", "onQuit", "deferred", "failed", "restartDirty"]) {
+  for (const key of ["available", "download", "later", "downloading", "ready", "restart", "onQuit", "deferred", "failed",
+    "restartDirty", "availableElsewhere", "getIt"]) {
     assert.ok(en[`update.${key}`], key);
     assert.ok(ko[`update.${key}`], key);
   }

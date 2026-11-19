@@ -96,7 +96,8 @@ async function launch(site) {
     env: {
       ...process.env, QTWEBENGINE_REMOTE_DEBUGGING: String(debugPort), QT_FORCE_STDERR_LOGGING: "1",
       MICROTONE_ONLINE: site, MICROTONE_BROWSER: browser, ONLINE_TEST_BROWSER_LOG: browserLog,
-      MICROTONE_FILES_ROOT: join(work, "Microtone"), XDG_DATA_HOME: join(work, "data"), MICROTONE_OLDAPP_DIR: "none",
+      MICROTONE_FILES_ROOT: join(work, "Microtone"), XDG_DATA_HOME: join(work, "data"), XDG_CONFIG_HOME: join(work, "config"),
+      XDG_CACHE_HOME: join(work, "cache"), MICROTONE_OLDAPP_DIR: "none",
     },
     stdio: ["ignore", "ignore", "pipe"],
   });

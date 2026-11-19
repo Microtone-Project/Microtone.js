@@ -423,6 +423,19 @@ function upgradeSelect(sel) {
   // navigation, type-ahead, the OS picker on a phone.
   holdRepeat(prev, () => stepSelect(sel, -1));
   holdRepeat(next, () => stepSelect(sel, +1));
+  // Where Chromium draws the list in the page (`appearance: base-select`,
+  // microtone.css), ↑/↓ on the closed control open it; the plain control —
+  // Chromium's before, Firefox's still — steps the value. Closed, they step
+  // here too, as the ◄ ► do; Alt+↓ still opens the list.
+  sel.addEventListener("keydown", (e) => {
+    if ((e.key !== "ArrowUp" && e.key !== "ArrowDown") || e.altKey || e.ctrlKey || e.metaKey) return;
+    if (getComputedStyle(sel).appearance !== "base-select") return;
+    try {
+      if (sel.matches(":open")) return;  // the list's own arrows
+    } catch { /* no :open: no base-select either */ }
+    e.preventDefault();
+    stepSelect(sel, e.key === "ArrowDown" ? +1 : -1);
+  });
   const sync = () => {
     prev.disabled = sel.disabled || nextIndex(sel, -1) < 0;
     next.disabled = sel.disabled || nextIndex(sel, +1) < 0;

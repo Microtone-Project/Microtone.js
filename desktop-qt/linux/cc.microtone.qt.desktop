@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Microtone
+GenericName=Tracker
+GenericName[ko]=트래커
+Comment=A tracker workstation for any sound, in any tuning
+Comment[ko]=어떤 소리든, 어떤 음률이든 다루는 트래커 작업실
+Exec=microtone
+Icon=cc.microtone.qt
+Terminal=false
+Categories=AudioVideo;Audio;Music;
+Keywords=tracker;music;microtonal;tuning;synthesizer;
+StartupWMClass=microtone

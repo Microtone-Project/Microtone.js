@@ -44,12 +44,14 @@ inline Tier tierOf(const std::string &name) {
     }
     return false;
   };
-  if (has("generic low latency asio driver")) return Tier::Blocked;
+  if (has("generic low latency asio driver") || has("asio directx full duplex driver") || has("asio multimedia driver") || has("magix low latency")) return Tier::Blocked;
   if (word("asus") || word("xonar") || has("realtek") || has("usb audio codec")) return Tier::HardwareAvoid;
-  if (has("asio4all")) return Tier::GenericAvoid;
+  if (has("asio4all") || word("generic") || word("latency")) return Tier::GenericAvoid;
   if (has("steinberg built-in asio driver")) return Tier::Steinberg;
   if (has("flexasio") || has("asio2wasapi")) return Tier::Generic;
   return Tier::Hardware;
+
+  // TODO: out-of-process testing. If they die of access violation and other shit, remove them from the app
 }
 
 inline const char *tierName(Tier t) {

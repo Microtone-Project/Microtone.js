@@ -21,6 +21,7 @@
 #include <QApplication>
 #include <QCommandLineParser>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QLocalServer>
 #include <QLocalSocket>
@@ -78,6 +79,28 @@ QString instanceName() {
   return QStringLiteral("microtone-desktop-") + QString::fromLocal8Bit(qgetenv("USER").isEmpty() ? qgetenv("USERNAME") : qgetenv("USER"));
 }
 
+#ifdef Q_OS_LINUX
+/** Does the system refuse the unprivileged user namespaces Chromium's
+ *  sandbox is made of? Ubuntu (23.10 on) has AppArmor refuse them to a
+ *  program without a profile of its own — an AppImage can bring none — and
+ *  some kernels have them off. QtWebEngine's renderers would not start at
+ *  all there: no page, a blank window. → why, or empty. */
+QString userNamespacesRefused() {
+  const auto read = [](const char *path) {
+    QFile f(QString::fromLatin1(path));
+    return f.open(QIODevice::ReadOnly) ? QString::fromLatin1(f.readAll()).trimmed() : QString();
+  };
+  if (read("/proc/sys/kernel/apparmor_restrict_unprivileged_userns") == u"1") {
+    // Confined by a profile of its own, the program may have them.
+    const QString label = read("/proc/self/attr/apparmor/current");
+    if (label.isEmpty() || label == u"unconfined") return QStringLiteral("AppArmor restricts unprivileged user namespaces");
+  }
+  if (read("/proc/sys/kernel/unprivileged_userns_clone") == u"0") return QStringLiteral("unprivileged_userns_clone is 0");
+  if (read("/proc/sys/user/max_user_namespaces") == u"0") return QStringLiteral("max_user_namespaces is 0");
+  return {};
+}
+#endif
+
 bool handOverToRunningInstance() {
   QLocalSocket socket;
   socket.connectToServer(instanceName());
@@ -90,6 +113,14 @@ bool handOverToRunningInstance() {
 }  // namespace
 
 int main(int argc, char **argv) {
+#ifdef Q_OS_LINUX
+  // Without the namespaces, Chromium's sandbox: the renderers run unsandboxed
+  // rather than not at all. They only ever run this app's own pages (served
+  // from its loopback server); anything else on the web opens in the
+  // system's browser (links.cpp).
+  const QString noSandbox = qEnvironmentVariableIsSet("QTWEBENGINE_DISABLE_SANDBOX") ? QString() : userNamespacesRefused();
+  if (!noSandbox.isEmpty()) qputenv("QTWEBENGINE_DISABLE_SANDBOX", "1");
+#endif
   QCoreApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
   QApplication app(argc, argv);
   // Both names: without an organisation QSettings reads and writes nothing
@@ -123,6 +154,9 @@ int main(int argc, char **argv) {
   const QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
   QDir().mkpath(dataDir);
   installDiagnostics(dataDir);
+#ifdef Q_OS_LINUX
+  if (!noSandbox.isEmpty()) qInfo("microtone: the page runs without Chromium's sandbox (%s)", qUtf8Printable(noSandbox));
+#endif
 #ifdef Q_OS_WIN
   // Held for the app's life (Windows lets it go at exit): the installer asks
   // by this name whether the app is running before it replaces or removes it.

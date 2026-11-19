@@ -6,6 +6,10 @@
 //
 //   node desktop-qt/tools/native-smoke.js <the microtone executable>
 //        [--song Eighth.taud] [--seconds 10] [--rate 48000] [--port 9339]
+//        [--expect-platform wayland|xcb|cocoa|windows]
+//
+// --expect-platform: the windowing Qt must have chosen (the log's first
+// line says), e.g. that a Linux package runs natively on Wayland.
 //
 // Checked: the page loads from the shell's server, cross-origin isolated
 // (SharedArrayBuffer), with OPFS; the file store (~/Microtone, here a
@@ -45,6 +49,7 @@ const song = opt("song", "Eighth.taud");
 const seconds = Number(opt("seconds", "10"));
 const rate = Number(opt("rate", "48000"));
 const port = Number(opt("port", "9339"));
+const expectPlatform = opt("expect-platform", null);
 
 const work = mkdtempSync(join(tmpdir(), "microtone-smoke-"));
 const dumpPath = join(work, "native.f32");
@@ -78,6 +83,10 @@ const app = spawn(exe, ["--open", `index.html?load=assets/demo_projects/${song}&
     // Linux: the app's own data (its web profile, the copy's record) in the
     // test's folder too. Windows and macOS do not read it.
     XDG_DATA_HOME: join(work, "data"),
+    // …and its settings and cache: never the person's own (the audio
+    // crash guard and the window's place live in the settings).
+    XDG_CONFIG_HOME: join(work, "config"),
+    XDG_CACHE_HOME: join(work, "cache"),
   },
   stdio: ["ignore", "pipe", "pipe"],
 });
@@ -88,8 +97,15 @@ app.on("exit", (code, signal) => { exited = { code, signal }; });
 
 function finish(code) {
   if (exited === null) app.kill("SIGTERM");
+  const lines = readFileSync(join(work, "app.log"), "utf8").split("\n");
+  // "Microtone <v>; Qt <v> (<platform>); …" (src/diagnostics.cpp)
+  report.platform = lines.map((l) => /^Microtone \S+; Qt \S+ \(([^)]+)\)/.exec(l)?.[1]).find(Boolean) ?? null;
+  if (expectPlatform) {
+    report.checks.platform = report.platform === expectPlatform ? "ok" : `${report.platform}, not ${expectPlatform}`;
+    if (report.platform !== expectPlatform) code = 1;
+  }
   report.exit = code;
-  report.log = readFileSync(join(work, "app.log"), "utf8").split("\n").filter((l) => /microtone|error|fatal/i.test(l)).slice(-20);
+  report.log = lines.filter((l) => /microtone|error|fatal/i.test(l)).slice(-20);
   console.log(JSON.stringify(report, null, 1));
   setTimeout(() => process.exit(code), 500);
 }

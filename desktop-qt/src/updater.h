@@ -2,12 +2,15 @@
 // redirects to the channel's manifest on GitHub: server/desktop-update.js),
 // which has the Tauri updater's latest.json shape —
 //
-//   { "version", "notes", "pub_date",
+//   { "version", "notes", "pub_date", "page",
 //     "platforms": { "windows-x86_64": { "url", "signature" },
-//                    "darwin-universal" | "darwin-aarch64" | "darwin-x86_64": … } }
+//                    "darwin-universal" | "darwin-aarch64" | "darwin-x86_64": …,
+//                    "linux-x86_64-appimage" | "linux-x86_64-deb" |
+//                    "linux-x86_64-rpm" | "linux-x86_64": … } }
 //
 // — so at the switch one release can move the Tauri copies over and update
-// these. Nothing is downloaded until the person says so (the page's banner,
+// these ("page", where a person downloads the release, is ours; Tauri reads
+// past it). Nothing is downloaded until the person says so (the page's banner,
 // src/ui/desktopupdates.js); a download is checked against the updater key
 // (minisign.h, updatekey.h) before anything is done with it; and it is
 // installed only when the app quits — "Restart now" quits it — so an update
@@ -19,11 +22,23 @@
 //             quit the running bundle steps aside, the new one takes its
 //             place, and a small helper waits for this process to end before
 //             removing the old one (and starting the new, when asked)
-//   Linux     nothing yet: no packaged build to replace (updatable() false)
+//   AppImage  the downloaded AppImage, copied beside the running one
+//             beforehand; at quit it takes the running one's name (a rename:
+//             the running copy reads on from the file it opened), and a
+//             helper starts it once this process has ended, when asked
+//   .deb/.rpm the downloaded package, installed by a helper once this process
+//             has ended: `pkexec dpkg -i` / `pkexec rpm -U` (the system asks
+//             for an administrator's password, as the Tauri build's updater
+//             had it), then the app started again, when asked
 //
 // Only an installed copy updates: on Windows one the installer put where it
 // says (its InstallLocation), on macOS an .app in a folder it may write — not
-// a disk image, not a translocated copy, not a build tree.
+// a disk image, not a translocated copy, not a build tree; on Linux an
+// AppImage in a folder it may write, or a .deb/.rpm install (the package
+// marks its kind in share/microtone/package) where pkexec is. Every other
+// copy — Windows' portable folder, a Mac app run from its disk image, a build
+// — is still told when a newer Microtone is out, and where to get it (the
+// manifest's "page"): "updatable" false, and download() refused.
 //
 // The page talks to it over the app's server (appserver.cpp):
 //   GET  /api/desktop/updates                {state, current, version, notes, progress, error, updatable, channel}
@@ -31,9 +46,11 @@
 // state: idle, checking, none, available, downloading, ready, error.
 //
 // MICROTONE_UPDATE_URL=<manifest url> and MICROTONE_UPDATE_KEY=<public key>
-// (tests: a local manifest, a key of their own); MICROTONE_UPDATE_TEST=run
-// makes any copy updatable, the download a program run at quit as the
-// Windows installer is (with /P, /R).
+// (tests: a local manifest, a key of their own); MICROTONE_UPDATE_URL=none
+// asks nothing. MICROTONE_UPDATE_TEST=run makes any copy updatable, the
+// download a program run at quit as the Windows installer is (with /P, /R);
+// MICROTONE_UPDATE_TEST=sudo has a .deb/.rpm install use `sudo -n` where it
+// would ask pkexec (CI, where nobody types a password).
 #pragma once
 
 #include <QJsonObject>
@@ -70,8 +87,8 @@ class Updater : public QObject {
   /** Is version `a` newer than `b`? (x.y.z, a -pre release before its
    *  release.) */
   static bool newer(const QString &a, const QString &b);
-  /** The manifest's entry for this machine, in order of preference. */
-  static QStringList platformKeys();
+  /** The manifest's entries for this copy, in order of preference. */
+  QStringList platformKeys() const;
 
  signals:
   void changed();
@@ -81,10 +98,14 @@ class Updater : public QObject {
   void verifyAndPrepare();
 
   QString dir_;        // <app data>/update
-  QString manifest_;   // where to ask
+  QString manifest_;   // where to ask; empty: nowhere
   QString channel_;
+  QString kind_;       // installer, bundle, appimage, deb, rpm; empty: a copy that does not update itself
+  QString appImage_;   // the running AppImage's file
   bool updatable_ = false;
   bool testRun_ = false;
+  bool testSudo_ = false;
+  QString page_;       // where a person downloads the release
 
   QString state_ = QStringLiteral("idle");
   QString error_;
@@ -92,7 +113,7 @@ class Updater : public QObject {
   QByteArray signature_;
   double progress_ = 0;
   QString file_;       // the verified download
-  QString prepared_;   // macOS: the unpacked Microtone.app
+  QString prepared_;   // macOS: the unpacked Microtone.app; AppImage: the copy beside the running one
   bool installOnQuit_ = false;
   bool restart_ = false;
 

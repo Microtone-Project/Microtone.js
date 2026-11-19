@@ -8,8 +8,10 @@
 //
 // The shell's side is /api/desktop/updates on the app's own server
 // (window.__MICROTONE_NATIVE__.updates.api): GET the state, POST ?check,
-// ?download, ?install=quit or ?install=now. Only a copy that can replace
-// itself (an installed one) is offered anything.
+// ?download, ?install=quit or ?install=now. A copy that cannot replace itself
+// (Windows' portable folder, a Mac app run from its disk image, an AppImage
+// in a folder it may not write, a build) is told instead: a new version is
+// out, and "Get it" opens the release's page in the system browser.
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const percent = (p) => `${Math.round(Math.max(0, Math.min(1, p || 0)) * 100)}%`;
@@ -20,7 +22,8 @@ const percent = (p) => `${Math.round(Math.max(0, Math.min(1, p || 0)) * 100)}%`;
  * — for tests — `fetch`, `api` and `wait`.
  */
 export function updatePrompt({ showBanner, showModal, t, isDirty, fetch = globalThis.fetch.bind(globalThis),
-  api = globalThis.__MICROTONE_NATIVE__?.updates?.api ?? null, wait = sleep, every = 250 }) {
+  api = globalThis.__MICROTONE_NATIVE__?.updates?.api ?? null, wait = sleep, every = 250,
+  openPage = (url) => globalThis.open(url, "_blank", "noopener") }) {
   const call = async (query = "") => {
     const res = await fetch(api + (query ? `?${query}` : ""), { method: query ? "POST" : "GET", cache: "no-store" });
     if (!res.ok) throw new Error(`updates: ${res.status}`);
@@ -35,6 +38,17 @@ export function updatePrompt({ showBanner, showModal, t, isDirty, fetch = global
     }
     return s;
   };
+
+  /** A copy that does not update itself: where to get the new one. */
+  function notice(s) {
+    return showBanner({
+      text: t("update.availableElsewhere", { version: s.version, current: s.current }),
+      actions: [
+        { label: t("update.getIt"), primary: true, onClick: () => openPage(s.page) },
+        { label: t("update.later") },
+      ],
+    });
+  }
 
   function offer(s) {
     return showBanner({
@@ -91,17 +105,21 @@ export function updatePrompt({ showBanner, showModal, t, isDirty, fetch = global
   /** Ask the shell to look, and offer what it finds. → the state. */
   async function check() {
     const s = await settle(await call("check"), "checking");
-    if (s.state === "available") offer(s);
+    if (s.state === "available") {
+      if (s.updatable) offer(s);
+      else if (s.page) notice(s);
+    }
     return s;
   }
 
   return { check, download, restartNow, call };
 }
 
-/** The app's start: a look a few seconds in, where this copy can update. */
+/** The app's start: a look a few seconds in — to offer the update where this
+ *  copy can install it, to say where to get it where it cannot. */
 export function startDesktopUpdates(deps, { delay = 5000 } = {}) {
   const updates = globalThis.__MICROTONE_NATIVE__?.updates;
-  if (!updates?.updatable) return null;
+  if (!updates || updates.asks === false) return null;
   const prompt = updatePrompt(deps);
   setTimeout(() => prompt.check().catch((err) => console.warn("checking for updates:", err)), delay);
   return prompt;
