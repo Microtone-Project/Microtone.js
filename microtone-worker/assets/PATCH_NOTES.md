@@ -19,6 +19,10 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 - Only the Hangul and the Korean punctuation change face; everything else looks as it did, and a page loads just the part of the font holding the syllables it shows.
 - The few Chinese characters the interface writes, such as 十二律 in the Shi'er lü keymap's name, come with it too.
 
+**Scrollbars wear the theme**: every scrollbar in the app now has a thumb in the theme's own grey, running on the panel it scrolls, instead of the system's pale rail across a dark page.
+
+- It holds everywhere: the views, lists, text boxes, dropdown lists and the documentation, in Chrome, Edge and Firefox. Safari already followed the theme.
+
 ## Version 5.0.5 (2026-11-17)
 
 **MIDI import keeps drum kits in tune, uses up to 64 lanes, and can play through your own soundfonts**: a song that sends a pitch bend to its drum part no longer detunes the whole kit.

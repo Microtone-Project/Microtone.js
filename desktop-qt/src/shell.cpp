@@ -237,6 +237,9 @@ Shell::Shell(QUrl origin, const QByteArray &token, const QString &dataDir, const
   QWebEngineSettings *s = profile_->settings();
   s->setAttribute(QWebEngineSettings::PlaybackRequiresUserGesture, false);
   s->setAttribute(QWebEngineSettings::FocusOnNavigationEnabled, true);
+  // A wheel click eases over a few frames instead of jumping a line, as in
+  // a browser; QtWebEngine has it off unless asked.
+  s->setAttribute(QWebEngineSettings::ScrollAnimatorEnabled, true);
 
   QWebEngineScript glue;
   glue.setName(QStringLiteral("microtone-glue"));

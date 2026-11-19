@@ -101,6 +101,19 @@ QString userNamespacesRefused() {
 }
 #endif
 
+/** `flags` (QTWEBENGINE_CHROMIUM_FLAGS, split at spaces) with `feature` in
+ *  its --enable-features, added to the one it has or as a switch of its own. */
+QByteArray withFeatureEnabled(const QByteArray &flags, const QByteArray &feature) {
+  static const QByteArray kSwitch = "--enable-features=";
+  QList<QByteArray> words = flags.split(' ');
+  for (auto it = words.rbegin(); it != words.rend(); ++it) {
+    if (!it->startsWith(kSwitch)) continue;
+    if (!it->mid(kSwitch.size()).split(',').contains(feature)) *it += (it->size() > kSwitch.size() ? "," : "") + feature;
+    return words.join(' ');
+  }
+  return flags + ' ' + kSwitch + feature;
+}
+
 bool handOverToRunningInstance() {
   QLocalSocket socket;
   socket.connectToServer(instanceName());
@@ -191,6 +204,12 @@ int main(int argc, char **argv) {
   // must be set before the Shell exists.
   QByteArray flags = qgetenv("QTWEBENGINE_CHROMIUM_FLAGS");
   flags += " --host-resolver-rules=\"MAP " + QByteArray(kAppHost) + " 127.0.0.1:" + QByteArray::number(server.port()) + '"';
+  // Scrollbars that float over the content and fade when it stops, in the
+  // page's own `scrollbar-color` (microtone.css): Chromium's Fluent overlay
+  // scrollbars, Windows and Linux (macOS draws its own, overlay by system
+  // setting). Plain `OverlayScrollbar` does nothing on either. Joined to an
+  // --enable-features already in the variable: Chromium keeps only the last.
+  flags = withFeatureEnabled(flags, "FluentOverlayScrollbar");
   qputenv("QTWEBENGINE_CHROMIUM_FLAGS", flags.trimmed());
 
   // The native audio host: the engine on the device's own callback. Without

@@ -34,7 +34,7 @@
     {
       "id": "native-controls",
       "title": "Native form controls are themed centrally",
-      "text": ":root { accent-color: var(--accent) } paints every checkbox, radio, range slider and <progress>. Never restate accent-color on a widget. A control that cannot be native (a canvas fader, a flip switch) paints itself from var(--accent). On the instrument panels an on/off is never a checkbox (rule panel-switches); a checkbox remains the dialog form's option (showModal's checkbox field, an import list)."
+      "text": ":root { accent-color: var(--accent) } paints every checkbox, radio, range slider and <progress>. Never restate accent-color on a widget. A control that cannot be native (a canvas fader, a flip switch) paints itself from var(--accent). Scrollbars likewise: :root { scrollbar-color: var(--dim) transparent }, never restated on a widget (warmth lifts it for its ::-webkit-scrollbar rail); the Qt desktop app floats them, so never reserve or measure a scrollbar's width. On the instrument panels an on/off is never a checkbox (rule panel-switches); a checkbox remains the dialog form's option (showModal's checkbox field, an import list)."
     },
     {
       "id": "type-tokens",

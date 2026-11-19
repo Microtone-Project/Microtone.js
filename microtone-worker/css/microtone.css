@@ -580,6 +580,19 @@
  * widget, and never hard-code a slider/checkbox colour that would fight it. */
 :root { accent-color: var(--accent); }
 
+/* Scrollbars, the same way: `scrollbar-color` is inherited too, so this one
+ * line gives every scroller in the app — panes, lists, text areas, the
+ * docs, a dropdown's list — the theme's dim ink for a thumb running on
+ * whatever ground it scrolls (a transparent track: no grey rail cutting
+ * across a panel). Chromium and Firefox read it; Safari and the WebKit
+ * webviews keep their own, which already follow the theme and float.
+ * The desktop app (desktop-qt) also floats them and animates the wheel —
+ * Chromium's Fluent overlay scrollbars and Qt's scroll animator, both set
+ * in its shell, both reading this colour. Warmth takes it back off (its
+ * moulded rail, below, is `::-webkit-scrollbar`, which Chromium ignores
+ * wherever `scrollbar-color` is set). Never restate it on a widget. */
+:root { scrollbar-color: var(--dim) transparent; }
+
 /* Links, everywhere: accent-2 (the links ink), and a visited one in the pan
  * column's violet so it reads as "been there". Declared this early on
  * purpose: a later rule of the same weight wins, so a view that gives its
@@ -4257,7 +4270,10 @@ button.nota-assign { font-size: 0.85rem; }
 
 /* ── scrollbars ─────────────────────────────────────────────────────────
  * A moulded rail with a cap running in it — the one place a scrollbar has
- * ever wanted to be skeuomorphic. */
+ * ever wanted to be skeuomorphic. Chromium draws `::-webkit-scrollbar` only
+ * where no `scrollbar-color` applies, so the app-wide one (NATIVE FORM
+ * CONTROLS) is lifted here; the rail is a classic, never an overlay. */
+:root[data-theme="warmth"] { scrollbar-color: auto; }
 [data-theme="warmth"] ::-webkit-scrollbar { width: 13px; height: 13px; }
 [data-theme="warmth"] ::-webkit-scrollbar-track {
   background: #c9bb92;

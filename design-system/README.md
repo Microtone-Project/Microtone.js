@@ -60,6 +60,8 @@ Every colour, DOM and canvas alike, is a custom property on `:root` in `microton
 
 Native checkboxes, radios, sliders and progress bars are themed once, by `:root { accent-color: var(--accent) }`. Never restate `accent-color` on a widget; a control that cannot be native — a canvas fader, a flip switch — paints itself from `var(--accent)`.
 
+Scrollbars are themed the same way, once, by `:root { scrollbar-color: var(--dim) transparent }`: a dim thumb on whatever ground it scrolls, never a rail of its own. Never restate it on a widget; warmth alone lifts it, for its moulded `::-webkit-scrollbar` rail. The Qt desktop app floats them over the content (Chromium's Fluent overlay scrollbars) and eases the wheel, both in its shell — so never leave room for a scrollbar's width, or measure one: it is zero there.
+
 ### One meaning per hue
 
 - `accent` (amber; burnt orange on light grounds) — focus, hover, "this one is active", and Proceed.
