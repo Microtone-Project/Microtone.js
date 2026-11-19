@@ -45,6 +45,7 @@
 #include "RtAudio.h"
 #include "asiotiers.h"
 #if MICROTONE_ASIO
+#include "asiocheck.h"
 #include "asiodriver.h"
 #endif
 
@@ -252,6 +253,15 @@ unsigned int preferredAsioDriver(RtAudio *dac) {
 }  // namespace
 
 NativeAudio::NativeAudio(QObject *parent) : QObject(parent) {
+#if MICROTONE_ASIO
+  // First: the drivers not yet tried are tried now, in the background, and
+  // RtAudio loads none that crashed or hung there (nor any not yet tried).
+  asioCheck_ = std::make_unique<asio::AsioCheck>([this] {
+    asioStale_ = true;
+    devicesChanged();  // the list now has the drivers that passed
+  });
+  asioCheck_->start();
+#endif
   mt_snap_layout(&layout_);
   for (Slot &s : slots_) s.f.assign(size_t(layout_.floats), 0.0f);
   scratch_.assign(size_t(kScratchFrames) * 2, 0.0f);
@@ -278,6 +288,9 @@ NativeAudio::NativeAudio(QObject *parent) : QObject(parent) {
 }
 
 NativeAudio::~NativeAudio() {
+#if MICROTONE_ASIO
+  asioCheck_.reset();  // a check under way is ended; no callback after this
+#endif
 #ifdef __linux__
   linuxWatch_.reset();  // no hook runs after this
 #endif
@@ -669,6 +682,14 @@ void NativeAudio::openDriverPanel() {
 bool NativeAudio::openRtAudio(const Config &want, QString *error) {
   RtAudio::Api api = apiNamed(want.api);
   if (api == RtAudio::UNSPECIFIED) api = apiOrder().empty() ? RtAudio::UNSPECIFIED : apiOrder().front();
+#if MICROTONE_ASIO
+  // Loading ASIO waits for the drivers to be tried: one not yet tried is not
+  // loaded (a minute at most; then the untried stay out).
+  if (api == RtAudio::WINDOWS_ASIO && asioCheck_ && asioCheck_->checking()) {
+    qInfo("audio: waiting for the ASIO drivers to be tried");
+    if (!asioCheck_->wait(60000)) qWarning("audio: the ASIO checks are still running; untried drivers stay out");
+  }
+#endif
   // PulseAudio afresh each time: RtAudio marks the default sink once, when
   // it first lists it, and opens "the default" by that sink's name.
   if (!dac_ || dac_->getCurrentApi() != api || api == RtAudio::LINUX_PULSE) {
@@ -983,7 +1004,11 @@ QJsonObject NativeAudio::devices(bool full) {
   for (RtAudio::Api api : apiOrder()) {
     // A list pushed after a device event keeps the last ASIO list (see the
     // header): no driver is loaded for a headset coming in.
-    if (!full && api == RtAudio::WINDOWS_ASIO && !asioEntry_.isEmpty()) {
+    bool asioStale = false;
+#if MICROTONE_ASIO
+    asioStale = api == RtAudio::WINDOWS_ASIO && asioStale_.exchange(false);
+#endif
+    if (!full && api == RtAudio::WINDOWS_ASIO && !asioEntry_.isEmpty() && !asioStale) {
       apis.append(asioEntry_);
       continue;
     }
@@ -1026,6 +1051,14 @@ QJsonObject NativeAudio::devices(bool full) {
       // The size is the driver's to set (0 asks for it), in its own window.
       entry.insert(QStringLiteral("driverBuffer"), true);
       entry.insert(QStringLiteral("driverPanel"), true);
+#if MICROTONE_ASIO
+      // The drivers left out, and why; and whether some are still being
+      // tried (the list grows when they pass).
+      if (asioCheck_) {
+        entry.insert(QStringLiteral("refused"), asioCheck_->refused());
+        entry.insert(QStringLiteral("checking"), asioCheck_->checking());
+      }
+#endif
     }
     // Rate 0 keeps the device's own rate (above); another one changes it.
     if (api == RtAudio::MACOSX_CORE) entry.insert(QStringLiteral("keepsDeviceRate"), true);

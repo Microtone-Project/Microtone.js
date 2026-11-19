@@ -1,7 +1,9 @@
 # Vendored code (desktop-qt)
 
-Copied verbatim from a release; never edited here. Update by copying a newer
-release over the files and changing this record.
+Copied verbatim from a release; never edited here — except RtAudio's ASIO
+section, which carries two small patches recorded below (a driver filter; a
+non-null bufferSwitchTimeInfo). Update by copying a newer release over the
+files, re-applying those patches, and changing this record.
 
 ## RtAudio 6.0.1 — `rtaudio/`
 
@@ -11,10 +13,68 @@ release over the files and changing this record.
 - Files: `RtAudio.h`, `RtAudio.cpp`, `LICENSE` (MIT-style; its request to send
   changes upstream is explicitly not binding).
   - `RtAudio.h`   sha256 `3acbd6d0493a1d03941be3f22e050d0fe9ab4a968784c7d0c81530a58162953d`
-  - `RtAudio.cpp` sha256 `d880f065bdb65536ce5cf4619b6a2408a360ad0103b8b38600f1a29a11ff1e1e`
+  - `RtAudio.cpp` sha256 `d880f065bdb65536ce5cf4619b6a2408a360ad0103b8b38600f1a29a11ff1e1e` (as released; patched since, below)
 - Backends are chosen by CMakeLists.txt: ALSA, PulseAudio and JACK (when
   found) on Linux, CoreAudio on macOS, ASIO on Windows. WASAPI is the app's
   own (`src/wasapi.c`, for exclusive mode, which RtAudio's lacks).
+
+### Patch 1: an ASIO driver filter (2026-11-19, TODO 349)
+
+RtAudio loads EVERY installed ASIO driver into the process just to list them
+(`RtApiAsio::probeDevices` → `probeDeviceInfo` → `loadDriver`, `ASIOInit`),
+from a `static AsioDrivers drivers` list nothing outside RtAudio.cpp can
+reach — so a driver that crashes (Cubase's "Generic Low Latency ASIO Driver"
+did, 2026-11-19) would take the app down by being listed, and the app could
+not keep it out. The patch adds a filter the host sets; a refused driver is
+neither listed nor loaded. The app (`src/asiocheck.cpp`) refuses drivers its
+blocklist names and those that crashed or hung when `asio-probe check` tried
+them in a process of their own. Five lines, ASCII, marked `MICROTONE PATCH`:
+
+```diff
+ static AsioDrivers drivers;
++// MICROTONE PATCH (desktop-qt/vendor/VENDOR-VERSIONS.md): the host may refuse
++// a driver before it is loaded: one that crashed or hung when tried in a
++// process of its own. Refused drivers are not listed, and never loaded here.
++bool (*rtaudio_asio_driver_allowed)( const char *name ) = 0;
+ static ASIOCallbacks asioCallbacks;
+@@ RtApiAsio :: probeDevices
+       continue;
+     }
++    if ( rtaudio_asio_driver_allowed && !rtaudio_asio_driver_allowed( tmp ) ) continue; // MICROTONE PATCH
+     driverNames.push_back( tmp );
+```
+
+### Patch 2: a bufferSwitchTimeInfo that forwards (2026-11-20)
+
+RtAudio registers ASIO's 2.0 callback `bufferSwitchTimeInfo` as NULL and tells
+drivers it does not use it (`kAsioSupportsTimeInfo` answers 0). A driver may
+call it regardless — and jumps to address 0. Cubase's "Generic Low Latency
+ASIO Driver" (asioglld.dll) did: the friend's minidump of 2026-11-19, the
+exception at RIP 0 called from inside the driver. Now it forwards to
+`bufferSwitch` and returns NULL, as Steinberg's own sample host does; what
+RtAudio tells drivers is unchanged. Marked `MICROTONE PATCH`:
+
+```diff
+@@ after static void bufferSwitch( long index, ASIOBool /*processNow*/ ) { … }
++// MICROTONE PATCH (desktop-qt/vendor/VENDOR-VERSIONS.md): the ASIO 2.0
++// callback, forwarding to bufferSwitch. …
++static ASIOTime *bufferSwitchTimeInfo( ASIOTime * /*timeInfo*/, long index, ASIOBool processNow )
++{
++  bufferSwitch( index, processNow );
++  return NULL;
++}
+@@ RtApiAsio :: probeDeviceOpen
+-  asioCallbacks.bufferSwitchTimeInfo = NULL;
++  asioCallbacks.bufferSwitchTimeInfo = &bufferSwitchTimeInfo; // MICROTONE PATCH (was NULL)
+```
+
+Checked here only against the SDK headers (clang, MinGW target: the
+prototype is asio.h's); the build is CI's MSVC, the proof a driver that
+calls it.
+
+`RtAudio.cpp` as patched (both): sha256
+`84876e8a5bcb0514f89a245d52bc7091fcf6ba4b69891a158a74febc13757088` (the
+release's is below).
 
 ### `rtaudio/include/` — the ASIO SDK files, as the same release ships them
 

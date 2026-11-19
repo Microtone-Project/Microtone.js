@@ -3321,6 +3321,10 @@ bool RtApiJack :: callbackEvent( unsigned long nframes )
 #include <cmath>
 
 static AsioDrivers drivers;
+// MICROTONE PATCH (desktop-qt/vendor/VENDOR-VERSIONS.md): the host may refuse
+// a driver before it is loaded: one that crashed or hung when tried in a
+// process of its own. Refused drivers are not listed, and never loaded here.
+bool (*rtaudio_asio_driver_allowed)( const char *name ) = 0;
 static ASIOCallbacks asioCallbacks;
 static ASIODriverInfo driverInfo;
 static CallbackInfo *asioCallbackInfo;
@@ -3402,6 +3406,7 @@ void RtApiAsio :: probeDevices( void )
       error( RTAUDIO_WARNING );
       continue;
     }
+    if ( rtaudio_asio_driver_allowed && !rtaudio_asio_driver_allowed( tmp ) ) continue; // MICROTONE PATCH
     driverNames.push_back( tmp );
     for ( m=0; m<deviceList_.size(); m++ ) {
       if ( deviceList_[m].name == driverNames.back() )
@@ -3522,6 +3527,17 @@ static void bufferSwitch( long index, ASIOBool /*processNow*/ )
 {
   RtApiAsio *object = (RtApiAsio *) asioCallbackInfo->object;
   object->callbackEvent( index );
+}
+
+// MICROTONE PATCH (desktop-qt/vendor/VENDOR-VERSIONS.md): the ASIO 2.0
+// callback, forwarding to bufferSwitch. The host tells drivers it does not
+// use it (kAsioSupportsTimeInfo answers 0), but some call it regardless, and
+// with it left NULL they jump to address 0: Cubase's "Generic Low Latency
+// ASIO Driver" did. Returns NULL, as Steinberg's own sample host does.
+static ASIOTime *bufferSwitchTimeInfo( ASIOTime * /*timeInfo*/, long index, ASIOBool processNow )
+{
+  bufferSwitch( index, processNow );
+  return NULL;
 }
 
 bool RtApiAsio :: probeDeviceOpen( unsigned int deviceId, StreamMode mode, unsigned int channels,
@@ -3801,7 +3817,7 @@ bool RtApiAsio :: probeDeviceOpen( unsigned int deviceId, StreamMode mode, unsig
   asioCallbacks.bufferSwitch = &bufferSwitch;
   asioCallbacks.sampleRateDidChange = &sampleRateChanged;
   asioCallbacks.asioMessage = &asioMessages;
-  asioCallbacks.bufferSwitchTimeInfo = NULL;
+  asioCallbacks.bufferSwitchTimeInfo = &bufferSwitchTimeInfo; // MICROTONE PATCH (was NULL)
   result = ASIOCreateBuffers( handle->bufferInfos, nChannels, stream_.bufferSize, &asioCallbacks );
   if ( result != ASE_OK ) {
     // Standard method failed. This can happen with strict/misbehaving drivers that return valid buffer size ranges

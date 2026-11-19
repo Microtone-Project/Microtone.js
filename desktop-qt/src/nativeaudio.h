@@ -64,6 +64,7 @@ class QWebSocket;
 namespace microtone {
 
 class LinuxAudioWatch;
+namespace asio { class AsioCheck; }
 
 class NativeAudio : public QObject {
   Q_OBJECT
@@ -201,6 +202,12 @@ class NativeAudio : public QObject {
   MtWasapiWatch *watch_ = nullptr;  // the system's word on device changes
 #endif
   QJsonObject asioEntry_;           // devices(): the last full ASIO list
+#if MICROTONE_ASIO
+  // Every ASIO driver tried in a process of its own before RtAudio may load
+  // one (asiocheck.h); a finished round of checks makes the ASIO list stale.
+  std::unique_ptr<asio::AsioCheck> asioCheck_;
+  std::atomic<bool> asioStale_{false};
+#endif
 
   MtHost *host_ = nullptr;
   std::mutex engine_;

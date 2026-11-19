@@ -316,9 +316,9 @@ request, with a session cookie Chromium keeps from a third party.
   may be installed side by side for a while, and two apps claiming one scheme
   hear each other's sign-ins. The loopback way back (RFC 8252 §7.3) needs no
   registration on any system. It needs the site's `port` parameter
-  (`server/online/desktop.js`), so **the site must be deployed with it before
-  this build can sign in there**. Without it the site sends the code to the
-  Tauri scheme, which ignores it.
+  (`server/online/desktop.js`), which microtone.cc has had since 2026-11-19
+  (a sign-in through it works); a site without it would send the code to the
+  Tauri scheme, which this build ignores.
 - `MICROTONE_ONLINE=<url>` talks to another server (`wrangler dev`), with a
   token of its own, so the site's is never sent elsewhere.
   `MICROTONE_BROWSER=<program>` is run with the sign-in's address instead of
@@ -676,8 +676,9 @@ under Wine's cmd.
     "Generic Low Latency ASIO Driver" (`asioglld.dll`), and it was not the
     MOTU. The minidump's crashing thread jumps to address 0 from inside
     `asioglld.dll`, called from our own call into it. The one host callback
-    that is null is RtAudio's `bufferSwitchTimeInfo`. Fixed by ranking the
-    drivers (below).
+    that was null is RtAudio's `bufferSwitchTimeInfo`. Fixed by ranking the
+    drivers (below), and since by that callback forwarding instead of being
+    NULL (RtAudio's patch 2).
 - **ASIO** (Windows): RtAudio's backend, with Steinberg's SDK files from the
   same release. A driver is a device. Unlike WASAPI, the buffer and the clock
   belong to the driver, which has a settings window of its own:
@@ -700,16 +701,49 @@ under Wine's cmd.
     1. hardware — an interface's own driver, everything not named below;
     2. generic wrappers: FlexASIO, ASIO2WASAPI;
     3. Steinberg's built-in ASIO driver;
-    4. ASIO4ALL (FlexASIO does its job better);
+    4. ASIO4ALL (FlexASIO does its job better), and any driver calling
+       itself "generic" or "latency";
     5. hardware drivers to avoid: anything ASUS (its Xonar line too),
-       Realtek's, the generic "USB Audio CODEC". "ASUS" and "Xonar" count only
-       as the start of a word.
+       Realtek's, the generic "USB Audio CODEC". "ASUS", "Xonar", "generic"
+       and "latency" count only as the start of a word.
 
-    The "Generic Low Latency ASIO Driver" is **blocked**: it is left out of
-    the list and never opened, even when a remembered setting names it (the
-    log says so). The probe ranks them alike: `asio-probe all` plays through
+    **Blocked**, never loaded: Cubase's "Generic Low Latency ASIO Driver",
+    the old "ASIO DirectX Full Duplex" and "ASIO Multimedia" drivers, MAGIX's
+    "Low Latency". The probe ranks them alike: `asio-probe all` plays through
     the best first and skips a blocked driver, while `asio-probe <n>` plays
     through any.
+  - **Every other driver is tried in a process of its own before the app
+    loads it** (`src/asiocheck.cpp`, TODO 349). RtAudio loads every installed
+    driver just to LIST them, so a list of names can only ever keep out the
+    drivers someone has met. At start, each driver not yet tried in its
+    present version (its DLL's path, size and date, kept in the settings) is
+    run by `asio-probe check "<name>"`: that driver ALONE (RtAudio's driver
+    filter lets nothing else load), opened, a second of silence, closed; its
+    exit code says how it went (`asiotiers.h` `CheckExit`), and a crash is
+    the helper's own death (Windows' crash dialog is switched off there, and
+    the helper has no console window). One that crashed or hung (15 s) is
+    refused: never listed, never loaded, until its DLL changes. One that
+    merely would not open — its device busy or unplugged — or never called
+    back is not punished. The checks run in the background; whatever loads
+    ASIO (opening it, the default's choice) waits for them, a minute at most,
+    and a driver not yet tried stays out until it has been. A quit during a
+    check ends it within a tenth of a second, unrecorded. The Settings tab
+    names the drivers left out and why, and says when some are still being
+    tried.
+  - **RtAudio carries two small patches** (`vendor/VENDOR-VERSIONS.md`): the
+    filter — five lines that let the host refuse a driver before RtAudio
+    loads it (before it, even the blocked drivers were loaded once to be
+    listed) — and a `bufferSwitchTimeInfo` that forwards to `bufferSwitch`
+    where RtAudio left it NULL: the address-0 call that crashed on the
+    "Generic Low Latency ASIO Driver". With it that driver may well play;
+    it stays on the blocklist until someone lifts it, and the out-of-process
+    check would then decide.
+  - Tested on Linux (no ASIO there) against a stand-in helper — passing,
+    quiet, busy, crashing (SIGSEGV), aborting, hanging: the verdicts, the
+    filter, the 15 s timeout, nothing tried twice, a changed DLL tried again,
+    the blocked never tried, a quit mid-check. The Windows side (the SDK's
+    driver list, the helper's check mode, MSVC) is CI's to build and a real
+    machine's to run.
   - `tools/asio-probe.cpp` (built beside the app) lists the drivers, their
     rates, formats and buffer sizes, plays a tone through one, or opens one's
     window.
@@ -940,7 +974,7 @@ whichever is there.
   `wp_fractional_scale_v1`, which Qt follows: on a 1.5× output the page's
   `devicePixelRatio` is 1.5 — Chromium renders at that scale, where XWayland
   would render at 1× and be stretched. The log's first line names the
-  platform (`Qt 6.8.3 (wayland)`).
+  platform (`Qt 6.11.3 (wayland)`).
 - **Chromium's sandbox needs unprivileged user namespaces.** Ubuntu 23.10 and
   later have AppArmor refuse them to a program without a profile of its own,
   and an AppImage can bring none; a page would then never render. The app
@@ -979,12 +1013,12 @@ whichever is there.
 
 ## Not yet done
 
-- Deploying the site's `port` parameter for the desktop sign-in (online
-  projects, above) — a release of the website, before this build is.
-- Deploying the site's update redirect (`/api/desktop/update`). Until then a
-  copy asks and hears 404: "nothing new".
 - The switch from the Tauri build (Updates, above): a release that serves
-  both apps, and what becomes of the Tauri install on Windows.
+  both apps (after the Tauri hand-over release, which must decline the
+  update on macOS 12: this build needs 13), and what becomes of the Tauri
+  install on Windows. The site's side is live: the sign-in's `port`
+  parameter and the update redirect (`/api/desktop/update`, both channels
+  answering 302, checked 2026-11-20).
 - An AppArmor profile in the .deb (Ubuntu 23.10+), which would give the
   installed app Chromium's sandbox back; the AppImage would still need to go
   without.
@@ -998,6 +1032,33 @@ whichever is there.
   Chromium and Edge profiles, not yet on a real Tauri install on Windows;
   the macOS path is untried.
 - The native audio host's next steps:
-  - audio input for the sampler's Record, and MIDI;
+  - audio input for the sampler's Record, and MIDI (QtWebEngine's Web MIDI
+    untried);
   - PulseAudio's underflows (RtAudio's backend reports none: "PulseAudio,
     ALSA and JACK", above), which would take a stream of our own.
+- The "Generic Low Latency ASIO Driver" stays blocked by name; with
+  RtAudio's patch 2 it may now play. Taking it off the list would let the
+  out-of-process check decide (ASIO, above).
+- CI's Windows job installs aqtinstall from a pinned master commit (Qt
+  6.11's Windows repository layout); back to a release once 3.4.0 is out.
+
+## Not yet tried for real
+
+Built and tested here or on CI's runners, but not yet on the machines that
+matter:
+- Everything new since the last push, on CI: the Linux jobs (22.04, 24.04
+  natively on Wayland, Fedora), Windows and macOS on Qt 6.11.3, the
+  Windows portable copy's notice, and MSVC's build of the ASIO check and
+  RtAudio's two patches.
+- Windows with ASIO drivers (the friend's): the out-of-process checks (the
+  log's "tried in a process of its own" lines, the Settings tab's notes) and
+  patch 2.
+- A real desktop at a fractional scale with the Qt 6.11.3 packages (the
+  dropdown lists), GNOME (the Adwaita title bar), a real GPU under Wayland,
+  Ubuntu 23.10+'s sandbox switch, and a real pkexec prompt for a .deb/.rpm
+  update.
+- macOS 13+ with the Qt 6.11 build (the older MacBook Air, if it runs 13).
+- Linux: an ALSA card plugged in and out (`/dev/snd`), and a real-time JACK
+  server's thread kept as it is.
+- The earlier app's projects from a real Tauri install on Windows (WebView2)
+  and on macOS.

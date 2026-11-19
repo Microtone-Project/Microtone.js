@@ -13,6 +13,12 @@
 //                                 hardware, Steinberg's built-in, generic) — a
 //                                 blocked one only when asked for by number
 //   asio-probe panel <n>          driver n's own settings window
+//   asio-probe check "<name>"     the app's check (src/asiocheck.cpp): that
+//                                 driver ALONE — no other is loaded — opened,
+//                                 a second of silence, closed; the exit code
+//                                 says how it went (src/asiotiers.h
+//                                 CheckExit), and a crash is the process's
+//                                 own death, which the app reads as such
 //
 // A driver's sizes are only told while it is loaded, so the list opens each
 // driver in turn, briefly, without playing.
@@ -27,9 +33,17 @@
 #include <thread>
 #include <vector>
 
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+
 #include "RtAudio.h"
 #include "../src/asiodriver.h"
 #include "../src/asiotiers.h"
+
+// RtAudio's ASIO driver filter (its patch 1: vendor/VENDOR-VERSIONS.md).
+extern bool (*rtaudio_asio_driver_allowed)(const char *name);
 
 namespace {
 
@@ -66,6 +80,16 @@ int toneCallback(void *out, void *, unsigned int frames, double, RtAudioStreamSt
 
 int silence(void *out, void *, unsigned int frames, double, RtAudioStreamStatus, void *) {
   std::memset(out, 0, sizeof(float) * 2 * frames);
+  return 0;
+}
+
+// check: the one driver RtAudio may load, and the callbacks it made.
+std::string g_only;
+bool onlyThatDriver(const char *name) { return g_only == name; }
+std::atomic<unsigned> g_checkCalls{0};
+int countedSilence(void *out, void *, unsigned int frames, double, RtAudioStreamStatus, void *) {
+  std::memset(out, 0, sizeof(float) * 2 * frames);
+  g_checkCalls++;
   return 0;
 }
 
@@ -177,6 +201,35 @@ int panel(RtAudio &dac, size_t index) {
   return 0;
 }
 
+/** The app's check of one driver (the filter is set before anything is
+ *  listed, so no other driver is loaded). Silence, never a tone: this runs
+ *  when someone starts Microtone. */
+int check(RtAudio &dac) {
+  unsigned int id = 0;
+  for (unsigned int candidate : dac.getDeviceIds()) {
+    if (dac.getDeviceInfo(candidate).name == g_only) id = candidate;
+  }
+  if (id == 0) {
+    std::printf("check: \"%s\" is not listed (it would not load, or not answer)\n", g_only.c_str());
+    return microtone::asio::kCheckNotFound;
+  }
+  std::printf("check: \"%s\" loaded\n", g_only.c_str());
+  unsigned int frames = 0;
+  if (!openOutput(dac, id, 0, &frames, &countedSilence, nullptr)) return microtone::asio::kCheckUnopened;
+  std::printf("check: opened at %u Hz, %u frames\n", dac.getStreamSampleRate(), frames);
+  if (dac.startStream() != RTAUDIO_NO_ERROR) {
+    std::printf("check: would not start: %s\n", dac.getErrorText().c_str());
+    dac.closeStream();
+    return microtone::asio::kCheckUnopened;
+  }
+  std::this_thread::sleep_for(std::chrono::seconds(1));
+  if (dac.isStreamRunning()) dac.stopStream();
+  if (dac.isStreamOpen()) dac.closeStream();
+  const unsigned calls = g_checkCalls.load();
+  std::printf("check: %u callbacks; stopped and closed\n", calls);
+  return calls > 0 ? microtone::asio::kCheckOk : microtone::asio::kCheckQuiet;
+}
+
 }  // namespace
 
 int main(int argc, char **argv) {
@@ -189,6 +242,14 @@ int main(int argc, char **argv) {
   if (dac.getCurrentApi() != RtAudio::WINDOWS_ASIO) {
     std::printf("This build has no ASIO.\n");
     return 1;
+  }
+  if (argc > 2 && std::strcmp(argv[1], "check") == 0) {
+    g_only = argv[2];
+    rtaudio_asio_driver_allowed = &onlyThatDriver;  // before anything is listed
+    // A driver that crashes ends this process, and that is the answer: no
+    // "has stopped working" box in front of the person starting Microtone.
+    SetErrorMode(GetErrorMode() | SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
+    return check(dac);
   }
   if (argc <= 1) return list(dac);
   if (std::strcmp(argv[1], "all") == 0) {
@@ -214,7 +275,8 @@ int main(int argc, char **argv) {
     std::printf("asio-probe                   list the ASIO drivers\n"
                 "asio-probe all               …and a tone through each the app may use, best first\n"
                 "asio-probe <n> [rate] [frames]  a tone through driver n (frames 0: its own size)\n"
-                "asio-probe panel <n>          driver n's settings window\n");
+                "asio-probe panel <n>          driver n's settings window\n"
+                "asio-probe check \"<name>\"     the app's check of that driver alone (silent)\n");
     return 0;
   }
   return play(dac, size_t(std::atoi(argv[1])), argc > 2 ? unsigned(std::atoi(argv[2])) : 0u,

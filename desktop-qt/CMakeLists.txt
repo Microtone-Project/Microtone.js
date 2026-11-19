@@ -165,7 +165,8 @@ set_target_properties(minisign-check PROPERTIES AUTOMOC OFF)
 # WASAPI glue and the Settings tab's modes, a stand-in (never shipped).
 option(MICROTONE_FAKE_WASAPI "Build a stand-in WASAPI backend (testing only)" OFF)
 if(WIN32)
-  target_sources(microtone PRIVATE src/wasapi.c src/wasapi.h src/asiodriver.cpp src/asiodriver.h)
+  target_sources(microtone PRIVATE src/wasapi.c src/wasapi.h src/asiodriver.cpp src/asiodriver.h
+                                   src/asiocheck.cpp src/asiocheck.h)
   target_compile_definitions(microtone PRIVATE MICROTONE_WASAPI=1 MICROTONE_ASIO=1)
   target_link_libraries(microtone PRIVATE ole32)
   # The probes ship beside the app, for when a device will not play: what

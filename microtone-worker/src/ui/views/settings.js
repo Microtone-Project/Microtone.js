@@ -215,7 +215,9 @@ export class SettingsView {
     };
     const devSel = el("select", "set-select");
     const def = api?.devices.find((d) => d.isDefault);
-    // ASIO has no system default: RtAudio takes the first driver.
+    // ASIO has no system default: the host takes the preferred driver, the
+    // first of the best tier (desktop-qt/src/asiotiers.h). The key keeps its
+    // old name (the translations' record follows keys).
     const defLabel = api?.driverBuffer ? "settings.deviceFirstIs" : "settings.deviceDefaultIs";
     devSel.append(new Option(def ? t(defLabel, { name: def.name }) : t("settings.deviceDefault"), ""));
     for (const d of api?.devices ?? []) devSel.append(new Option(d.name, d.id ?? d.name));
@@ -223,6 +225,15 @@ export class SettingsView {
     devSel.disabled = this.busy;
     devSel.addEventListener("change", () => this._apply({ ...asked, device: devSel.value, rate: 0 }));
     section.append(this._row(t("settings.device"), devSel));
+    // ASIO: drivers still being tried in a process of their own (they join
+    // the list when they pass), and those left out — known to crash, or that
+    // crashed or hung when tried (desktop-qt/src/asiocheck.h).
+    if (api?.checking) section.append(el("p", "set-note set-indent", t("settings.asioChecking")));
+    if (api?.refused?.length) {
+      section.append(el("p", "set-note set-indent", t("settings.asioRefused", {
+        names: api.refused.map((r) => `${r.name} (${t(`settings.asioWhy.${r.why}`)})`).join(", "),
+      })));
+    }
 
     const device = api?.devices.find((d) => (d.id ?? d.name) === asked.device) ?? def ?? null;
     // WASAPI's mode: three named ways, flipped while listening; one the
