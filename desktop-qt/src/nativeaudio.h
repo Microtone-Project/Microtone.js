@@ -32,7 +32,12 @@
 // A device that goes away — unplugged, or an ASIO driver asking to be reset
 // because its own panel changed the buffer or the rate — is opened again with
 // the same setting (the defaults when that will not open), and the page is
-// told.
+// told. The output the person chose is opened again when it is listed again
+// (a device plugged back in, a JACK server started), and "the default" follows
+// the system's default output. Where the system says devices changed: Core
+// Audio's listeners (macOS), IMMNotificationClient (Windows, wasapi.c), and on
+// Linux PulseAudio's subscription, /dev/snd and a JACK client
+// (linuxaudiowatch.h).
 #pragma once
 
 #include <QByteArray>
@@ -57,6 +62,8 @@ class RtAudio;
 class QWebSocket;
 
 namespace microtone {
+
+class LinuxAudioWatch;
 
 class NativeAudio : public QObject {
   Q_OBJECT
@@ -100,9 +107,12 @@ class NativeAudio : public QObject {
   /** RtAudio's word that the open device went away, or that its driver asked
    *  to be reset. Any thread: the GUI thread's pump opens it again. */
   void deviceLost();
+  /** A Linux stream whose writes fail (RtAudio says so every period until
+   *  it is closed): lost, timed from the first. Any thread. */
+  void streamBroke();
   /** The system's default output changed (headphones in, another device
-   *  chosen in the Sound settings: macOS, Windows). Followed when "the
-   *  default" is what is open. Any thread. */
+   *  chosen in the Sound settings: macOS, Windows, PulseAudio). Followed when
+   *  "the default" is what is open. Any thread. */
   void defaultOutputChanged();
   /** The system's devices changed (one plugged in or out): the page is sent
    *  a fresh list once they settle. Any thread. */
@@ -132,6 +142,9 @@ class NativeAudio : public QObject {
   static void wasapiNotify(void *user, MtWasapiChange change);
 #endif
   void configure(const QByteArray &json);
+  bool openDeviceGone(const QJsonObject &list) const;
+  bool returnToChosen(const QJsonObject &list);
+  void updateLooks();
   static Config remembered();
   static void remember(const Config &config);
 
@@ -148,6 +161,9 @@ class NativeAudio : public QObject {
   QString apiName_, device_;
   QString lastError_;        // the last setting that would not open
   QString recovered_;        // what the last run died opening (start skipped it)
+  Config chosen_;            // the output the person chose (remembered, or the Settings tab's)
+  bool onFallback_ = false;  // a loss put another output, or none, in its place
+  bool standIn_ = false;     // the device named is not there: the default plays for it
   unsigned openGeneration_ = 0;  // the open the "opening" mark belongs to
   unsigned int rate_ = kEngineRate;
   unsigned int bufferFrames_ = 256;
@@ -162,15 +178,23 @@ class NativeAudio : public QObject {
   // still closing it, which the reopen waits for.
   std::atomic<bool> lost_{false};
   std::atomic<int64_t> lostAtMs_{0};       // steady clock, for the settling wait
-  std::atomic<bool> followsDefault_{false};  // macOS: "the default" is open
+  std::atomic<bool> followsDefault_{false};  // Core Audio, WASAPI, PulseAudio: "the default" is open
   std::atomic<bool> devicesDirty_{false};    // a fresh list is owed to the page
   std::atomic<int64_t> devicesAtMs_{0};
   std::atomic<void *> closer_{nullptr};
   unsigned long guiThread_ = 0;
   qint64 lastReopenMs_ = 0;
+  qint64 lastReturnMs_ = 0;  // returnToChosen's own: a reopen just before must not stop it
   // The stream is set up: until then the callback plays silence. A WASAPI
   // stream starts inside its open, before the host has its rate.
   std::atomic<bool> live_{false};
+#ifdef __linux__
+  std::unique_ptr<LinuxAudioWatch> linuxWatch_;
+  // ALSA and PulseAudio write from a loop of RtAudio's that goes round at
+  // once when the writes fail (a device gone): held to the device's pace
+  // while lost (process).
+  std::atomic<bool> paceWhenLost_{false};
+#endif
 #if MICROTONE_WASAPI
   MtWasapiStream *wasapi_ = nullptr;
   unsigned wasapiGlitches_ = 0;

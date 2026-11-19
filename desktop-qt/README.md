@@ -500,7 +500,10 @@ under Wine's cmd.
   - **Real-time scheduling.** A desktop session gives an ordinary process no
     real-time priority, and a preempted render overran 64-frame buffers by
     3×. The shell asks the session's RealtimeKit for `SCHED_FIFO` on the
-    callback's thread, as PipeWire does.
+    callback's thread, as PipeWire does. A thread that is real-time already
+    (JACK's process thread under a real-time server, or RtAudio's own request
+    where the session allows it) is left as it is: RealtimeKit's priority
+    would put a JACK client above the server it runs under.
   - **Measured** (Ryzen 9950X, `Eighth.taud` at 3840×2160, software-rendered
     Xvfb, PulseAudio on PipeWire):
     - the slowest callback was 0.5–0.9 ms against a 1.33 ms period at 64
@@ -527,6 +530,13 @@ under Wine's cmd.
     end before loading a driver again. Tried on Linux with the stand-in WASAPI
     (`MICROTONE_FAKE_WASAPI_LOSE_AFTER=<seconds>`): the song plays straight
     through the reopen.
+  - **The chosen output comes back with its device.** When a loss put
+    another output in its place (or none), or the default plays for a named
+    device that is not there, the host opens the chosen one again once a
+    device change lists it again: an interface plugged back in, a sound
+    server or JACK started again. If it will not open, what played before
+    plays on. Once a second at most. The crash guard's choice is not
+    retried: what the last run died opening stays skipped.
 - **The Settings tab** (`microtone-worker/src/ui/views/settings.js`): it is
   laid out as the Samples and Instruments views are, with categories down the
   left.
@@ -545,15 +555,19 @@ under Wine's cmd.
     time it is shown. The host also sends one unasked when the system says its
     devices changed, settled for 300 ms, and after a lost device is reopened:
     - macOS: Core Audio's device-list and default-output listeners;
-    - Windows: an `IMMNotificationClient` (`mt_wasapi_watch` in `wasapi.c`).
+    - Windows: an `IMMNotificationClient` (`mt_wasapi_watch` in `wasapi.c`);
+    - Linux (`linuxaudiowatch.cpp`): a PulseAudio subscription to sinks and
+      the server (which PipeWire answers), `/dev/snd` for ALSA's cards, and,
+      while JACK is open, a JACK client of our own (next but one).
 
     The link keeps the newest list (`link.devices`), and the tab redraws when
     it changes. A pushed list reuses the last ASIO list: probing ASIO loads
     every driver, and its driver list changes only when one is installed.
-  - **"The default" follows the system's default output** on macOS and on
-    Windows (WASAPI, any mode): headphones plugged in, or another device chosen
-    in the Sound settings, reopen the stream on the new default. If its mode
-    is not there, the defaults are tried.
+  - **"The default" follows the system's default output** on macOS, on
+    Windows (WASAPI, any mode) and on Linux through PulseAudio: headphones
+    plugged in, or another device chosen in the Sound settings, reopen the
+    stream on the new default. If its mode is not there, the defaults are
+    tried.
   - The tab exists only where `window.__MICROTONE_NATIVE__` does: the
     website's audio is the browser's.
 - **WASAPI** (`wasapi.c`, Windows): our own, in C (COM through its C
@@ -672,6 +686,57 @@ under Wine's cmd.
     something in can change the default more than once.
   - The callback runs on Core Audio's own I/O thread, which is already
     real-time.
+- **PulseAudio, ALSA and JACK** (Linux): RtAudio's backends, in that order of
+  preference, with a watch of our own beside them (`linuxaudiowatch.cpp`).
+  - **PulseAudio follows the default by reopening.** RtAudio opens even "the
+    default" by its sink's name, so the server never moves the stream itself;
+    and an RtAudio instance marks the default only when it first lists a
+    sink. So PulseAudio gets a fresh instance for every open and every list,
+    and the watch's word that the default sink changed reopens the stream.
+    A stream whose sink goes is moved by the server, but the host opens the
+    output again, so the tab says where it plays.
+  - **A stream that broke is caught by RtAudio's words.** Its ALSA and
+    PulseAudio backends say a failing write only as a warning ("No such
+    device", "Connection terminated") and then go round at once, for ever;
+    its JACK backend stops at a new buffer size with a warning. The host
+    takes those warnings as the loss (`linuxStreamBroken`; their wording is
+    pinned by `test/node/native-audio-words.test.js`). It renders nothing
+    while lost, so the song does not run on unheard, and holds RtAudio's ALSA
+    and PulseAudio loop to the device's pace until the reopen. A lost stream
+    is aborted, not stopped: RtAudio's JACK stop waits for a process callback
+    that a client JACK has stopped never makes.
+  - **JACK's server sets the rate and the buffer** for every client. The tab
+    shows both rather than offering them (`serverRate`, `serverBuffer` in the
+    list), and the setting keeps buffer 0, "the server's". The JACK watch
+    reopens the stream when the server's buffer size or rate changes (RtAudio
+    cannot follow either), when the client it is connected to goes, and when
+    the server shuts down (to the defaults). While the person's chosen output
+    is JACK and JACK is not running, the watch looks for the server every two
+    seconds, and the stream goes back to JACK when it is up. RtAudio lists
+    JACK's devices through a passing client of its own, which the watch
+    ignores, or each list would make the next.
+  - **PulseAudio reports no underflows.** RtAudio's PulseAudio backend never
+    sets the underflow flag (its status is always 0), so the dropouts counted
+    there are the engine lock's misses only. ALSA and JACK report theirs.
+  - **Tried** (2026-11-19) against a private PipeWire (`pipewire`,
+    `pipewire-pulse` and WirePlumber with its hardware monitors off, under
+    `dbus-run-session`, `XDG_RUNTIME_DIR` a directory of the test's own, null
+    sinks from `pactl load-module module-null-sink`) and a private `jackd -n
+    <name> -d dummy` (the app with `JACK_DEFAULT_SERVER=<name>`):
+    - PulseAudio: the default changed and the stream followed; the sink in
+      use unloaded, and it moved to the new default; a named sink unloaded
+      and loaded again, and the stream went to the default and came back;
+      the server killed under a playing stream (reopened at once, nothing to
+      open), started again (its default), and the named sink back (back on
+      it);
+    - JACK: the buffer size changed live (reopened at 512, no hang); the
+      client it played into quit and came back (to `system`, and back); the
+      server stopped (to PulseAudio) and started (back on JACK); clients
+      coming and going appeared in the tab's list as it was shown, with no
+      list after list;
+    - ALSA: its `default` (PipeWire's plugin) broken by killing the server:
+      caught and reopened. A card plugged in or out (`/dev/snd`) and a JACK
+      thread that is real-time already need hardware and a real-time JACK.
 - **`links`**: `docs.html` opens in the docs window, other pages of the app in
   the main window, `http(s):` and `mailto:` in the system browser. The window a
   link was clicked in never navigates away from an open project.
@@ -778,7 +843,9 @@ language):
   copy asks and hears 404: "nothing new".
 - The switch from the Tauri build (Updates, above): a release that serves
   both apps, and what becomes of the Tauri install on Windows.
-- Linux packaging (AppImage, .deb/.rpm) and its CI.
+- Linux packaging (AppImage, .deb/.rpm) and its CI. The app links libpulse
+  and libjack (through RtAudio and `linuxaudiowatch.cpp`): a package depends
+  on them, or carries them.
 - Code signing (a Windows certificate; Apple's Developer ID and
   notarisation), and the third-party notices a release must ship (Qt and
   Chromium's licences, RtAudio's, the ASIO SDK's).
@@ -789,8 +856,6 @@ language):
   Chromium and Edge profiles, not yet on a real Tauri install on Windows;
   the macOS path is untried.
 - The native audio host's next steps:
-  - JACK on Linux; device notifications on Linux (PulseAudio's own stream
-    already follows the default sink; the tab's list catches up when shown);
   - audio input for the sampler's Record, and MIDI;
-  - whether PulseAudio's simple API reports underflows at all (RtAudio's
-    status flag): the 0 above may mean "none", or "not reported".
+  - PulseAudio's underflows (RtAudio's backend reports none: "PulseAudio,
+    ALSA and JACK", above), which would take a stream of our own.

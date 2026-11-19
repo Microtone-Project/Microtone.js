@@ -18,9 +18,12 @@
 #include <QDBusConnection>
 #include <QDBusInterface>
 #include <QDBusReply>
+#include <sched.h>
 #include <sys/resource.h>
 #include <sys/syscall.h>
 #include <unistd.h>
+
+#include "linuxaudiowatch.h"
 #endif
 
 #ifdef _WIN32
@@ -121,17 +124,68 @@ std::vector<RtAudio::Api> apiOrder() {
   return order;
 }
 
+/** RtAudio's warnings, logged — a driver that would not load is one, and the
+ *  log is where someone finds out why a device is missing — but one said
+ *  again and again (an underrun each time; a broken stream's, every period
+ *  until it is closed) as one line and a count. Any thread. */
+void logWarning(const std::string &text) {
+  static std::mutex m;
+  static std::string last;
+  static unsigned repeats = 0;
+  static int64_t sinceMs = 0;
+  std::lock_guard<std::mutex> lock(m);
+  const int64_t now = steadyMs();
+  if (text == last && now - sinceMs < 5000) {
+    repeats++;
+    return;
+  }
+  if (repeats > 0) qInfo("audio: RtAudio: (the warning above, %u more times)", repeats);
+  last = text;
+  repeats = 0;
+  sinceMs = now;
+  qInfo("audio: RtAudio: %s", text.c_str());
+}
+
+/** RtAudio's Linux backends tell of a stream whose writes fail only as a
+ *  warning, and go on trying, at once and for ever: ALSA when its device was
+ *  unplugged ("No such device"), PulseAudio when the server went, JACK when
+ *  the server's buffer size changed. The stream is lost then. An ALSA
+ *  underrun is a dropout, not a loss. (RtAudio 6.0.1's words: vendored,
+ *  pinned.) */
+bool linuxStreamBroken(const std::string &text) {
+  for (const char *where : {"RtApiAlsa::callbackEvent", "RtApiPulse::callbackEvent", "RtApiJack::callbackEvent"}) {
+    if (text.rfind(where, 0) == 0) return text.find("audio write error, underrun") == std::string::npos;
+  }
+  return false;
+}
+
 /** An RtAudio for `api`. Its errors are logged; the open stream's "device
  *  disconnected" — which ASIO also says when its driver asks to be reset —
- *  reaches `owner`. */
+ *  reaches `owner`, and so does a Linux stream that broke. */
 std::unique_ptr<RtAudio> makeDac(RtAudio::Api api, NativeAudio *owner = nullptr) {
   return std::make_unique<RtAudio>(api, [owner](RtAudioErrorType type, const std::string &text) {
-    // Warnings too: a driver that would not load is one, and the log is
-    // where someone finds out why a device is missing.
-    if (type == RTAUDIO_WARNING) qInfo("audio: RtAudio: %s", text.c_str());
+    if (type == RTAUDIO_WARNING) logWarning(text);
     else qWarning("audio: RtAudio error %d: %s", int(type), text.c_str());
-    if (owner != nullptr && type == RTAUDIO_DEVICE_DISCONNECT) owner->deviceLost();
+    if (owner == nullptr) return;
+    if (type == RTAUDIO_DEVICE_DISCONNECT) owner->deviceLost();
+    else if (type == RTAUDIO_WARNING && linuxStreamBroken(text)) owner->streamBroke();
   });
+}
+
+/** Is `c` among the devices of a list devices() made? "The default" is,
+ *  while its API has any device. */
+bool listed(const QJsonObject &list, const NativeAudio::Config &c) {
+  for (const QJsonValue &a : list.value(QStringLiteral("apis")).toArray()) {
+    const QJsonObject api = a.toObject();
+    if (api.value(QStringLiteral("id")).toString() != c.api) continue;
+    const QJsonArray devices = api.value(QStringLiteral("devices")).toArray();
+    if (c.device.isEmpty()) return !devices.isEmpty();
+    for (const QJsonValue &d : devices) {
+      if (d.toObject().value(QStringLiteral("id")).toString() == c.device) return true;
+    }
+    return false;
+  }
+  return false;
 }
 
 /** A setting in words, for the log and the crash guard. */
@@ -140,8 +194,9 @@ QString describe(const NativeAudio::Config &c) {
   if (!c.mode.isEmpty()) parts << c.mode;
   parts << (c.device.isEmpty() ? QStringLiteral("default device") : QStringLiteral("device ") + c.device);
   parts << (c.rate != 0 ? QString::number(c.rate) + QStringLiteral(" Hz") : QStringLiteral("rate automatic"));
-  parts << (c.bufferFrames != 0 ? QString::number(c.bufferFrames) + QStringLiteral(" frames")
-                                : QStringLiteral("the driver's buffer"));
+  parts << (c.bufferFrames != 0                   ? QString::number(c.bufferFrames) + QStringLiteral(" frames")
+            : c.api == QLatin1String("jack") ? QStringLiteral("the server's buffer")
+                                             : QStringLiteral("the driver's buffer"));
   return parts.join(QStringLiteral(", "));
 }
 
@@ -211,11 +266,21 @@ NativeAudio::NativeAudio(QObject *parent) : QObject(parent) {
   AudioObjectAddPropertyListener(kAudioObjectSystemObject, &kDefaultOutput, &onDefaultOutput, this);
   AudioObjectAddPropertyListener(kAudioObjectSystemObject, &kDeviceList, &onDeviceList, this);
 #endif
+#ifdef __linux__
+  linuxWatch_ = std::make_unique<LinuxAudioWatch>(LinuxAudioWatch::Hooks{
+      [this] { devicesChanged(); },
+      [this] { defaultOutputChanged(); },
+      [this] { deviceLost(); },
+  });
+#endif
   pump_.setInterval(4);
   connect(&pump_, &QTimer::timeout, this, &NativeAudio::pump);
 }
 
 NativeAudio::~NativeAudio() {
+#ifdef __linux__
+  linuxWatch_.reset();  // no hook runs after this
+#endif
 #if MICROTONE_WASAPI
   mt_wasapi_unwatch(watch_);  // no callback runs after this
   watch_ = nullptr;
@@ -307,8 +372,16 @@ bool NativeAudio::start(QString *error) {
   QString why;
   // Nothing remembered (a first start) goes straight to the defaults: an
   // empty setting would open RtAudio's first API, ahead of WASAPI. What was
-  // remembered and is gone (unplugged, another machine) goes there too.
-  if ((!wanted.api.isEmpty() && open(wanted, &why)) || openDefaults(wanted.bufferFrames, envRate, &why)) {
+  // remembered and is gone (unplugged, another machine) goes there too, and
+  // is opened when it is listed again.
+  chosen_ = wanted;
+  bool ok = !wanted.api.isEmpty() && open(wanted, &why);
+  if (!ok && openDefaults(wanted.bufferFrames, envRate, &why)) {
+    ok = true;
+    onFallback_ = !chosen_.api.isEmpty();
+  }
+  if (ok) {
+    if (chosen_.api.isEmpty()) chosen_ = config_;  // nothing chosen yet: what the defaults gave
     pump_.start();
     return true;
   }
@@ -350,12 +423,30 @@ void NativeAudio::closeDevice() {
     wasapi_ = nullptr;
   }
 #endif
+#ifdef __linux__
+  // Before the stream's own client goes: that is no news.
+  if (linuxWatch_) linuxWatch_->unwatchJack();
+#endif
   if (dac_) {
+#ifdef __linux__
+    // A lost stream is aborted, not drained: RtAudio's JACK stop waits for
+    // a process callback that a client JACK has stopped (a new buffer size)
+    // never makes, and a gone device has nothing to drain.
+    if (dac_->isStreamRunning()) {
+      if (lost_) dac_->abortStream();
+      else dac_->stopStream();
+    }
+#else
     if (dac_->isStreamRunning()) dac_->stopStream();
+#endif
     if (dac_->isStreamOpen()) dac_->closeStream();
   }
   running_ = false;
+  standIn_ = false;
   followsDefault_ = false;
+#ifdef __linux__
+  paceWhenLost_ = false;
+#endif
   format_.clear();
   latencyMs_ = 0.0;
   driverPanel_ = false;
@@ -446,6 +537,12 @@ void NativeAudio::deviceLost() {
   markLost();
 }
 
+void NativeAudio::streamBroke() {
+  // Not markLost() each time: the reopen waits for a quiet quarter second
+  // after the last word, and this word comes every period.
+  if (!lost_.load()) markLost();
+}
+
 void NativeAudio::markLost() {
   lostAtMs_ = steadyMs();
   lost_ = true;
@@ -485,9 +582,78 @@ void NativeAudio::reopenLost() {
     lastError_ = why.isEmpty() ? QStringLiteral("the device went away") : why;
     QString more;
     openDefaults(again.bufferFrames, 0, &more);
+    onFallback_ = !chosen_.api.isEmpty();  // the chosen one, when it is back
   }
   sendStatus();
   devicesChanged();  // whatever went away is gone from the list too
+}
+
+/** After a device change, on Linux: is the open device gone from the list?
+ *  A PulseAudio stream whose sink went is moved to another by the server,
+ *  and an ALSA or JACK one plays into nothing: either way it is opened
+ *  again, so the tab says where it plays. (macOS and Windows say so
+ *  themselves: RtAudio's "disconnected", wasapi.c's lost stream.) */
+bool NativeAudio::openDeviceGone(const QJsonObject &list) const {
+#ifdef __linux__
+  if (!running_ || !dac_ || !dac_->isStreamOpen()) return false;
+  for (const QJsonValue &a : list.value(QStringLiteral("apis")).toArray()) {
+    const QJsonObject api = a.toObject();
+    if (api.value(QStringLiteral("id")).toString() != config_.api) continue;
+    for (const QJsonValue &d : api.value(QStringLiteral("devices")).toArray()) {
+      if (d.toObject().value(QStringLiteral("name")).toString() == device_) return false;
+    }
+    return true;
+  }
+#else
+  Q_UNUSED(list);
+#endif
+  return false;
+}
+
+/** After a device change: when a loss put another output (or none) in place
+ *  of the one the person chose, or the default stands in for the device it
+ *  names, and that one is listed again — plugged back in, its server
+ *  started — it is opened; if it will not open, what played before plays
+ *  on. With nothing open at all, the defaults at least. True when it
+ *  tried. */
+bool NativeAudio::returnToChosen(const QJsonObject &list) {
+  if (!(onFallback_ || standIn_) || chosen_.api.isEmpty()) return false;
+  const bool back = listed(list, chosen_);
+  if (!back && running_) return false;
+  // Once a second at most (a chosen output that dies as it opens must not
+  // be opened round and round); one that has to wait is not dropped.
+  const qint64 now = QDateTime::currentMSecsSinceEpoch();
+  if (now - lastReturnMs_ < 1000) {
+    devicesChanged();
+    return false;
+  }
+  lastReturnMs_ = now;
+  const Config fallback = config_;
+  const bool wasRunning = running_;
+  QString why;
+  if (back) {
+    qInfo("audio: the chosen output is listed again; opening it");
+    if (open(chosen_, &why)) {
+      onFallback_ = false;
+      lastError_.clear();
+      sendStatus();
+      return true;
+    }
+  }
+  if (!wasRunning || !open(fallback, &why)) openDefaults(chosen_.bufferFrames, 0, &why);
+  sendStatus();
+  return true;
+}
+
+/** Linux: while the person's choice is JACK and JACK is not open, look for
+ *  its server (the list says nothing when one starts). */
+void NativeAudio::updateLooks() {
+#ifdef __linux__
+  if (linuxWatch_) {
+    const QString jack = QStringLiteral("jack");
+    linuxWatch_->lookForJack(onFallback_ && chosen_.api == jack && !(running_ && config_.api == jack));
+  }
+#endif
 }
 
 /** HOST_PANEL: the open ASIO driver's own settings window. A change made
@@ -503,7 +669,9 @@ void NativeAudio::openDriverPanel() {
 bool NativeAudio::openRtAudio(const Config &want, QString *error) {
   RtAudio::Api api = apiNamed(want.api);
   if (api == RtAudio::UNSPECIFIED) api = apiOrder().empty() ? RtAudio::UNSPECIFIED : apiOrder().front();
-  if (!dac_ || dac_->getCurrentApi() != api) {
+  // PulseAudio afresh each time: RtAudio marks the default sink once, when
+  // it first lists it, and opens "the default" by that sink's name.
+  if (!dac_ || dac_->getCurrentApi() != api || api == RtAudio::LINUX_PULSE) {
     dac_.reset();
     dac_ = makeDac(api, this);
   }
@@ -528,6 +696,9 @@ bool NativeAudio::openRtAudio(const Config &want, QString *error) {
       break;
     }
   }
+  // A device named and not found (unplugged, another machine): the default
+  // stands in, and the named one is opened when it is listed again.
+  const bool standIn = id == 0 && !want.device.isEmpty();
   if (id == 0) {
     id = asioApi ? preferredAsioDriver(dac_.get()) : dac_->getDefaultOutputDevice();
     if (id != 0) info = dac_->getDeviceInfo(id);
@@ -563,8 +734,10 @@ bool NativeAudio::openRtAudio(const Config &want, QString *error) {
   options.streamName = "Microtone";
   // 0: the driver's own size where it has one (ASIO's "preferred", what its
   // panel is set to), 256 elsewhere. RtAudio fits a size to the driver's.
+  // JACK's is the server's, for every client: nothing is asked.
   const bool isAsio = api == RtAudio::WINDOWS_ASIO;
-  const unsigned int asked = want.bufferFrames != 0 || isAsio ? want.bufferFrames : 256;
+  const bool isJack = api == RtAudio::UNIX_JACK;
+  const unsigned int asked = isJack ? 0 : want.bufferFrames != 0 || isAsio ? want.bufferFrames : 256;
   unsigned int frames = asked;
   if (dac_->openStream(&out, nullptr, RTAUDIO_FLOAT32, rate, &frames, &NativeAudio::callback, this, &options) !=
       RTAUDIO_NO_ERROR) {
@@ -624,7 +797,12 @@ bool NativeAudio::openRtAudio(const Config &want, QString *error) {
     return false;
   }
   running_ = true;
-  followsDefault_ = api == RtAudio::MACOSX_CORE && want.device.isEmpty();
+  standIn_ = standIn;
+  followsDefault_ = (api == RtAudio::MACOSX_CORE || api == RtAudio::LINUX_PULSE) && want.device.isEmpty();
+#ifdef __linux__
+  paceWhenLost_ = api == RtAudio::LINUX_ALSA || api == RtAudio::LINUX_PULSE;
+  if (isJack && linuxWatch_) linuxWatch_->watchJack(info.name, rate_, bufferFrames_);
+#endif
   return true;
 }
 
@@ -710,11 +888,16 @@ void NativeAudio::configure(const QByteArray &json) {
     lastError_.clear();
     recovered_.clear();
     remember(config_);
+    chosen_ = config_;
+    onFallback_ = false;
   } else {
     lastError_ = why.isEmpty() ? QStringLiteral("the device would not open") : why;
     QString again;
     // Not even the old one: the defaults, rather than no sound at all.
-    if (!open(before, &again)) openDefaults(before.bufferFrames, 0, &again);
+    if (!open(before, &again)) {
+      openDefaults(before.bufferFrames, 0, &again);
+      onFallback_ = !chosen_.api.isEmpty();
+    }
   }
   sendStatus();
 }
@@ -805,9 +988,12 @@ QJsonObject NativeAudio::devices(bool full) {
       continue;
     }
     // The open API answers through its own instance: probing a device it
-    // holds from a second one can fail.
+    // holds from a second one can fail. Not PulseAudio, whose instance
+    // keeps the default it first saw (openRtAudio), and whose list is the
+    // server's.
     std::unique_ptr<RtAudio> temp;
-    RtAudio *dac = dac_ && dac_->getCurrentApi() == api ? dac_.get() : (temp = makeDac(api)).get();
+    RtAudio *dac = dac_ && dac_->getCurrentApi() == api && api != RtAudio::LINUX_PULSE ? dac_.get()
+                                                                                      : (temp = makeDac(api)).get();
     // ASIO: the default is the best driver (asiotiers.h), and one known to
     // crash the app is not offered at all.
     const bool asioApi = api == RtAudio::WINDOWS_ASIO;
@@ -843,6 +1029,11 @@ QJsonObject NativeAudio::devices(bool full) {
     }
     // Rate 0 keeps the device's own rate (above); another one changes it.
     if (api == RtAudio::MACOSX_CORE) entry.insert(QStringLiteral("keepsDeviceRate"), true);
+    // JACK's server sets the rate and the buffer for every client.
+    if (api == RtAudio::UNIX_JACK) {
+      entry.insert(QStringLiteral("serverRate"), true);
+      entry.insert(QStringLiteral("serverBuffer"), true);
+    }
     if (api == RtAudio::WINDOWS_ASIO) asioEntry_ = entry;
     apis.append(entry);
   }
@@ -877,6 +1068,17 @@ void NativeAudio::process(float *out, unsigned int frames, unsigned int status) 
     std::memset(out, 0, sizeof(float) * 2 * frames);
     return;
   }
+#ifdef __linux__
+  if (lost_.load(std::memory_order_relaxed)) {
+    // Gone, and to be opened again: nothing is rendered meanwhile, so the
+    // song does not run on unheard; and where RtAudio's loop now goes round
+    // at once (ALSA, PulseAudio: the writes fail), at the device's pace.
+    std::memset(out, 0, sizeof(float) * 2 * frames);
+    if (paceWhenLost_.load(std::memory_order_relaxed) && rate_ > 0)
+      std::this_thread::sleep_for(std::chrono::microseconds(uint64_t(frames) * 1000000u / rate_));
+    return;
+  }
+#endif
   const bool profiling = profiling_.load(std::memory_order_relaxed);
   const auto t0 = Clock::now();
   if (status & RTAUDIO_OUTPUT_UNDERFLOW) xruns_.fetch_add(1, std::memory_order_relaxed);
@@ -972,6 +1174,20 @@ void NativeAudio::publishSnapshot() {
  *  callback's work. Failing that, the highest ordinary priority it gives. */
 void NativeAudio::requestRealtime(long tid) {
 #ifdef __linux__
+  // Real-time already — JACK's own process thread, or RtAudio's request
+  // where the session allows one — is kept as it is: asking RealtimeKit
+  // would put a JACK client above the server it runs under.
+  {
+    const int policy = sched_getscheduler(pid_t(tid)) & ~SCHED_RESET_ON_FORK;
+    sched_param p{};
+    if ((policy == SCHED_FIFO || policy == SCHED_RR) && sched_getparam(pid_t(tid), &p) == 0) {
+      realtime_ = QStringLiteral("%1 %2 (%3's own)")
+                      .arg(policy == SCHED_FIFO ? QStringLiteral("SCHED_FIFO") : QStringLiteral("SCHED_RR"))
+                      .arg(p.sched_priority)
+                      .arg(apiName_);
+      return;
+    }
+  }
   rlimit limit{200000, 200000};  // microseconds
   setrlimit(RLIMIT_RTTIME, &limit);
   const QString service = QStringLiteral("org.freedesktop.RealtimeKit1");
@@ -1134,11 +1350,19 @@ void NativeAudio::pump() {
   // headset comes in as several notifications) and any reopen is done.
   if (devicesDirty_ && !lost_ && steadyMs() - devicesAtMs_.load() >= 300) {
     devicesDirty_ = false;
-    qInfo("audio: the system's devices changed; sending the page the list");
-    QByteArray b = header(kDevices);
-    b += QJsonDocument(devices(false)).toJson(QJsonDocument::Compact);
-    send(b);
+    QJsonObject list = devices(false);
+    if (openDeviceGone(list)) {
+      qInfo("audio: \"%s\" is no longer listed; opening the output again", qUtf8Printable(device_));
+      markLost();  // the reopen sends the list
+    } else {
+      if (returnToChosen(list)) list.insert(QStringLiteral("current"), status());
+      qInfo("audio: the system's devices changed; sending the page the list");
+      QByteArray b = header(kDevices);
+      b += QJsonDocument(list).toJson(QJsonDocument::Compact);
+      send(b);
+    }
   }
+  updateLooks();
   if (!realtimeAsked_ && callbackTid_.load() != 0) {  // RtAudio's thread (WASAPI's has MMCSS)
     realtimeAsked_ = true;
     requestRealtime(callbackTid_.load());

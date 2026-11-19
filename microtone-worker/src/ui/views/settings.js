@@ -11,7 +11,7 @@
 //
 //   Audio        the audio system (API), the device, WASAPI's mode, the sample
 //                rate, the buffer (ASIO: the driver's own size, and its
-//                settings window)
+//                settings window; JACK: the server's rate and size, shown)
 //   Performance  the device callback's load, the engine's, dropouts, and the
 //                real-time scheduling the thread was granted
 //
@@ -100,8 +100,9 @@ export class SettingsView {
     this.visible = true;
     this.host.hidden = false;
     // A fresh device list each time the tab is opened: something may have
-    // been plugged in since (the host also pushes one where the system tells
-    // it — macOS). It lands in link.devices, and frame() draws it.
+    // been plugged in since (the host also pushes one when the system says
+    // so, as macOS, Windows, PulseAudio, ALSA and an open JACK do). It lands
+    // in link.devices, and frame() draws it.
     this.link?.requestDevices();
     this.refresh();
   }
@@ -196,8 +197,9 @@ export class SettingsView {
       b.disabled = this.busy;
       b.addEventListener("click", () => {
         if (a.id !== now.apiId) {
-          // An ASIO driver plays at its own size until told otherwise.
-          const bufferFrames = a.driverBuffer ? 0 : now.bufferFrames;
+          // An ASIO driver plays at its own size until told otherwise; JACK
+          // at its server's, always.
+          const bufferFrames = a.driverBuffer || a.serverBuffer ? 0 : now.bufferFrames;
           this._apply({ api: a.id, device: "", rate: 0, bufferFrames, mode: a.modes ? "lowLatency" : "" });
         }
       });
@@ -244,9 +246,13 @@ export class SettingsView {
     }
 
     // The sample rate: the device's, as it lists them — except through a
-    // mixer, which runs at its own.
+    // mixer, which runs at its own, and through JACK, whose server sets it.
+    const isOpen = api?.id === now.apiId;  // the device shown is the open one
     if (api?.modes && asked.mode !== "exclusive") {
       section.append(this._row(t("settings.rate"), el("span", "set-value", t("settings.mixerRate", { rate: now.rate }))));
+    } else if (api?.serverRate) {
+      const rate = isOpen ? now.rate : device?.rates?.[0] ?? 0;
+      section.append(this._row(t("settings.rate"), el("span", "set-value", t("settings.rateServer", { rate }))));
     } else {
       const rates = (modeLimits?.rates ?? device?.rates ?? []).filter((r) => RATES.includes(r));
       const rateSel = el("select", "set-select");
@@ -265,7 +271,15 @@ export class SettingsView {
     // The buffer: the usual sizes, or those the mode (WASAPI) or the open
     // driver (ASIO) allows on this device; the latency each costs is read
     // below. An ASIO driver's own size comes first, and its window beside.
-    const isOpen = api?.id === now.apiId;  // the device shown is the open one
+    // JACK's is its server's, shown.
+    if (api?.serverBuffer) {
+      section.append(this._row(t("settings.buffer"), el("span", "set-value", isOpen
+        ? t("settings.bufferServer", { frames: now.bufferFrames }) : t("settings.bufferServerClosed"))));
+      section.append(el("p", "set-note set-indent", t("settings.serverNote")));
+      this._renderNow(section, now);
+      this.detail.append(section);
+      return;
+    }
     const limits = modeLimits ?? (api?.driverBuffer && isOpen ? now.bufferLimits ?? null : null);
     const bufSeg = el("div", "mst-seg");
     for (const n of bufferChoices(limits, !!api?.driverBuffer)) {
@@ -289,8 +303,12 @@ export class SettingsView {
     }
     section.append(this._row(t("settings.buffer"), bufCell));
     if (api?.driverPanel) section.append(el("p", "set-note set-indent", t("settings.driverNote")));
+    this._renderNow(section, now);
+    this.detail.append(section);
+  }
 
-    // What is open now, in words.
+  /** What is open now, in words; and why a setting is not what was asked. */
+  _renderNow(section, now) {
     if (this.busy) {
       section.append(el("p", "set-note", t("settings.applying")));
     } else {
@@ -316,7 +334,6 @@ export class SettingsView {
     // The last run died opening a setting, so this one started on the defaults.
     if (now.recovered) section.append(el("p", "set-note err", t("settings.recovered", { setting: now.recovered })));
     if (this.error) section.append(el("p", "set-note err", t("settings.failed", { error: this.error })));
-    this.detail.append(section);
   }
 
   _row(label, control) {

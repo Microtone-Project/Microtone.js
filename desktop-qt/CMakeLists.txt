@@ -178,6 +178,9 @@ elseif(MICROTONE_FAKE_WASAPI)
   target_compile_definitions(microtone PRIVATE MICROTONE_WASAPI=1)
 endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  # RealtimeKit; and the system's word on devices (PulseAudio, /dev/snd,
+  # JACK), through the libraries RtAudio links.
+  target_sources(microtone PRIVATE src/linuxaudiowatch.cpp src/linuxaudiowatch.h)
   target_link_libraries(microtone PRIVATE Qt6::DBus)
 endif()
 
