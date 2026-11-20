@@ -975,6 +975,40 @@ whichever is there.
   `devicePixelRatio` is 1.5 — Chromium renders at that scale, where XWayland
   would render at 1× and be stretched. The log's first line names the
   platform (`Qt 6.11.3 (wayland)`).
+- **The desktop's own Open and Save dialogs, through the portal.** Qt picks a
+  desktop's file dialog through its platform theme, and the system's theme
+  plugins (Plasma's, which gives KDE's dialogs; `gtk3`) cannot load into the
+  tree's Qt. The built-in `kde` and `gnome` themes Qt falls back on have no
+  dialogs of their own, so every desktop got Qt's generic one. The tree
+  carries Qt's `xdgdesktopportal` theme (linuxdeploy's Qt plugin deploys
+  it), but Qt chooses it by itself only inside Flatpak or Snap, so `main.cpp`
+  (`withPortalTheme`) adds `-platformtheme xdgdesktopportal` to the
+  arguments. Open and Save then go to `org.freedesktop.portal.FileChooser`:
+  KDE's dialog under xdg-desktop-portal-kde, GTK's under -gtk or -gnome.
+  Where there is no FileChooser portal, Qt's own dialog appears as before.
+  The palette, fonts and colour scheme still come from the theme Qt would
+  have chosen, which the portal theme wraps.
+  - It is an argument, not `QT_QPA_PLATFORMTHEME`: the variable would reach
+    every program the app starts (the file manager behind *Show folder*, the
+    browser), and those use the system's Qt.
+  - A variable that is already set wins if this tree can load the theme it
+    names. One it cannot load counts as unset: `qt5ct` (Linux Mint sets it),
+    `qt6ct`, or `gtk2`, which linuxdeploy's hook in the AppImage's AppRun
+    sets on GNOME and XFCE even though Qt 6 has no such theme.
+  - A build against the system's Qt (no `plugins/` beside `bin/`) honours any
+    variable that is set; openSUSE's Qt has no portal theme anyway, and its
+    Plasma plugin already gives KDE's dialogs.
+  - Tried on 2026-11-20 with the 6.11.3 tree on Xvfb, each run on a private
+    D-Bus session with xdg-desktop-portal. On KDE the page's download went
+    to `SaveFile` and KDE's dialog came up in Downloads with the name filled
+    in; Enter saved the file. `<input type=file>` went to `OpenFile`. On
+    GNOME, -gtk showed GTK's chooser. On a bus with no portal, Qt's dialog
+    appeared. Under a dark kdeglobals the page still reads
+    `prefers-color-scheme: dark`, the same as the build without the change.
+    The bus for such a test must be started with the test's `DISPLAY` and
+    without `WAYLAND_DISPLAY`: services it activates (the portal backends)
+    take the bus's environment, and otherwise put their dialogs on the real
+    desktop.
 - **Chromium's sandbox needs unprivileged user namespaces.** Ubuntu 23.10 and
   later have AppArmor refuse them to a program without a profile of its own,
   and an AppImage can bring none; a page would then never render. The app
@@ -1058,6 +1092,9 @@ matter:
   dropdown lists), GNOME (the Adwaita title bar), a real GPU under Wayland,
   Ubuntu 23.10+'s sandbox switch, and a real pkexec prompt for a .deb/.rpm
   update.
+- The portal's file dialogs on a real Wayland session (Qt hands the portal
+  its window via xdg-foreign, so the dialog is parented to the app's
+  window), and on GNOME with xdg-desktop-portal-gnome.
 - ~~macOS 13+ with the Qt 6.11 build (the older MacBook Air, if it runs 13).~~
 - ~~Linux: an ALSA card plugged in and out (`/dev/snd`), and a real-time JACK
   server's thread kept as it is.~~

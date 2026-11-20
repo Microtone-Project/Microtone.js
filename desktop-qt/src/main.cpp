@@ -30,6 +30,8 @@
 #include <QStandardPaths>
 #include <QWebSocket>
 
+#include <vector>
+
 #ifdef Q_OS_WIN
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -99,6 +101,47 @@ QString userNamespacesRefused() {
   if (read("/proc/sys/user/max_user_namespaces") == u"0") return QStringLiteral("max_user_namespaces is 0");
   return {};
 }
+
+/** Can this copy of Qt load the platform theme `name`? A packaged copy
+ *  (AppImage, .deb, .rpm: bin/ beside plugins/) loads only the theme plugins
+ *  it carries and Qt's built-in ones; a build against the system's Qt loads
+ *  whatever the system has. */
+bool themeLoadable(const QByteArray &name) {
+  const QDir themes(QFileInfo(QFile::symLinkTarget(QStringLiteral("/proc/self/exe"))).absolutePath() +
+                    QStringLiteral("/../plugins/platformthemes"));
+  if (!themes.exists()) return true;
+  if (name == "kde" || name == "gnome" || name == "generic") return true;
+  for (const QString &file : themes.entryList(QDir::Files))
+    if (file.contains(QString::fromLocal8Bit(name), Qt::CaseInsensitive)) return true;
+  return false;
+}
+
+/** The desktop's own file dialogs (KDE's, GNOME's, …) for Open and Save:
+ *  `argv` with `-platformtheme xdgdesktopportal`, unless a theme this copy
+ *  of Qt can load was chosen. Qt picks that theme by itself only inside
+ *  Flatpak or Snap. Our packages carry Qt's own copy, so a desktop's own Qt
+ *  theme plugin (Plasma's, which would have given KDE's dialogs) cannot
+ *  load, and Qt's built-in KDE and GNOME themes have no native dialogs:
+ *  Open and Save were Qt's generic one everywhere. Through the portal they
+ *  are the desktop's wherever it has a FileChooser portal; where it has
+ *  none, Qt's dialog as before. Everything else (palette, fonts, colour
+ *  scheme) still comes from the theme Qt would have chosen, which the portal
+ *  theme wraps. A QT_QPA_PLATFORMTHEME our Qt cannot load (qt5ct, qt6ct;
+ *  "gtk2", which linuxdeploy's hook in the AppImage's start script sets on
+ *  GNOME and XFCE and Qt 6 does not have) counts as no choice. An argument,
+ *  never the variable: that would reach every program the app starts (the
+ *  file manager behind Show folder, the browser), and those are the
+ *  system's. */
+std::vector<char *> withPortalTheme(int argc, char **argv) {
+  static char themeSwitch[] = "-platformtheme", portal[] = "xdgdesktopportal";
+  std::vector<char *> args(argv, argv + argc);
+  const QByteArray named = qgetenv("QT_QPA_PLATFORMTHEME");
+  bool chosen = !named.isEmpty() && themeLoadable(named);
+  for (int i = 1; i < argc; ++i) chosen = chosen || !qstrcmp(argv[i], themeSwitch) || !qstrcmp(argv[i], "--platformtheme");
+  if (!chosen && argc > 0) args.insert(args.begin() + 1, {themeSwitch, portal});
+  args.push_back(nullptr);
+  return args;
+}
 #endif
 
 /** `flags` (QTWEBENGINE_CHROMIUM_FLAGS, split at spaces) with `feature` in
@@ -133,9 +176,14 @@ int main(int argc, char **argv) {
   // system's browser (links.cpp).
   const QString noSandbox = qEnvironmentVariableIsSet("QTWEBENGINE_DISABLE_SANDBOX") ? QString() : userNamespacesRefused();
   if (!noSandbox.isEmpty()) qputenv("QTWEBENGINE_DISABLE_SANDBOX", "1");
+  std::vector<char *> args = withPortalTheme(argc, argv);
+  int argCount = int(args.size()) - 1;  // QApplication keeps a reference: lives as long as `app`
+  argv = args.data();
+#else
+  int &argCount = argc;
 #endif
   QCoreApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
-  QApplication app(argc, argv);
+  QApplication app(argCount, argv);
   // Both names: without an organisation QSettings reads and writes nothing
   // (the window's place, the audio output). Settings: <config>/Microtone/
   // Microtone.conf (Windows: HKCU\Software\Microtone\Microtone); the browser
