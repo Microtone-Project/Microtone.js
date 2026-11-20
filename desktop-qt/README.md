@@ -1036,6 +1036,7 @@ whichever is there.
     untried);
   - PulseAudio's underflows (RtAudio's backend reports none: "PulseAudio,
     ALSA and JACK", above), which would take a stream of our own.
+      - Dropout counts works perfectly well; just test with ALSA with block size 64 samples
 - The "Generic Low Latency ASIO Driver" stays blocked by name; with
   RtAudio's patch 2 it may now play. Taking it off the list would let the
   out-of-process check decide (ASIO, above).
