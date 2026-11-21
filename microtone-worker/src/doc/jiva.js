@@ -1,5 +1,5 @@
 // Jiva (item 348): a lyric instrument that sings gibberish. Its notation is
-// ERI — three marks a syllable of the lyrics may carry, each asking for a
+// Eri — three marks a syllable of the lyrics may carry, each asking for a
 // part of the syllable to be DRAWN rather than written:
 //
 //   *      a whole syllable: a drawn onset, vowel and coda
@@ -62,9 +62,9 @@ export const ERI_CODAS = [
 /** What a new lyric instrument sings until it is given words: three lines,
  *  the middle one written out, the others drawn. */
 export const JIVA_LYRICS = [
-  "a.(.(.*.( | *.(.).(",
-  "d͡ʒɪ.va.ɛ.ɾɪ.ɸʊ",
-  "*.*.( | (.(.(.* | *.(",
+  "a.(.(.*.( | *.(.).(ʊ",
+  "d͡ʒɪ.va.ɛ.ɾɪ.(ʊ",
+  "*.*.( | (.(.(.* | *.(ʊ",
 ].join("\n");
 
 /** The largest seed (a U32). */
