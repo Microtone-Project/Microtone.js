@@ -17,7 +17,9 @@
 
 import { EffectOp } from "../../core/engine/tables.js";
 import { wideNotePitch } from "../../core/engine/state.js";
-import { stepNoteInTable, semiToNote, semiToNoteInTable } from "../../core/tuning/pitchtables.js";
+import {
+  stepNoteInTable, semiToNote, semiToNoteInTable, isPeriodPreset, amigaPeriodOf, noteOfAmigaPeriod, AMIGA_PERIOD_MAX,
+} from "../../core/tuning/pitchtables.js";
 import {
   DEFAULT_KEYMAP, keymapHas, keymapNote, keymapClaimsZRow,
   quoteKeyFields, QUOTE_DEFAULT,
@@ -487,11 +489,17 @@ export function volPanSymbolKey(isPan, code, key) {
   return null;
 }
 
+/** The note column's hex entry while it shows Amiga periods (item 359). */
+export const PERIOD_ENTRY = "periods";
+
 /** Whether the note column is showing raw hex words (the Raw toggle is on, or
- *  the notation preset is Raw — no degree table). When true the note column
- *  accepts raw hex entry instead of the piano jam / sentinels. */
+ *  the notation preset is Raw — no degree table): true, or PERIOD_ENTRY where
+ *  the notation shows Amiga periods (and the Raw toggle is off). Either way
+ *  the note column takes hex digits instead of the piano jam / sentinels. */
 export function rawNoteView(rawToggle, preset) {
-  return !!rawToggle || !preset || preset.table.length === 0;
+  if (rawToggle) return true;
+  if (isPeriodPreset(preset)) return PERIOD_ENTRY;
+  return !preset || preset.table.length === 0;
 }
 
 // semiToNote / semiToNoteInTable live in pitchtables.js, beside noteForDegree
@@ -737,6 +745,14 @@ export function interpretEditKey(ev, sub, nib, cell, ctx) {
       }
       const d = hexDigit(key);
       if (d < 0) return { consumed: true }; // swallow (no jam / no sentinel), no edit
+      // Amiga periods (item 359): the digit shifts into the cell's three-digit
+      // period (none yet = 0), and the note becomes the pitch of the period
+      // that makes. A period of 0 sounds nothing, so it writes nothing: the
+      // leading zero of %0D6 leaves an empty cell empty.
+      if (ctx.rawHex === PERIOD_ENTRY) {
+        const p = (((amigaPeriodOf(cell.note) ?? 0) << 4) | d) & AMIGA_PERIOD_MAX;
+        return p === 0 ? { consumed: true } : { fields: { note: noteOfAmigaPeriod(p) } };
+      }
       // A wide cell's pitch is five digits, 65536-TET ($50000 = C4): the digit
       // shifts into all twenty bits, and the note is that pitch in 4096-TET
       // units, sixteenths and all.

@@ -200,6 +200,14 @@
       "u8": "6b9122e01ce9a3e5263c72c3b066cd508da6d6ac6dc04a70b8098f7c220a9625",
       "notes": "7060ef63d8823cc0709b6c35100541c3bc82b3ffb61522391e4161b4e975b997",
       "peak": 0.668
+    },
+    "the polyphony limit: tight, at its largest, lowered under sounding voices": {
+      "file": "assets/demo_projects/Temjin_speaki.taud",
+      "chunks": 1900,
+      "f32": "2969d6b70eafa49bba4f5d800c1c369f46071e652cd70d54545a7c86346b2c51",
+      "u8": "4265e146470a1acd7ac9dd4d1b25eeedbcf62c8b34d6cedbbfeeb4b89032df49",
+      "notes": "c287b40cc5082c2914dcecefc63e50f13ca7a9a31ce7cafaa4573a660050d291",
+      "peak": 0.958
     }
   }
 }

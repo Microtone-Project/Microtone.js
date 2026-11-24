@@ -12,8 +12,9 @@
 //   Audio        the audio system (API), the device, WASAPI's mode, the sample
 //                rate, the buffer (ASIO: the driver's own size, and its
 //                settings window; JACK: the server's rate and size, shown)
-//   Performance  the device callback's load, the engine's, dropouts, and the
-//                real-time scheduling the thread was granted
+//   Performance  the polyphony limit (item 355); the device callback's load,
+//                the engine's, dropouts, and the real-time scheduling the
+//                thread was granted
 //
 // A category is an entry in CATEGORIES with a builder: MIDI, updates and the
 // rest join as they are made.
@@ -21,6 +22,8 @@
 import { t } from "../i18n.js";
 import { profileVerdict } from "../profileoverlay.js";
 import { nativeApiName } from "../../../core/audio/native-engine.js";
+import { POLYPHONY_CHOICES } from "../../../core/engine/constants.js";
+import { polyphonySetting, choosePolyphony } from "../polyphony.js";
 
 const CATEGORY_KEY = "microtone-settings-category";
 const BUFFERS = [64, 128, 256, 512, 1024, 2048];
@@ -156,6 +159,9 @@ export class SettingsView {
     this._perf = null;
     this.detail.replaceChildren();
     this._setProfiling(this.category === "performance" && this._link !== null);
+    // The polyphony limit is the page's (it governs exports as well), so it
+    // is there whether or not the native host is.
+    if (this.category === "performance") this._renderPolyphony();
     if (!this.store.audio) {
       this.detail.append(el("p", "set-note", t("profiler.waiting")));
       return;
@@ -393,6 +399,30 @@ export class SettingsView {
     this._perf = p;
     this._lastReport = null;
     this._updatePerformance(true);
+  }
+
+  /** The polyphony limit (item 355): how many voices may sound beyond the
+   *  lanes' own. Applied at once, to playback and to every export. */
+  _renderPolyphony() {
+    const section = el("div", "set-section");
+    section.append(el("h3", "set-head", t("settings.polyphony")));
+    const now = polyphonySetting();
+    const seg = el("div", "mst-seg");
+    for (const n of POLYPHONY_CHOICES) {
+      const b = el("button", n === now ? "active" : "", String(n));
+      b.type = "button";
+      b.addEventListener("click", () => {
+        if (n === polyphonySetting()) return;
+        choosePolyphony(n, this.store.audio);
+        for (const other of seg.children) other.classList.toggle("active", other === b);
+      });
+      seg.append(b);
+    }
+    const cell = el("div", "set-inline");
+    cell.append(seg, el("span", "set-unit", t("settings.voicesUnit")));
+    section.append(this._row(t("settings.polyphonyLimit"), cell));
+    section.append(el("p", "set-note set-indent", t("settings.polyphonyNote")));
+    this.detail.append(section);
   }
 
   /** The figures, from the host's report (a second at a time); written only

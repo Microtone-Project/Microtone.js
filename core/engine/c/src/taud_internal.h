@@ -27,7 +27,14 @@
 /* ── constants (constants.js) ──────────────────────────────────────────── */
 
 #define TRACKER_CHUNK TAUD_CHUNK
+/* The background pool's default cap: what every engine starts with and what the
+ * golden set pins. A host may set another (te_set_polyphony, item 355) within
+ * POLYPHONY_MIN…POLYPHONY_MAX; e->bgLimit is the one in force. */
 #define MAX_BG_VOICES 64
+/* The lane wavescopes' ring, per lane (protocol.js SNAP_LS_FRAMES; a power of two). */
+#define LANE_SCOPE_FRAMES 1024
+#define POLYPHONY_MIN 1
+#define POLYPHONY_MAX 2048
 #define MIDDLE_C 0x5000
 #define AMIGA_BASE_PERIOD 428.0
 #define LINEAR_FREQ_C4_HZ 261.6255653005986
@@ -1589,6 +1596,9 @@ typedef struct TaudEngine {
 
     TaudVoice **bg;
     int bgCount, bgCap;
+    /* The polyphony limit: how many background voices may SOUND at once
+     * (te_cap_background_voices). MAX_BG_VOICES unless a host set another. */
+    int bgLimit;
 
     /* Voice pool. */
     TaudVoiceChunk *chunks;
@@ -1641,6 +1651,15 @@ typedef struct TaudEngine {
     bool stemTap;
     struct TaudStemEntry *stemLog;
     int stemCount, stemCap;
+    /* The lane wavescopes' tap (item 358): while on, each lane's own mono
+     * signal — the stem tap's value summed per lane, its layers and ghosts
+     * included — goes into a ring of LANE_SCOPE_FRAMES frames per lane
+     * (laneScope[lane * LANE_SCOPE_FRAMES + frame]), and nothing about the
+     * render changes. */
+    bool laneScopeOn;
+    float *laneScope;
+    int laneScopeWrite;
+    double laneScopeAcc[MAX_VOICES];
     /* The Mixing tab's taps (item 217), one per split pane; NULL = off. */
     TaudImixTap *imixMeters[IMX_METER_SEATS];
     /* The frame accumulators the buses join (mixAccL/R): a span's frames are
@@ -1704,6 +1723,8 @@ void te_set_tracker_mixer_flags(TaudEngine *e, int flags);
 void te_update_global_behaviour(TaudEngine *e, int flags);
 void te_set_surround_model(TaudEngine *e, int model);
 void te_set_monitor_mode(TaudEngine *e, int mode);
+void te_set_polyphony(TaudEngine *e, int limit);
+void te_set_lane_scope(TaudEngine *e, bool on);
 void te_set_mastering(TaudEngine *e, const TaudMastering *params);
 void te_set_imix(TaudEngine *e, const TaudImixBlock *blocks, int count);
 void te_set_lyrics(TaudEngine *e, const TaudLyricEntry *entries, int count);

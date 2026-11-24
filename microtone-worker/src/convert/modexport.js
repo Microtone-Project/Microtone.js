@@ -14,7 +14,9 @@
 //   bounced into a sample, see modchip.js).
 // - WARNINGS are what the module will not keep exactly: a microtonal song (its
 //   notes become raw Amiga periods, which ProTracker plays but other trackers
-//   may not), notes beyond ProTracker's three octaves, column commands that
+//   may not; a song written in the Amiga periods notation writes its periods
+//   as they are, and says so only when one is off ProTracker's table), notes
+//   beyond ProTracker's three octaves, column commands that
 //   shared a row with an effect, arguments rounded to fit.
 //
 // Both are {code, args, count, where} records, so the UI words them (lang/).
@@ -26,7 +28,7 @@ import { EffectOp, tuningRatioOf } from "../../core/engine/tables.js";
 import { MIDDLE_C } from "../../core/engine/constants.js";
 import { envPresent } from "../../core/engine/inst.js";
 import { CUE_EMPTY } from "../../core/format/taud-const.js";
-import { PT_PERIODS } from "../../core/tuning/pitchtables.js";
+import { PT_PERIODS, isPeriodPreset, pitchTablePresets } from "../../core/tuning/pitchtables.js";
 import { unescapeName } from "../../core/format/names.js";
 import { cueInfo } from "../doc/document.js";
 import { narrowedForExport } from "../doc/upgrade.js";
@@ -859,7 +861,11 @@ export function exportModSong(doc, songIndex) {
   for (const notes of notesOf.values()) {
     if (!notes.every((n) => onTwelveToneGrid(n) || onProTrackerTable(n))) { twelveTone = false; break; }
   }
-  if (!twelveTone) warnings.add("microtonal");
+  // A song written in Amiga periods (notation 2, item 359) means its periods:
+  // they go out as written, never snapped to the table and its finetunes.
+  const periods = isPeriodPreset(pitchTablePresets[doc.meta?.songMeta?.[songIndex]?.notation]);
+  if (!twelveTone) warnings.add(periods ? "rawPeriods" : "microtonal");
+  if (periods) twelveTone = false;
   const zero = { finetune: 0, semis: 0, shift: 0, k: 0 };
   let outOfRange = 0;
   for (const chans of grid) {

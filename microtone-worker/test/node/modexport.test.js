@@ -157,7 +157,7 @@ const EMPTY_CUE = 0x7fff;
  * {note, inst, vol: [sel, value], pan: [sel, value], fx, arg}.
  */
 function project({ patterns = {}, cues = [], flags = 1, bpm = 125, tick = 6,
-  tuning = [0xa000, 8363], instruments = [], fmt = 2 } = {}) {
+  tuning = [0xa000, 8363], instruments = [], fmt = 2, notation = null } = {}) {
   const image = new Uint8Array(SAMPLEINST_SIZE);
   let ptr = 0;
   for (const s of instruments) {
@@ -213,7 +213,7 @@ function project({ patterns = {}, cues = [], flags = 1, bpm = 125, tick = 6,
       patterns: pats, cues: cueWords,
     }],
     projSections: [], ixmp: [],
-    meta: { projectName: "hand-built", songMeta: {} },
+    meta: { projectName: "hand-built", songMeta: notation === null ? {} : { 0: { notation } } },
   });
 }
 
@@ -325,6 +325,23 @@ test("ProTracker Temperament notes come out as the table's own periods", () => {
   const r = exportModSong(project({ patterns: { 0: cells }, cues: [[0]], instruments: [inst1] }), 0);
   assert.deepEqual(codes(r.warnings), ["range"], "no microtonal warning");
   assert.deepEqual(periods.map((_, i) => cellOf(r.bytes, 0, i, 0).period), periods);
+});
+
+test("a song written in Amiga periods exports its periods as written (item 359)", () => {
+  const at = (period) => Math.round(C4 + 4096 * Math.log2(428 / period));
+  const periods = [428, 427, 400, 300, 0x0d6];
+  const cells = {};
+  periods.forEach((p, i) => { cells[i] = { note: at(p), ...(i === 0 ? { inst: 1 } : {}) }; });
+  const r = exportModSong(project({ patterns: { 0: cells }, cues: [[0]], instruments: [inst1], notation: 2 }), 0);
+  assert.deepEqual(codes(r.warnings), ["rawPeriods"]);
+  assert.deepEqual(periods.map((_, i) => cellOf(r.bytes, 0, i, 0).period), periods);
+  // On ProTracker's table, nothing to say — and still the periods written.
+  const onTable = [428, 339, 285, 214];
+  const t = {};
+  onTable.forEach((p, i) => { t[i] = { note: at(p), ...(i === 0 ? { inst: 1 } : {}) }; });
+  const q = exportModSong(project({ patterns: { 0: t }, cues: [[0]], instruments: [inst1], notation: 2 }), 0);
+  assert.deepEqual(q.warnings, []);
+  assert.deepEqual(onTable.map((_, i) => cellOf(q.bytes, 0, i, 0).period), onTable);
 });
 
 test("a sample recorded high is resampled into ProTracker's range, its finetune kept", () => {

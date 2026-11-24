@@ -494,8 +494,10 @@ static void apply_s_effect(TaudEngine *e, TaudVoice *voice, int vi, int arg)
     }
 }
 
-/* One instrument per layer target is stepped: `seen` holds the ids visited. */
-typedef struct { int ids[META_MAX_LAYERS + 1 + MAX_BG_VOICES * 2]; int n; } SeenSet;
+/* One instrument per layer target is stepped: `seen` holds the ids visited.
+ * They are distinct instrument ids, so no more than there are slots, however
+ * many voices the polyphony limit lets sound. */
+typedef struct { int ids[NUM_INST_SLOTS]; int n; } SeenSet;
 
 static bool seen_add(SeenSet *s, int id)
 {

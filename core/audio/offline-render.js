@@ -16,10 +16,22 @@ import { instantiateEngine } from "../engine/wasm-module.js";
 export const WAV_CLEAN = "clean";
 export const WAV_GRITTY = "gritty";
 
+// The polyphony limit an offline render runs with (item 355): the one the
+// page plays with, so an export sounds as playback does. A host that sets
+// none (the website, taudplay, Motif's worker, Node) renders at the engine's
+// own default.
+let renderPolyphony = 0;
+
+/** Item 355: every engine loadIntoEngine fills from now on gets this limit
+ *  (0 = the engine's default, MAX_BG_VOICES). */
+export function setRenderPolyphony(limit) { renderPolyphony = limit | 0; }
+
 /** Load a parsed .taud (or Document-adapted) song into a fresh engine. */
 export function loadIntoEngine(eng, doc, songIndex = 0) {
   const song = doc.songs[songIndex];
   if (!song) throw new Error("songIndex out of range");
+
+  if (renderPolyphony > 0) eng.setPolyphony(renderPolyphony);
 
   eng.set64ChannelMode(doc.is64Channel);
   // Before any pattern upload: it decides how those bytes are read (§5.5).

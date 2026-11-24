@@ -13,6 +13,10 @@
 #include "taud_internal.h"
 #include "snap_layout.h"
 
+#if SNAP_LS_FRAMES != LANE_SCOPE_FRAMES
+#error "protocol.js SNAP_LS_FRAMES and LANE_SCOPE_FRAMES disagree"
+#endif
+
 /* What the meters read as a voice's loudness: its envelope (whether or not
  * the instrument HAS a volume envelope, as the page has always had it), its
  * fadeout, its mix volume and its lane's fader, clamped to 0…1. */
@@ -170,6 +174,19 @@ void te_fill_snapshot(TaudEngine *e, float *f)
     for (vi = 0; vi < SNAP_MAX_VOICES; vi++) n = put_env_playhead(e, f, n, &e->voices[vi]);
     for (i = 0; i < e->bgCount; i++) n = put_env_playhead(e, f, n, e->bg[i]);
     f[SNAP_EP_COUNT] = (float)n;
+    /* The lane wavescopes (item 358): each lane's ring, oldest frame first. */
+    if (e->laneScopeOn) {
+        int lanes = te_channel_count(e), l, w = e->laneScopeWrite;
+        f[SNAP_LS_LANES] = (float)lanes;
+        for (l = 0; l < lanes; l++) {
+            const float *ring = e->laneScope + l * LANE_SCOPE_FRAMES;
+            float *o = f + SNAP_LS_DATA + l * SNAP_LS_FRAMES;
+            memcpy(o, ring + w, sizeof(float) * (size_t)(LANE_SCOPE_FRAMES - w));
+            memcpy(o + (LANE_SCOPE_FRAMES - w), ring, sizeof(float) * (size_t)w);
+        }
+    } else {
+        f[SNAP_LS_LANES] = 0.0f;
+    }
     /* The Mixing tab's meters, one block per seat. */
     te_fill_imix_meters(e, f);
     /* The master strip's and the Mastering view's (meters.c). */

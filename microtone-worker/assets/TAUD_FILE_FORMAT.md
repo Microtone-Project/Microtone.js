@@ -1239,6 +1239,7 @@ The beat divisions drive a tracker's row banding and are purely cosmetic. The **
 |---|---|
 | 0 | Raw numbers (hex note words) |
 | 1 | ProTracker pitch (period-based) |
+| 2 | Raw Amiga periods: each note as the period that plays it, period 428 at C4 (`%1AC`) |
 | 10 × *n* | *n*-tone equal temperament — 12-TET is 120, 24-TET is 240, and so on |
 | 360, 410, 430, 530, 720, 960 | 36-, 41-, 43-, 53-, 72- and 96-TET in Kite notation |
 | 531 | 53-TET Pythagorean notation |

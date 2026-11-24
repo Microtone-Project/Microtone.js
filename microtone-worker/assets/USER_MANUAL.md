@@ -148,7 +148,7 @@ From top to bottom:
 
 - **Top bar** — transport, record toggle, undo/redo, octave / instrument / speed displays (hover and use the mouse wheel to change them), song selector (only in a project with more than one song), file buttons, the zoom control, language / theme / help buttons. Click the **Microtone** logo for the About box.
 - **Tabs** — the eight views, on **F1**–**F7** and **F9**. The strip belongs to the pane below it, so a split screen has one per pane, each ending in the button that splits the view (**⊞**) or closes that pane (**✕**).
-- **Toolbox** (Timeline and Patterns only), in four groups: the quick **Instruments** lookup panel; what the grid shows — the **2nd FX** column, the Timeline's **Cells** width, the **Keys** strip, the **Pitch** plot, the **Raw** hex-note toggle and the **Ghosts**; the tools that open a dialog — **Panner…**, **To sample…** and **Retune…**; and the **Master** strip.
+- **Toolbox** (Timeline and Patterns only), in four groups: the quick **Instruments** lookup panel; what the grid shows — the **2nd FX** column, the Timeline's **Cells** width, the **Keys** strip, the **Pitch** plot, the **Raw** hex-note toggle, the **Ghosts** and the Timeline's lane **Scope**s; the tools that open a dialog — **Panner…**, **To sample…** and **Retune…**; and the **Master** strip.
 - **The main view.**
 - **Command palette** — a context strip above the status bar showing the actions and documentation for the column under the cursor while recording.
 - **Status bar** — file name, project name, dirty marker, cue/row/BPM/speed position, and links to these docs.
@@ -178,6 +178,7 @@ A few things differ from the browser:
 - **Closing the window asks first** when the open project has unsaved changes, as closing a browser tab does.
 - **It updates itself.** A few seconds after it starts, a note in the corner says when a new version is out. **Download** fetches it; then **Restart now** installs it at once, and **When I quit** leaves it until you close Microtone.
 - **The manual opens beside it** in a window of its own, and links to websites open in your browser.
+- **It can sound more at once.** Settings → Performance → **Polyphony** sets how many voices may sound besides each lane's own — the notes a New Note Action leaves ringing, a layered instrument's further layers, an FM rack's operators: 64 to 2048, starting at 256 (the website plays 64). Past the limit the oldest is faded out. Exports from the app use the same limit.
 - **Online projects sign in through your browser.** **Sign in with SceneID** on the File tab opens your usual browser at microtone.cc; sign in there (if you already are, there is nothing to do) and it hands you back to Microtone — the browser may ask whether to open it. The app then stays signed in until you sign out, separately from the browser.
 
 ### Microtone Touch
@@ -273,6 +274,22 @@ The strips carry the same two readings as marks — a notch on the VU where the
 lane volume caps it, and a tick on the pan strip where the lane sits before the
 note's own panning offsets it.
 
+**Scope** in the toolbox adds a small oscilloscope to every lane header: the
+lane's own sound, in mono — its note, the further layers of a layered
+instrument and the notes it has left ringing, added up as the mixer adds them,
+before the lane's mixing chain. It is there to find out what a lane is really
+doing, so it draws every sample of the last ten milliseconds or so, scaled to
+fill the scope whatever the lane's level (the VU shows that). The trace is
+lined up on a rising edge, at a level halfway between its lowest and highest
+point, so a steady tone stands still; the small triangles at the top and
+bottom mark where that edge is put. It starts in the middle: turn the wheel
+over a scope, or drag across it, to move the triangles and look further back
+or ahead of the edge. Where a sound crosses that level upwards more than once a
+cycle, the scope keeps to the edge that makes its trace look most like the one
+before, so it holds still rather than flicking between them; the scale rises
+at once and eases down. A lane with nothing sounding shows a flat line, and
+opening another song clears every scope and centres its triangles again.
+
 ### Reading a cell
 
 Each cell is five columns:
@@ -314,12 +331,13 @@ a fine slide's argument to zero empties the cell, since "shift by nothing" and
 
 A full cell is twenty-odd characters wide, so a screen shows a handful of
 lanes. To **watch** a song on 32 or 64 lanes whole, press **Cells** in the
-toolbox: it steps through three widths, and this browser remembers the one you
-left it on.
+toolbox: it steps through four widths (right-click it to step back), and this
+browser remembers the one you left it on.
 
 - **Cells: full** — every column, as above.
 - **Cells: 2 slots** — the first slot shows the note and instrument, or, on a row without them, the effect (then the second effect, when the lane shows one); the second slot shows the volume, or, without one, the panning.
 - **Cells: 1 slot** — the first slot alone. The lane headers lose the row with the lane's own volume and position, which no longer fits.
+- **Cells: mini** — no text at all: every row a few pixels high and every lane narrow, to see the shape of the whole song at once (see [Mini Mode](#mini-mode)).
 
 In both narrow widths the lane header keeps the lane number, the pattern
 number, the meters and the note sounding now, which moves down to where the
@@ -338,6 +356,22 @@ or any run of them. A slot stands for everything it can show, so a block over
 the first slot's field takes the notes **and** the effects of its rows — Delete
 clears both, and a copy carries both — while the instruments beside them stay.
 Ctrl+A, Shift+click and the row numbers still select whole cells.
+
+#### Mini Mode
+
+**Cells: mini** shrinks each row to a few pixels and each lane to a narrow
+strip, so a screen holds hundreds of rows of every lane. What you see is the
+**pitch plot** — the melody's contour, joined from note to note, with its
+register tab — drawn whether the **Pitch** switch is on or not, since it is
+the one thing a row this small can show. To its right each row has a mark for
+every column it writes: a key-off, cut, fade or interrupt marker, a volume, a
+panning, an effect, each in its column's colour (grey where a ditto or a slide
+puts it there). Each cue's number stands at its first row in the left margin,
+and the playhead and the cursor are bands across the rows.
+
+Mini Mode is for looking, not typing: a click puts the cursor on that row and
+lane, the wheel scrolls, and keys move the cursor, but nothing you type goes
+into a cell. Step **Cells** on to a wider cell to edit there.
 
 ### Navigation
 
@@ -1931,6 +1965,26 @@ An OPL instrument may be a **layer** of a Layered metainstrument, which is how
 two chip patches are stacked into one sound, an **operator** of an FM Rack, and
 the voice a **formant instrument** sings with.
 
+**Convert to FM rack** (on the OPL tab, under the chip's switches) rewrites
+the instrument, in its own slot, as an **FM Rack in Easy Mode** whose operators
+are samples, so every note the song plays on it now plays the rack — and the
+sound can be taken where the chip cannot go: other waveforms, more operators,
+envelopes with more points, filters. Each chip operator becomes a rack operator
+with the same waveform (drawn as one cycle), the same multiple, its level
+(as a modulation depth for a modulator), its envelope (the chip's attack,
+decay, sustain and release, measured and written as envelope points) and its
+vibrato; the connection becomes the rack's wiring and the feedback a feedback
+loop on operator 1. Everything else the instrument had — its own envelopes,
+fadeout, filter, New Note Action, panning — moves onto the rack's shared
+processing. One undo step brings the OPL instrument back.
+
+The chip's key scale level and key scale rate are taken as they are at middle
+C, so the rack keeps them for that note but not the way they change across the
+keyboard, and its tremolo has nothing to become; a dialog after the conversion
+lists any of these the instrument used. The three noise drums (snare, cymbal,
+hi-hat) cannot be converted, and nor can an OPL instrument that another
+instrument uses as a layer or an operator.
+
 ### PSG instruments
 
 **Meta… → PSG instrument** makes another instrument with **no sample at all**:
@@ -3348,6 +3402,7 @@ grid):
 | Preset | Notes per period | Period |
 |---|---|---|
 | Raw format | — (raw hex pitches) | octave |
+| Amiga periods | — (raw Amiga periods, `%HHH`) | octave |
 | ProTracker Temperament | 12 | **none** — every note listed (see below) |
 | Octave only | 1 | octave |
 | 2- to 10-TET | 2–10 | octave |
@@ -3372,6 +3427,8 @@ note ProTracker can play — the original three-octave ProTracker table together
 with the two extra octaves adopted by later trackers. Notes therefore step by
 semitones as usual, but stepping stops at the ends of the table, because that
 is the whole range the tuning can express.
+
+**Amiga periods** shows every note as the Amiga timer period that plays it — `%1AC` is period 428, C4 — rather than as a name: the numbers a ProTracker module actually stores, for writing the Amiga's pitches directly. Type the period in hex in the note column (three digits, each one moving in from the right; the `%` is written for you), and Ctrl+←/→ or the mouse wheel step it one period at a time. A pitch that falls between two whole periods — the end of a slide, an octave above an odd period — shows yellow, as an off-grid note does. Exporting a song in this notation to `.mod` writes its periods exactly as written, not snapped to ProTracker's table.
 
 `.mod` files imported before this notation existed still carry 12-TET and will
 look out of tune. To fix one, open the Project view and **Retune…** it to

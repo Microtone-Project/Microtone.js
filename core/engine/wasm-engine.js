@@ -732,6 +732,17 @@ export class WasmTaudEngine {
   }
   getMonitorMode(ph) { return this._x.tw_get_monitor_mode(this._e); }
 
+  /** The polyphony limit (item 355): how many background voices — ghosts,
+   *  layer children, FM operands — may sound at once (POLYPHONY_MIN…MAX,
+   *  clamped; MAX_BG_VOICES until set). Not touched by any reset. Lowering
+   *  it under sounding voices ramps the surplus out. */
+  setPolyphony(limit) { this._x.tw_set_polyphony(this._e, limit | 0); }
+  getPolyphony() { return this._x.tw_get_polyphony(this._e); }
+
+  /** The lane wavescopes' tap (item 358): while on, the snapshot carries each
+   *  lane's latest SNAP_LS_FRAMES frames, mono (protocol.js SNAP_LS_*). */
+  setLaneScope(on) { this._x.tw_set_lane_scope(this._e, on ? 1 : 0); }
+
   setSongGlobalVolume(ph, volume) { this._x.tw_set_song_global_volume(this._e, volume); }
   getSongGlobalVolume(ph) { return this._x.tw_get_song_global_volume(this._e); }
   setSongMixingVolume(ph, volume) { this._x.tw_set_song_mixing_volume(this._e, volume); }

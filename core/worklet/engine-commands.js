@@ -8,6 +8,7 @@ import { PATTERN_BYTES, PATTERN_BYTES_WIDE } from "../engine/constants.js";
 import {
   CMD, SNAP_HEADER_SIZE, SNAP_INTERRUPT_MASK, SNAP_INTERRUPT_ARGS, SNAP_SAB_I32_MASK,
   SNAP_SAB_I32_ARGS, SNAP_METER_BASE, SNAP_MM_BASE, SNAP_IM_BASE, SNAP_FLOATS,
+  SNAP_LS_BASE, SNAP_LS_LANES, SNAP_LS_DATA, SNAP_LS_FRAMES,
 } from "./protocol.js";
 
 /**
@@ -47,6 +48,8 @@ export function applyAudioCommand(eng, m) {
     case CMD.SET_TRACKER_MIXER_FLAGS: eng.setTrackerMixerFlags(m.ph, m.flags); return true;
     case CMD.SET_SURROUND_MODEL: eng.setSurroundModel(m.ph, m.model); return true;
     case CMD.SET_MONITOR_MODE: eng.setMonitorMode(m.ph, m.mode); return true;
+    case CMD.SET_POLYPHONY: eng.setPolyphony(m.limit); return true;
+    case CMD.SET_LANE_SCOPE: eng.setLaneScope(m.on); return true;
     case CMD.SET_ANALYSIS: eng.setAnalysis(m.ph, m.target); return true;
     case CMD.SET_MASTERING: eng.setMastering(m.ph, m.params); return true;
     case CMD.SET_MASTER_METER:
@@ -145,5 +148,7 @@ export function fillSnapshotInto(eng, playhead, f) {
   put(SNAP_HEADER_SIZE, SNAP_METER_BASE);
   if (ts.analysis !== null) put(SNAP_METER_BASE, SNAP_MM_BASE);  // the strip's meters and scope ring
   if (ts.masterMeter !== null) put(SNAP_MM_BASE, SNAP_IM_BASE);   // the Mastering view's figures and rings
-  put(SNAP_IM_BASE, SNAP_FLOATS); // the Mixing-tab seats, then the envelope playheads
+  put(SNAP_IM_BASE, SNAP_LS_BASE); // the Mixing-tab seats, then the envelope playheads
+  // The lane wavescopes' count, and their rings while the tap is on.
+  put(SNAP_LS_BASE, SNAP_LS_DATA + (v[SNAP_LS_LANES] | 0) * SNAP_LS_FRAMES);
 }

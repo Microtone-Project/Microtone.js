@@ -9,6 +9,7 @@ import {
 } from "../../../core/engine/spatial.js";
 import { hex2, hex4, fxColonWarns } from "../notenames.js";
 import { paintNoteCell, paintVolPanCell, paintFxCell, monoPalette } from "../cellpaint.js";
+import { paintLaneScope, makeScopeState } from "../lanescope.js";
 import {
   interpretEditKey, capKey, rawNoteView, SUB_NOTE, SUB_INST, SUB_VOL, SUB_PAN, SUB_FX_OP, SUB_FX_ARG,
   SUB_FX2_OP, SUB_FX2_ARG, COL_FX, COL_FX2, lastSub,
@@ -45,7 +46,7 @@ import {
   plotSeries, plotGeometry, paintPitchPlot, paintPitchTab, arpOffsets, plotNote,
 } from "../pitchplot.js";
 import {
-  CELLS_FULL, CELLS_ONE, EL_NOTE, EL_FX, EL_FX2, EL_VOL, EL_PAN, EL_INST, SLOT_A_CHARS,
+  CELLS_FULL, CELLS_ONE, CELLS_MINI, EL_NOTE, EL_FX, EL_FX2, EL_VOL, EL_PAN, EL_INST, SLOT_A_CHARS,
   narrowCellChars, cellPresence, narrowShown, narrowOrigins, narrowWalk, narrowResolve,
   narrowCaret, narrowCharToSub, narrowParts, narrowPartOf, narrowPartCols, narrowPartChars,
 } from "../narrowcell.js";
@@ -61,6 +62,9 @@ const ROW_H = 16;
 // header: [voxnum·note+inst·patNum] / VU / pan / lane state / patName
 const HEADER_H = 72;
 const RADAR_H = 44;    // extra height when the surround radar is expanded (#998.6)
+const SCOPE_H = 40;    // …and when the lane wavescopes are on (item 358)
+/** Where the band below the lane state starts (the radar, then the scope). */
+const BAND_Y = 57;
 const GUTTER_W = 76;   // "cue:row | absrow"
 /** The "no ghosts here" map: shared, frozen, and indexing it gives undefined
  *  exactly as a real map's uncovered rows do. */
@@ -73,10 +77,16 @@ const colWFull = (wide, fx2, surround) => Math.ceil(cellChars(wide, fx2, surroun
 // The narrow cells (item 254): two slots, or one. Every lane is the same
 // width again in them — the second effect, where shown, takes its turn in
 // slot A rather than a group of its own.
-const colWNarrow = (mode, wide) => Math.ceil(narrowCellChars(mode, wide) * CHAR_W) + 10;
+const colWNarrow = (mode, wide) => (mode === CELLS_MINI ? MINI_COL_W : Math.ceil(narrowCellChars(mode, wide) * CHAR_W) + 10);
 /** The header row the lane state sits on, which a one-slot lane has no room
  *  for — its header is that much shorter. */
 const LANE_ROW_H = 16;
+// Mini Mode (item 357): a row's height and a lane's width, in pixels.
+const MINI_ROW_H = 3;
+const MINI_COL_W = 52;
+/** Mini Mode's column marks, right of the pitch plot: [sentinel][vol][pan][fx]. */
+const MINI_MARK_W = 2;
+const MINI_MARKS_W = 4 * (MINI_MARK_W + 1);
 const CHAN_STEP_PX = 120; // ≈ one mouse-wheel notch; horizontal scroll's "one lane" reference
 
 export class TimelineView {
@@ -116,7 +126,7 @@ export class TimelineView {
 
     store.on("doc", () => {
       this.map = null; this.scrollRow = 0; this.scrollCh = 0; this.sel = null;
-      this.dropBends(); this.invalidate();
+      this.dropBends(); this.resetScopes(); this.invalidate();
     });
     store.on("edit", () => { this.map = null; this.dropBends(); this.invalidate(); });
     store.on("cursor", () => this.invalidate());
@@ -132,6 +142,19 @@ export class TimelineView {
       // wheel: deltaX dominant). Read the delta off the axis that applies.
       const horiz = e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY);
       const d = horiz ? (e.deltaX !== 0 ? e.deltaX : e.deltaY) : e.deltaY;
+      // Over a lane's wavescope (item 358) the wheel moves its trigger mark:
+      // up/right moves it right, a twentieth of the scope a notch.
+      const band = this.scopeBand();
+      if (band) {
+        const p = localPoint(canvas, e);
+        const ch = p.y >= band.y0 && p.y < band.y1 ? this.channelAt(p.x) : -1;
+        if (ch >= 0) {
+          const { step, remainder } = wheelStep(this._wheelScopeRem ?? 0, -d / CHAN_STEP_PX, 1);
+          this._wheelScopeRem = remainder;
+          if (step !== 0) this.moveScopeTrig(ch, this.scopeTrig(ch) + step / 20);
+          return;
+        }
+      }
       // Record mode: wheel over the CURSOR cell increments/decrements the
       // hovered column (wheel up = +1); elsewhere the wheel scrolls. Horizontal
       // always means "scroll lanes" — never a cell edit.
@@ -146,7 +169,7 @@ export class TimelineView {
           this.invalidate();
         }
       } else {
-        const { step, remainder } = wheelStep(this._wheelRem, d / ROW_H);
+        const { step, remainder } = wheelStep(this._wheelRem, d / this.rowH());
         this._wheelRem = remainder;
         if (step !== 0) this.scrollBy(step);
       }
@@ -202,16 +225,66 @@ export class TimelineView {
 
   invalidate() { this.needsRedraw = true; }
 
-  visibleRows() { return Math.floor((this.canvas.height / this.dpr - this.headerH()) / ROW_H); }
+  visibleRows() { return Math.floor((this.canvas.height / this.dpr - this.headerH()) / this.rowH()); }
+
+  /** A row's height: Mini Mode's few pixels, or a line of text. */
+  rowH() { return this.mini() ? MINI_ROW_H : ROW_H; }
+  /** Is the Timeline in Mini Mode (item 357)? */
+  mini() { return this.cellMode() === CELLS_MINI; }
+  /** Does the header lose its lane-state row (one slot, or Mini Mode)? */
+  noLaneRow() { const m = this.cellMode(); return m === CELLS_ONE || m === CELLS_MINI; }
 
   /** Header height — the surround radar (#998.6) expands it for every lane,
    *  and a one-slot cell (item 254) drops the lane-state row. */
   headerH() {
-    return HEADER_H + (this.radarOn() ? RADAR_H : 0) -
-      (this.cellMode() === CELLS_ONE ? LANE_ROW_H : 0);
+    return HEADER_H + (this.radarOn() ? RADAR_H : 0) + (this.scopeOn() ? SCOPE_H : 0) -
+      (this.noLaneRow() ? LANE_ROW_H : 0);
   }
 
-  /** The cell width in force (item 254): CELLS_FULL, CELLS_TWO or CELLS_ONE. */
+  /** Are the lane wavescopes showing (item 358)? */
+  scopeOn() { return this.store.laneScope === true; }
+
+  /** The wavescope band's top and bottom in canvas y, or null when off. */
+  scopeBand() {
+    if (!this.scopeOn()) return null;
+    const y0 = BAND_Y - (this.noLaneRow() ? LANE_ROW_H : 0) + (this.radarOn() ? RADAR_H : 0);
+    return { y0, y1: y0 + SCOPE_H - 4 };
+  }
+
+  /** Lane `ch`'s trigger position across its scope, 0…1 (centre unless moved). */
+  scopeTrig(ch) { return this._scopeTrig?.[ch] ?? 0.5; }
+
+  /** Lane `ch`'s scope memory (lanescope.js makeScopeState). */
+  scopeState(ch) {
+    this._scopeState ??= [];
+    return (this._scopeState[ch] ??= makeScopeState());
+  }
+
+  /** A file loaded (item 376): every scope back to the centre, its memory
+   *  and the last song's traces gone. */
+  resetScopes() {
+    this._scopeTrig = null;
+    this._scopeState = null;
+    this.store.audio?.clearLaneScope();
+  }
+
+  /** Move lane `ch`'s trigger to `pos` (0…1): the old trace is no guide to
+   *  where the new mark should sit, so its memory goes. */
+  moveScopeTrig(ch, pos) {
+    (this._scopeTrig ??= new Array(64).fill(0.5))[ch] = Math.min(Math.max(pos, 0), 1);
+    if (this._scopeState?.[ch]) this._scopeState[ch].prev = null;
+    this.invalidate();
+  }
+
+  /** Set lane `ch`'s trigger position from canvas x over its scope. */
+  setScopeTrigAt(ch, x) {
+    const strip = this.chanLayout().find((s) => s.ch === ch);
+    if (!strip) return;
+    const sx = strip.x - 2 + 4, sw = strip.w - 12;
+    this.moveScopeTrig(ch, (x - sx) / sw);
+  }
+
+  /** The cell width in force (item 254): CELLS_FULL, CELLS_TWO, CELLS_ONE or CELLS_MINI. */
   cellMode() { return this.store.timelineCells | 0; }
   /** Is the grid showing narrow cells? */
   narrow() { return this.cellMode() !== CELLS_FULL; }
@@ -513,6 +586,18 @@ export class TimelineView {
     const { x, y } = localPoint(this.canvas, e);
     if (longPressable(e)) this.hold.start(e, x, y, this.holdRect(x, y));
     if (y < this.headerH()) {
+      // a lane's wavescope (item 358): press or drag to place its trigger mark
+      const band = this.scopeBand();
+      if (band && y >= band.y0 && y < band.y1) {
+        const ch = this.channelAt(x);
+        if (ch >= 0) {
+          this.hold.cancel();
+          this._scopeDrag = { ch };
+          this.setScopeTrigAt(ch, x);
+          this.canvas.setPointerCapture?.(e.pointerId);
+        }
+        return;
+      }
       // lane header: click = mute toggle, Ctrl/⌘+click = solo toggle
       const ch = this.channelAt(x);
       if (ch >= 0) {
@@ -555,7 +640,7 @@ export class TimelineView {
   rowAt(y) {
     const map = this.getMap();
     if (!map || map.totalRows === 0) return -1;
-    const r = Math.floor(this.scrollRow) + Math.floor((y - this.headerH()) / ROW_H);
+    const r = Math.floor(this.scrollRow) + Math.floor((y - this.headerH()) / this.rowH());
     return clampInt(r, 0, map.totalRows - 1);
   }
 
@@ -595,6 +680,10 @@ export class TimelineView {
       const p = localPoint(this.canvas, e);
       this.hold.moved(e, p.x, p.y);
     }
+    if (this._scopeDrag) {
+      this.setScopeTrigAt(this._scopeDrag.ch, localPoint(this.canvas, e).x);
+      return;
+    }
     if (!this._drag && !this._troughDrag) return;
     const pt = localPoint(this.canvas, e);
     if (this._troughDrag) {
@@ -627,10 +716,11 @@ export class TimelineView {
 
   onPointerUp(e) {
     this.hold.cancel();
-    if (this._drag || this._troughDrag) {
+    if (this._drag || this._troughDrag || this._scopeDrag) {
       this.canvas.releasePointerCapture?.(e.pointerId);
       this._drag = null;
       this._troughDrag = null;
+      this._scopeDrag = null;
     }
   }
 
@@ -672,8 +762,8 @@ export class TimelineView {
   rowsRect(r0, r1, x, w) {
     const headerH = this.headerH();
     const top = Math.floor(this.scrollRow);
-    const y0 = headerH + Math.max(0, r0 - top) * ROW_H;
-    const y1 = headerH + Math.min(this.visibleRows(), r1 - top + 1) * ROW_H;
+    const y0 = headerH + Math.max(0, r0 - top) * this.rowH();
+    const y1 = headerH + Math.min(this.visibleRows(), r1 - top + 1) * this.rowH();
     return y1 <= y0 ? null : { x, y: y0, w, h: y1 - y0 };
   }
 
@@ -704,7 +794,7 @@ export class TimelineView {
     }
     return {
       x: strip.x + 2 + mid * CHAR_W,
-      y: this.headerH() + (c.row - Math.floor(this.scrollRow)) * ROW_H + ROW_H / 2,
+      y: this.headerH() + (c.row - Math.floor(this.scrollRow)) * this.rowH() + this.rowH() / 2,
     };
   }
 
@@ -1279,11 +1369,13 @@ export class TimelineView {
   /** Canvas-relative coords → {row, ch, sub, nib}, or null off-grid. */
   hitTest(x, y) {
     if (y < this.headerH()) return null;
-    const row = Math.floor(this.scrollRow) + Math.floor((y - this.headerH()) / ROW_H);
+    const row = Math.floor(this.scrollRow) + Math.floor((y - this.headerH()) / this.rowH());
     const map = this.getMap();
     if (!map || row < 0 || row >= map.totalRows) return null;
     const strip = this.stripAt(x, true);
     if (!strip) return null;
+    // Mini Mode shows no columns to land on: the lane and the row.
+    if (this.mini()) return { row, ch: strip.ch, sub: SUB_NOTE, nib: 0 };
     const charX = (x - strip.x - 2) / CHAR_W;
     const [sub, nib] = this.narrow()
       ? narrowCharToSub(charX, this.shownAt(row, strip.ch), this.panW())
@@ -1298,6 +1390,7 @@ export class TimelineView {
    * ticks coalesce into one undo entry.
    */
   wheelEdit(e, dir) {
+    if (this.mini()) return false; // a view (item 357): the wheel scrolls
     const store = this.store;
     const p = localPoint(this.canvas, e);
     const hit = this.hitTest(p.x, p.y);
@@ -1567,6 +1660,8 @@ export class TimelineView {
    * octave/currentInst context and auditions entered notes.
    */
   processEditKey(e, jam) {
+    // Mini Mode (item 357) is a view: nothing typed lands in a cell nobody can read.
+    if (this.mini()) return false;
     const c = this.store.cursor;
     this.seatCursor(); // narrow: the key goes to the column the slot shows
     return this.editKey(e, jam, c.sub, c.nib, rawNoteView(this.store.rawNoteView, this.store.pitchPreset));
@@ -1580,6 +1675,7 @@ export class TimelineView {
    * can only mean a note, never a hex digit. True when it entered one.
    */
   enterCapNote(code, jam) {
+    if (this.mini()) return false;
     return this.editKey(capKey(code), jam, SUB_NOTE, 0, false);
   }
 
@@ -1697,13 +1793,18 @@ export class TimelineView {
       }
     }
     if (this.hold.active) this.needsRedraw = true; // the gauge travels every frame
-    if (this.needsRedraw || playing) {
+    // The wavescopes (item 358) move under a jam on a stopped transport too,
+    // and once more after it, to show the lanes gone quiet.
+    const scoping = this.scopeOn() && !!audio && (playing || audio.isJamming());
+    const header = playing || scoping || this._scopeWasLive === true;
+    this._scopeWasLive = scoping;
+    if (this.needsRedraw || header) {
       // While a song plays, the header's meters and live notes move every
       // frame — but the rows under them move once a ROW at most, and a full
       // repaint is thousands of glyphs. So a frame that nothing but playback
       // has touched repaints the header band alone and leaves the rows' pixels
       // where they are, keyed on everything those rows are painted from.
-      const headerOnly = playing && !this.needsRedraw && !this.hold.active &&
+      const headerOnly = header && !this.needsRedraw && !this.hold.active &&
         this._gridKey === this.gridKey(playRow) && this._gridTheme === themeColors();
       this.needsRedraw = false;
       this.draw(playRow, headerOnly);
@@ -1806,10 +1907,13 @@ export class TimelineView {
     // Cues tab's to show then). A one-slot lane is too narrow for the two
     // lane-state cells, so their row goes, and everything below moves up.
     const narrow = this.narrow();
-    const laneRow = this.cellMode() !== CELLS_ONE;
+    const laneRow = !this.noLaneRow();
+    const mini = this.mini(); // item 357: the lane number, the meters, no text beside them
     const lift = laneRow ? 0 : LANE_ROW_H;
-    const RADAR_Y = 57 - lift;
-    const NAME_Y = 62 + (radar ? RADAR_H : 0) - lift;
+    const RADAR_Y = BAND_Y - lift;
+    const scope = this.scopeBand(); // item 358: below the radar, above the name
+    const NAME_Y = 62 + (radar ? RADAR_H : 0) + (scope ? SCOPE_H : 0) - lift;
+    const scopeInk = { bg: C.meterBg, line: C.dim, trace: C.meter, mark: C.accent };
     const surroundModel = store.doc?.songs[store.songIndex]?.surroundModel ?? 0;
     const surroundSong = surroundModel !== 0;
     const spatialSong = surroundModel === SURROUND_SPATIAL;
@@ -1846,7 +1950,7 @@ export class TimelineView {
         ctx.fillText("ƒx2", x + 4 + 2.4 * CHAR_W, UP_MID);
         ctx.globalAlpha = 1;
       }
-      if (patNum !== null && patNum !== PATTERN_EMPTY) {
+      if (patNum !== null && patNum !== PATTERN_EMPTY && !mini) {
         ctx.fillStyle = C.accent;
         ctx.textAlign = "right";
         ctx.fillText(hex4(patNum), x + colW - 6, UP_MID);
@@ -1854,7 +1958,7 @@ export class TimelineView {
       }
       // upper row centre: live note + instrument (only while sounding) — or,
       // narrow, the name row's centre
-      if (audio && audio.getVoiceActive(ch)) {
+      if (audio && audio.getVoiceActive(ch) && !mini) {
         const groupX = x + Math.round((colW - 7 * CHAR_W) / 2);
         const noteY = narrow ? NAME_Y - NOTE_H / 2 : UP_Y;
         paintNoteCell(ctx, audio.getVoiceNote(ch), store.pitchPreset, groupX, noteY,
@@ -1937,6 +2041,12 @@ export class TimelineView {
         this.paintChannelRadar(ctx, C, x, RADAR_Y, ch, colW, audio, spatialSong);
       }
 
+      // the lane's wavescope (item 358)
+      if (scope) {
+        paintLaneScope(ctx, scopeInk, x + 4, scope.y0, colW - 12, scope.y1 - scope.y0,
+          audio ? audio.getLaneScope(ch) : null, this.scopeTrig(ch), this.scopeState(ch));
+      }
+
       // lower row: pattern name, centred + clipped to the column width
       if (!narrow && patNum !== null && patNum !== PATTERN_EMPTY) {
         const nm = unescapeName(this.store.doc.patternName(patNum));
@@ -1962,7 +2072,7 @@ export class TimelineView {
         ctx.globalAlpha = 1;
         ctx.fillStyle = C.fg2;
         ctx.textAlign = "center";
-        ctx.fillText("M U T E", x + (colW - 2) / 2, (VU_Y + PAN_Y) / 2 + 3);
+        ctx.fillText(mini ? "M" : "M U T E", x + (colW - 2) / 2, (VU_Y + PAN_Y) / 2 + 3);
         ctx.textAlign = "left";
       }
     }
@@ -1971,17 +2081,22 @@ export class TimelineView {
     if (!headerOnly) this.seatCursor(); // narrow: the cursor stands on what its row shows
     const cursor = store.cursor;
     const cellMode = this.cellMode();
+    const RH = this.rowH();
+    // Mini Mode (item 357) draws the pitch plot whatever its switch says: it is
+    // the one thing a row a few pixels high has room to show.
+    const plotOn = pitchPlot || mini;
     const dittoPal = monoPalette(C.ditto); // ghost cells (pattern ditto)
     const sb = this.selBounds(); // block selection bounds (or null)
     const rowBand = this.isRowBand(); // …and whether it spans every lane
     const beats = store.beats(); // primary/secondary divisions from sMet
+    const miniCues = []; // Mini Mode's cue labels, painted once the rows are down
     // Which visible rows exist at all, for the register-tab pass at the foot
     // of the frame: it must cover exactly the rows this loop drew, and asking
     // locate() a second time for each of them would scan the cue list twice.
-    const shownRows = pitchPlot ? [] : null;
+    const shownRows = plotOn ? [] : null;
     for (let r = 0; r < (headerOnly ? 0 : visRows); r++) {
       const absRow = top + r;
-      const y = headerH + r * ROW_H;
+      const y = headerH + r * RH;
       const loc = this.locate(absRow);
       if (!loc) continue;
       shownRows?.push(r);
@@ -1990,13 +2105,13 @@ export class TimelineView {
       // row background banding from the song's beat divisions
       if (absRow === playRow) {
         ctx.fillStyle = C.playhead;
-        ctx.fillRect(0, y, W, ROW_H);
+        ctx.fillRect(0, y, W, RH);
       } else if (rowInCue % beats.sec === 0) {
         ctx.fillStyle = C.rowBar;
-        ctx.fillRect(GUTTER_W, y, W - GUTTER_W, ROW_H);
+        ctx.fillRect(GUTTER_W, y, W - GUTTER_W, RH);
       } else if (rowInCue % beats.pri === 0) {
         ctx.fillStyle = C.rowBeat;
-        ctx.fillRect(GUTTER_W, y, W - GUTTER_W, ROW_H);
+        ctx.fillRect(GUTTER_W, y, W - GUTTER_W, RH);
       }
 
       // cue boundary line
@@ -2015,19 +2130,29 @@ export class TimelineView {
       // which is exactly where a row edit is easiest to get wrong.
       if (absRow === cursor.row) {
         ctx.fillStyle = C.cursor;
-        ctx.fillRect(0, y, GUTTER_W - 4, ROW_H);
+        ctx.fillRect(0, y, GUTTER_W - 4, RH);
       }
       if (rowBand && absRow >= sb.r0 && absRow <= sb.r1) {
         ctx.fillStyle = C.sel;
-        ctx.fillRect(0, y, GUTTER_W - 4, ROW_H);
+        ctx.fillRect(0, y, GUTTER_W - 4, RH);
       }
-      ctx.textAlign = "left";
-      ctx.fillStyle = absRow === cursor.row ? C.fg
-        : rowInCue === 0 ? C.accent
-        : rowInCue % beats.pri === 0 ? C.fg : C.dim;
-      ctx.fillText(
-        `${entry.cue.toString(16).toUpperCase().padStart(4, "0")}:${rowInCue.toString(16).toUpperCase().padStart(2, "0")}`,
-        6, y + ROW_H / 2);
+      // (Mini Mode labels its cues after the loop, over the rows below them.)
+      if (!mini) {
+        ctx.textAlign = "left";
+        ctx.fillStyle = absRow === cursor.row ? C.fg
+          : rowInCue === 0 ? C.accent
+          : rowInCue % beats.pri === 0 ? C.fg : C.dim;
+        ctx.fillText(
+          `${entry.cue.toString(16).toUpperCase().padStart(4, "0")}:${rowInCue.toString(16).toUpperCase().padStart(2, "0")}`,
+          6, y + RH / 2);
+      } else if (rowInCue === 0) {
+        miniCues.push({ y, cue: entry.cue });
+      }
+
+      if (mini) {
+        this.paintMiniRow(ctx, C, strips, { absRow, y, RH, entry, rowInCue, cursor, sb });
+        continue;
+      }
 
       // cells
       for (const { ch, x, w: colW } of strips) {
@@ -2037,20 +2162,20 @@ export class TimelineView {
         const onCursor = absRow === cursor.row && ch === cursor.ch;
         if (onCursor) {
           ctx.fillStyle = C.cursor;
-          ctx.fillRect(x - 2, y, colW - 2, ROW_H);
+          ctx.fillRect(x - 2, y, colW - 2, RH);
         }
         if (sb && absRow >= sb.r0 && absRow <= sb.r1 && ch >= sb.c0 && ch <= sb.c1) {
           ctx.fillStyle = C.sel;
           if (narrow ? sb.partLo === 0 && sb.partHi === narrowParts(cellMode) - 1
             : sb.colLo === 0 && sb.colHi >= this.lastColFor(ch)) {
-            ctx.fillRect(x - 2, y, colW - 2, ROW_H); // whole cell
+            ctx.fillRect(x - 2, y, colW - 2, RH); // whole cell
           } else if (narrow) { // a band of slots (item 337)
             const [cs, ce] = narrowPartChars(cellMode, this.panW(), sb.partLo, sb.partHi);
-            ctx.fillRect(x + 2 + cs * CHAR_W - 1, y, (ce - cs) * CHAR_W + 2, ROW_H);
+            ctx.fillRect(x + 2 + cs * CHAR_W - 1, y, (ce - cs) * CHAR_W + 2, RH);
           } else { // partial column band
             const ccr = colCharRange(this.wide(), fx2, this.surround());
             const cs = ccr[sb.colLo][0], ce = ccr[Math.min(sb.colHi, this.lastColFor(ch))][1];
-            ctx.fillRect(x + 2 + cs * CHAR_W - 1, y, (ce - cs) * CHAR_W + 2, ROW_H);
+            ctx.fillRect(x + 2 + cs * CHAR_W - 1, y, (ce - cs) * CHAR_W + 2, RH);
           }
         }
         if (onCursor) {
@@ -2059,7 +2184,7 @@ export class TimelineView {
             ? narrowCaret(this.shownAt(absRow, ch), this.panW(), cursor.sub ?? 0, cursor.nib ?? 0)
             : subCharPos(cursor.sub ?? 0, cursor.nib ?? 0, this.wide(), this.surround());
           ctx.fillStyle = store.record ? C.caret : C.caretNav;
-          ctx.fillRect(x + 2 + cpos * CHAR_W - 1, y, cw * CHAR_W + 2, ROW_H);
+          ctx.fillRect(x + 2 + cpos * CHAR_W - 1, y, cw * CHAR_W + 2, RH);
         }
         // Absolute-pitch plot (item 198.5), behind everything this cell is
         // about to draw and in front of the row's own background — which is
@@ -2067,7 +2192,7 @@ export class TimelineView {
         if (pitchPlot) {
           const geo = this.plotFor(ch);
           paintPitchPlot(ctx, geo[absRow], geo[absRow + 1] ?? null,
-            { x: x + 2, y, w: (cellMode === CELLS_FULL ? this.geom(ch).inst + 2 : SLOT_A_CHARS) * CHAR_W, rowH: ROW_H }, C);
+            { x: x + 2, y, w: (cellMode === CELLS_FULL ? this.geom(ch).inst + 2 : SLOT_A_CHARS) * CHAR_W, rowH: RH }, C);
         }
         const patNum = entry.info ? (this.store.song.cues[entry.cue][ch] & 0x7fff) : PATTERN_EMPTY;
         if (patNum === PATTERN_EMPTY) {
@@ -2099,10 +2224,10 @@ export class TimelineView {
           const nx = x + 2 + (at.note + (narrow && !g.wide ? NOTE_PREFIX_CHARS : 0)) * CHAR_W;
           const ghostNote = ghost?.note ?? bend?.note ?? null;
           if (ghostNote !== null) {
-            paintNoteCell(ctx, ghostNote, store.pitchPreset, nx, y, CHAR_W, ROW_H,
+            paintNoteCell(ctx, ghostNote, store.pitchPreset, nx, y, CHAR_W, RH,
               dittoPal, store.rawNoteView, g.wide);
           } else {
-            paintNoteCell(ctx, cell.note, store.pitchPreset, nx, y, CHAR_W, ROW_H,
+            paintNoteCell(ctx, cell.note, store.pitchPreset, nx, y, CHAR_W, RH,
               { note: C.fg, sentinel: C.fg2, dim: C.dim, offGrid: C.accent },
               store.rawNoteView, g.wide);
           }
@@ -2115,7 +2240,7 @@ export class TimelineView {
           ctx.fillStyle = ghost?.inst != null ? C.ditto
             : cell.instrment !== 0 ? C.accent2 : C.dim;
           if (cell.instrment === 0 && !(ghost?.inst != null)) ctx.globalAlpha = 0.4;
-          ctx.fillText(instS, x + 2 + at.inst * CHAR_W, y + ROW_H / 2);
+          ctx.fillText(instS, x + 2 + at.inst * CHAR_W, y + RH / 2);
           ctx.globalAlpha = 1;
         }
         // vol/pan: symbol cell (vector ticks) + argument digits — item 87
@@ -2124,7 +2249,7 @@ export class TimelineView {
         if (at.vol !== null) {
           const ghostVol = ghost?.vol ?? (bend?.vol != null ? [bend.vol, 0] : null);
           const vol = ghostVol ?? [cell.volume, cell.volumeEff];
-          paintVolPanCell(ctx, vol[0], vol[1], false, x + 2 + at.vol * CHAR_W, y, CHAR_W, ROW_H,
+          paintVolPanCell(ctx, vol[0], vol[1], false, x + 2 + at.vol * CHAR_W, y, CHAR_W, RH,
             { ink: ghostVol ? C.ditto : C.meter, dim: C.dim, wide });
         }
         // A wide cell's panning column IS the azimuth, with the elevation in
@@ -2132,7 +2257,7 @@ export class TimelineView {
         if (at.pan !== null) {
           const ghostPan = ghost?.pan ?? (bend?.pan != null ? [bend.pan, 0] : null);
           const pan = ghostPan ?? [wide ? cell.azimuth : cell.pan, cell.panEff];
-          paintVolPanCell(ctx, pan[0], pan[1], true, x + 2 + at.pan * CHAR_W, y, CHAR_W, ROW_H,
+          paintVolPanCell(ctx, pan[0], pan[1], true, x + 2 + at.pan * CHAR_W, y, CHAR_W, RH,
             { ink: ghostPan ? C.ditto : C.colPan, dim: C.dim, wide, panChars: g.panChars,
               elevation: ghost?.pan != null ? (ghost.elev ?? 0) : bend?.pan != null ? bend.elev : (wide ? cell.elevation : 0),
               elevationInk: ghost?.pan != null || bend?.pan != null ? C.ditto : C.accent2,
@@ -2148,7 +2273,7 @@ export class TimelineView {
         const warn = wide ? fxColonWarns(cell.effect, cell.effect2, ghost?.note ?? cell.note) : 0;
         if (at.fx !== null) {
           const fx = ghost?.fx ?? [cell.effect, cell.effectArg];
-          paintFxCell(ctx, fx[0], fx[1], x + 2 + at.fx * CHAR_W, y, CHAR_W, ROW_H,
+          paintFxCell(ctx, fx[0], fx[1], x + 2 + at.fx * CHAR_W, y, CHAR_W, RH,
             ghost?.fx ? dittoPal : fxPal, (warn & 1) !== 0, cell.effect2, narrow);
         }
         // …and the second effect in the same inks, since it is the same column
@@ -2156,9 +2281,23 @@ export class TimelineView {
         // row's first effect, and the ghost map has no second slot to fill.
         if (fx2 && at.fx2 !== null) {
           paintFxCell(ctx, cell.effect2, cell.effectArg2,
-            x + 2 + at.fx2 * CHAR_W, y, CHAR_W, ROW_H, fxPal, (warn & 2) !== 0, cell.effect, narrow);
+            x + 2 + at.fx2 * CHAR_W, y, CHAR_W, RH, fxPal, (warn & 2) !== 0, cell.effect, narrow);
         }
       }
+    }
+
+    // Mini Mode's cue labels: a row is too short for text, so each cue's
+    // number is written at its first row, running down over the rows after it.
+    if (mini) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, headerH, GUTTER_W - 4, H - headerH);
+      ctx.clip();
+      ctx.textAlign = "left";
+      ctx.textBaseline = "top";
+      ctx.fillStyle = C.accent;
+      for (const { y, cue } of miniCues) ctx.fillText(cue.toString(16).toUpperCase().padStart(4, "0"), 6, y + 1);
+      ctx.restore();
     }
 
     // gutter/header separators
@@ -2190,11 +2329,11 @@ export class TimelineView {
     // drawn any earlier the rule above would be ruled straight back through
     // it. Nothing else in the cell reaches this far left, so being last costs
     // the plot nothing.
-    if (pitchPlot && !headerOnly) {
+    if (plotOn && !headerOnly) {
       for (const r of shownRows) {
-        const y = headerH + r * ROW_H;
+        const y = headerH + r * RH;
         for (const { ch, x } of strips) {
-          paintPitchTab(ctx, this.plotFor(ch)[top + r], { tabX: x, y, rowH: ROW_H }, C);
+          paintPitchTab(ctx, this.plotFor(ch)[top + r], { tabX: x, y, rowH: RH }, C);
         }
       }
     }
@@ -2202,6 +2341,52 @@ export class TimelineView {
     // The press-and-hold gauge, last of all, so nothing is drawn over it.
     paintPerimeterGauge(ctx, this.hold.press?.rect ?? null, this.hold.progress(),
       C.accent, C.dim);
+  }
+
+  /**
+   * One row of Mini Mode (item 357) across every lane on screen: the cursor
+   * and the selection, the pitch plot (the contour of what sounds, joined
+   * row to row), and to its right one mark per column the row writes — a
+   * sentinel (key-off, cut, fade, interrupt), the volume, the panning, an
+   * effect — each in the ink the full cell writes it in. A ditto repeat or a
+   * bend is grey there as in the full cell.
+   */
+  paintMiniRow(ctx, C, strips, { absRow, y, RH, entry, rowInCue, cursor, sb }) {
+    const song = this.store.song;
+    for (const { ch, x, w: colW } of strips) {
+      const cx = x - 2, cw = colW - 2;
+      if (absRow === cursor.row && ch === cursor.ch) {
+        ctx.fillStyle = C.cursor;
+        ctx.fillRect(cx, y, cw, RH);
+        ctx.fillStyle = this.store.record ? C.caret : C.caretNav;
+        ctx.fillRect(cx, y, 3, RH);
+      }
+      if (sb && absRow >= sb.r0 && absRow <= sb.r1 && ch >= sb.c0 && ch <= sb.c1) {
+        ctx.fillStyle = C.sel;
+        ctx.fillRect(cx, y, cw, RH);
+      }
+      const plotW = cw - 6 - MINI_MARKS_W;
+      const geo = this.plotFor(ch);
+      paintPitchPlot(ctx, geo[absRow], geo[absRow + 1] ?? null, { x: x + 2, y, w: plotW, rowH: RH }, C);
+      const patNum = entry.info ? (song.cues[entry.cue][ch] & 0x7fff) : PATTERN_EMPTY;
+      if (patNum === PATTERN_EMPTY) continue;
+      const cell = this.patternFor(patNum)[rowInCue];
+      const ghost = this.ghostsFor(patNum, entry.rowLimit)[rowInCue] ?? null;
+      const bend = this.bendsFor(ch, entry.cue)[rowInCue] ?? null;
+      const wide = this.wide();
+      let mx = x + 2 + plotW + 2;
+      const mark = (ink) => {
+        if (ink) { ctx.fillStyle = ink; ctx.fillRect(mx, y, MINI_MARK_W, RH); }
+        mx += MINI_MARK_W + 1;
+      };
+      const note = cell.note;
+      mark(note >= 0x01 && note < 0x20 ? C.fg2 : ghost?.note != null && ghost.note < 0x20 && ghost.note > 0 ? C.ditto : null);
+      // Written, not ghosted: the second effect counts even where it is hidden.
+      const has = cellPresence(cell, null, wide);
+      mark(has.vol ? C.meter : ghost?.vol || bend?.vol != null ? C.ditto : null);
+      mark(has.pan ? C.colPan : ghost?.pan || bend?.pan != null ? C.ditto : null);
+      mark(has.fx || has.fx2 ? C.fxOp : ghost?.fx ? C.ditto : null);
+    }
   }
 
   /** Does pattern `patNum` carry any second effect? Memoised for the frame —

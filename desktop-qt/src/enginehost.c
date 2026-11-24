@@ -37,6 +37,8 @@ void tw_set_master_pan(TaudEngine *e, int v);
 void tw_set_tracker_mixer_flags(TaudEngine *e, int flags);
 void tw_set_surround_model(TaudEngine *e, int model);
 void tw_set_monitor_mode(TaudEngine *e, int mode);
+void tw_set_polyphony(TaudEngine *e, int limit);
+void tw_set_lane_scope(TaudEngine *e, int on);
 void tw_set_analysis(TaudEngine *e, int target, int layout);
 int tw_set_mastering(TaudEngine *e, const uint8_t *block, uint32_t len);
 void tw_set_master_meter(TaudEngine *e, int on, int scramble, int depth, int span);
@@ -319,6 +321,8 @@ int mt_host_apply(MtHost *h, const MtCommand *c, uint8_t **reply, size_t *replyL
     if (is(c, "SET_TRACKER_MIXER_FLAGS")) { tw_set_tracker_mixer_flags(e, arg_int(c, 0)); return MT_APPLIED; }
     if (is(c, "SET_SURROUND_MODEL")) { tw_set_surround_model(e, arg_int(c, 0)); reapply_analysis(h); return MT_APPLIED; }
     if (is(c, "SET_MONITOR_MODE")) { tw_set_monitor_mode(e, arg_int(c, 0)); reapply_analysis(h); return MT_APPLIED; }
+    if (is(c, "SET_POLYPHONY")) { tw_set_polyphony(e, arg_int(c, 0)); return MT_APPLIED; }
+    if (is(c, "SET_LANE_SCOPE")) { tw_set_lane_scope(e, arg_int(c, 0)); return MT_APPLIED; }
 
     /* chains, lyrics, taps */
     if (is(c, "SET_ANALYSIS")) {
@@ -424,7 +428,9 @@ void mt_host_fill_snapshot(MtHost *h, float *out, int *analysisOn, int *meterOn)
     copy_range(out, h->snap, SNAP_HEADER_SIZE, SNAP_METER_BASE);
     if (h->analysisKind >= 0) { copy_range(out, h->snap, SNAP_METER_BASE, SNAP_MM_BASE); *analysisOn = 1; }
     if (h->masterMeterOn) { copy_range(out, h->snap, SNAP_MM_BASE, SNAP_IM_BASE); *meterOn = 1; }
-    copy_range(out, h->snap, SNAP_IM_BASE, SNAP_FLOATS);
+    copy_range(out, h->snap, SNAP_IM_BASE, SNAP_LS_BASE);
+    /* The lane wavescopes (item 358): the count, and the rings while on. */
+    copy_range(out, h->snap, SNAP_LS_BASE, SNAP_LS_DATA + (int)h->snap[SNAP_LS_LANES] * SNAP_LS_FRAMES);
 }
 
 uint32_t mt_host_drain_interrupts(MtHost *h, int32_t args[16])
@@ -457,4 +463,7 @@ void mt_snap_layout(MtSnapLayout *o)
     o->epEntries = SNAP_EP_ENTRIES;
     o->epStride = SNAP_EP_STRIDE;
     o->epCount = SNAP_EP_COUNT;
+    o->lsLanes = SNAP_LS_LANES;
+    o->lsData = SNAP_LS_DATA;
+    o->lsFrames = SNAP_LS_FRAMES;
 }

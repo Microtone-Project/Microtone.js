@@ -13,6 +13,7 @@
 //   [ lü, 2 cells ][octave][ ]                Shi'er lü
 //   [ sentinel, all 4 cells    ]              key-off / cut / fade / fast fade
 //   [ IntH ] / [ hex4 ]                       interrupts / raw mode & no-preset
+//   [%][ period, 3 hex digits ]               Amiga periods (notation 2)
 //
 // A format-3 (wide) cell opens with a PITCH PREFIX ¾ of a cell wide: blank,
 // except where the column shows raw hex — then it holds the octave digit of the
@@ -23,7 +24,7 @@
 //
 //   (tick)[letter][ accidental, 2 cells ][octave]   Kite notation, wide cell
 
-import { resolveNoteSymbol } from "../../core/tuning/pitchtables.js";
+import { resolveNoteSymbol, isPeriodPreset, amigaPeriodOf, onAmigaPeriod } from "../../core/tuning/pitchtables.js";
 import { hex2, hex4, fxArgFields, fxOpChar } from "./notenames.js";
 import { volPanOp, volPanArg, NOTE_PREFIX_CHARS } from "./edit.js";
 import { canvasTransportFont } from "./fonts.js";
@@ -102,6 +103,16 @@ export function noteCellText(note, preset, rawMode = false, wide = false) {
   // taut notation: IntH, H = hex 0..F
   if (note >= 0x0010 && note <= 0x001f) {
     return { text: "Int" + (note - 0x0010).toString(16).toUpperCase(), ink: "sentinel" };
+  }
+  // Amiga periods (item 359): the period that sounds the note, %HHH — in the
+  // off-grid ink when the note falls between two whole periods (a slide's
+  // pitch, an octave step from an odd one), and as its plain word, dimmed,
+  // where no three-digit period reaches.
+  if (!rawMode && isPeriodPreset(preset)) {
+    const p = amigaPeriodOf(note);
+    if (p !== null) {
+      return { text: "%" + p.toString(16).toUpperCase().padStart(3, "0"), ink: onAmigaPeriod(note) ? "note" : "offGrid" };
+    }
   }
   const symb = rawMode ? null : resolveNoteSymbol(note, preset);
   if (symb === null) {

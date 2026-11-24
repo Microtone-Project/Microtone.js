@@ -33,9 +33,18 @@ export const TRACKER_CHUNK = 512; // change the TAUD_CHUNK in taudplay.h as well
 // Per-voice soundscope ring-buffer length. Power of two so wrap-around is a single AND.
 export const SCOPE_BUFFER_SIZE = 2048;
 
-// Mixer-private background-voice pool size per playhead. NNA "Continue/Note Off/Note Fade"
-// ghosts displaced foreground voices into this pool; oldest is evicted on overflow.
+// Mixer-private background-voice pool size per playhead, by default. NNA "Continue/Note
+// Off/Note Fade" ghosts displaced foreground voices into this pool; oldest is evicted on
+// overflow.
 export const MAX_BG_VOICES = 64;
+// The polyphony limit (item 355): how many background voices may sound at
+// once. MAX_BG_VOICES is every engine's default (and the website's, always);
+// a host may set any count in POLYPHONY_MIN…POLYPHONY_MAX (setPolyphony), and
+// the desktop's Settings offers POLYPHONY_CHOICES, POLYPHONY_DESKTOP first.
+export const POLYPHONY_MIN = 1;
+export const POLYPHONY_MAX = 2048;
+export const POLYPHONY_CHOICES = Object.freeze([64, 128, 256, 512, 1024, 2048]);
+export const POLYPHONY_DESKTOP = 256;
 
 export const MIDDLE_C = 0x5000; // reference C for instrument samplingRate (terranmon.txt:2000)
 

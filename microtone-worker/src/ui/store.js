@@ -65,6 +65,10 @@ export class Store {
      *  (note/effect, volume/panning), 2 one (note/effect) — narrowcell.js. A
      *  view preference for MONITORING many lanes at once; never saved. */
     this.timelineCells = 0;
+    /** The Timeline lane headers' wavescopes (item 358): each lane's own
+     *  signal, for diagnosing what it plays. Off by default; a view
+     *  preference, never saved. */
+    this.laneScope = false;
     /** Where a narrow Timeline cell's cursor WANTS to be, and where it was
      *  last seated (narrowcell.js): a narrow slot shows a different column
      *  from row to row, so the column the cursor stands on follows the row,

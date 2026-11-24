@@ -91,6 +91,8 @@ export function lowerCommand(m) {
     case CMD.SET_TRACKER_MIXER_FLAGS: return low([m.flags | 0]);
     case CMD.SET_SURROUND_MODEL: return low([m.model | 0]);
     case CMD.SET_MONITOR_MODE: return low([m.mode | 0]);
+    case CMD.SET_POLYPHONY: return low([m.limit | 0]);
+    case CMD.SET_LANE_SCOPE: return low([m.on ? 1 : 0]);
     case CMD.SET_ANALYSIS: return low(engineAnalysisArgs(m.target));
     case CMD.SET_MASTERING:
       return low([], [], [m.params === null || m.params === undefined ? NO_BYTES : buildMasteringBlock(m.params)]);

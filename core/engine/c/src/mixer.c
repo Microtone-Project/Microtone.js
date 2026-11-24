@@ -355,6 +355,7 @@ bool te_generate_tracker_audio(TaudEngine *e, int frames)
         e->gainSpan[n] = globalGain;
         e->accL[n] = 0.0;
         e->accR[n] = 0.0;
+        if (e->laneScopeOn) memset(e->laneScopeAcc, 0, sizeof e->laneScopeAcc);
 
         for (vi = 0; vi < TOTAL_VOICES; vi++) {
             TaudVoice *voice = &e->voices[vi];
@@ -416,6 +417,9 @@ bool te_generate_tracker_audio(TaudEngine *e, int frames)
             }
             if (e->stemTap) {
                 stem_push(e, n, vi, voice, (voice->activeChanCount == 2 ? (sL + sR) * 0.5 : sL) * vol * rampGain);
+            }
+            if (e->laneScopeOn && vi < MAX_VOICES) {
+                e->laneScopeAcc[vi] += (voice->activeChanCount == 2 ? (sL + sR) * 0.5 : sL) * vol * rampGain;
             }
             /* An instrument with a mixing chain mixes into its own bus, ahead of
              * the song's global gain — which the bus's output gets instead. */
@@ -511,6 +515,9 @@ bool te_generate_tracker_audio(TaudEngine *e, int frames)
             if (e->stemTap) {
                 stem_push(e, n, bg->sourceChannel, bg, (bg->activeChanCount == 2 ? (sL + sR) * 0.5 : sL) * vol * rampGain);
             }
+            if (e->laneScopeOn && bg->sourceChannel >= 0 && bg->sourceChannel < MAX_VOICES) {
+                e->laneScopeAcc[bg->sourceChannel] += (bg->activeChanCount == 2 ? (sL + sR) * 0.5 : sL) * vol * rampGain;
+            }
             route = voice_route(e, bg);
             if (route != NULL) {
                 /* The same chain without the three song-level gains the bus is ahead of. */
@@ -545,6 +552,11 @@ bool te_generate_tracker_audio(TaudEngine *e, int frames)
                     te_spatial_bus_add_source(abus, n, sR * vol, ag, abus->numChannels, rampGain);
                 }
             }
+        }
+        if (e->laneScopeOn) {
+            int l, w = e->laneScopeWrite;
+            for (l = 0; l < MAX_VOICES; l++) e->laneScope[l * LANE_SCOPE_FRAMES + w] = (float)e->laneScopeAcc[l];
+            e->laneScopeWrite = (w + 1) & (LANE_SCOPE_FRAMES - 1);
         }
     }
     finish_span(e, n0, frames);

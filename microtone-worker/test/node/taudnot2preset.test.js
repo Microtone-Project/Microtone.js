@@ -24,8 +24,9 @@ function roundTrip(p) {
 
 test("every literal built-in preset prints back as its own source line", () => {
   // Spelt from a shared constant (SYM_12/24/96), multi-line (ProTracker), or
-  // carrying a two-character token the codec completes (15-TET's " F").
-  const skip = new Set([0, 1, 120, 150, 240, 960, 10121, 10122]);
+  // carrying a two-character token the codec completes (15-TET's " F"); Raw
+  // and Amiga periods have no table for a .taudnot to state.
+  const skip = new Set([0, 1, 2, 120, 150, 240, 960, 10121, 10122]);
   const checked = [];
   for (const p of Object.values(pitchTablePresets)) {
     if (skip.has(p.index)) continue;

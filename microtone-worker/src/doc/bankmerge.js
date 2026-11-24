@@ -43,6 +43,9 @@ import {
 import { minifloatFromDouble } from "../../core/engine/minifloat.js";
 import { fmValidate, fmOperators, fmProgramOf } from "./fmedit.js";
 import { FM_WORD_OSC, FmOp } from "../../core/engine/inst.js";
+import { OPL_RATE, OPL_C4_RATE } from "../../core/engine/opl.js";
+import { oplRackSpec, oplWavePcm, OPL_WAVE_FRAMES } from "./opltofm.js";
+import { releaseFadeout } from "./timbredesign.js";
 
 const sampleKey = (ptr, len) => `${ptr}:${len}`;
 
@@ -1736,36 +1739,16 @@ export function planEasyConvert(destDoc, metaSlot) {
   if (dc.error) return { error: dc.error, reason: "pool" };
 
   // The new principal: a constant carrying everything shared.
-  const principal = easyConstRecord(dc.ptr);
-  const copy = (from, to) => { for (let b = from; b <= to; b++) principal[b] = old[b]; };
-  // percussion, azimuth, and the volume envelope's units (bit 6: its nodes are copied below)
-  principal[14] = (principal[14] & 0x0f) | (old[14] & 0x70);
-  copy(15, 18);   // volume and pan LOOP words
-  copy(21, 120);  // volume and pan nodes
-  copy(171, 174); // global volume, fadeout + filter mode, volume swing
-  copy(177, 183); // default pan, pitch-pan, pan swing, cutoff, resonance
-  principal[186] = (principal[186] & ~0x63) | (old[186] & 0x63); // the New Note Action + Q's
-  copy(189, 192); // volume and pan SUSTAIN words
-  copy(195, 196); // Duplicate Check, default note volume
-  copy(251, 255); // attenuation, SoundFont filter bits, elevation, IMix
-  // …and a pitch/filter slot whose role is the FILTER. A chip instrument's
-  // second slot is its patch, and a formant's its tract: neither is a slot.
   const chip = destDoc.instruments[src].isOpl || destDoc.instruments[src].isPsg;
-  const slots = chip ? [[19, 121, 193]] : [[19, 121, 193], [197, 201, 199]];
-  const isFilter = (loop) => ((loop >>> 7) & 1) === 1 && ((loop >>> 13) & 1) === 1;
-  const word = (r, o) => r[o] | (r[o + 1] << 8);
-  for (const [loop, nodes, sus] of slots) {
-    if (!isFilter(word(old, loop))) continue;
-    for (let b = 0; b < 2; b++) { principal[loop + b] = old[loop + b]; principal[sus + b] = old[sus + b]; }
-    for (let b = 0; b < 50; b++) principal[nodes + b] = old[nodes + b];
-  }
+  const { principal, slots } = principalFrom(old, dc.ptr, chip);
+  const isFilter = (loop) => isFilterSlot(old, loop);
 
   // The old principal, as an operator: the same record with the shared part off.
   const op = Uint8Array.from(old);
   const clearPresent = (o) => { op[o + 1] &= ~0x20; };
   clearPresent(15); // volume envelope absent
   clearPresent(17); // pan envelope absent
-  for (const [loop] of slots) if (isFilter(word(old, loop))) clearPresent(loop);
+  for (const [loop] of slots) if (isFilter(loop)) clearPresent(loop);
   op[171] = 0xff;                // full global volume
   op[172] = 0;                   // no fadeout…
   op[173] &= 0xf0;               // …keeping the filter-mode bits
@@ -1814,6 +1797,185 @@ export function planEasyConvert(destDoc, metaSlot) {
       metaSlot,
       childSlots: [pSlot, oSlot],
     },
+  };
+}
+
+/**
+ * The shared part of an instrument record — its envelopes but a pitch one,
+ * its filter, fadeout, global volume, swing, attenuation, note actions and
+ * pan — on a constant 1.0 at `dcPtr`: the principal of an Easy rack that
+ * takes that instrument's place (planEasyConvert, planOplFm). `chip`: the
+ * record is an OPL or PSG instrument, whose second pitch/filter slot is its
+ * patch and so never copied.
+ */
+function principalFrom(old, dcPtr, chip) {
+  const principal = easyConstRecord(dcPtr);
+  const copy = (from, to) => { for (let b = from; b <= to; b++) principal[b] = old[b]; };
+  // percussion, azimuth, and the volume envelope's units (bit 6: its nodes are copied below)
+  principal[14] = (principal[14] & 0x0f) | (old[14] & 0x70);
+  copy(15, 18);   // volume and pan LOOP words
+  copy(21, 120);  // volume and pan nodes
+  copy(171, 174); // global volume, fadeout + filter mode, volume swing
+  copy(177, 183); // default pan, pitch-pan, pan swing, cutoff, resonance
+  principal[186] = (principal[186] & ~0x63) | (old[186] & 0x63); // the New Note Action + Q's
+  copy(189, 192); // volume and pan SUSTAIN words
+  copy(195, 196); // Duplicate Check, default note volume
+  copy(251, 255); // attenuation, SoundFont filter bits, elevation, IMix
+  // …and a pitch/filter slot whose role is the FILTER. A chip instrument's
+  // second slot is its patch, and a formant's its tract: neither is a slot.
+  const slots = chip ? [[19, 121, 193]] : [[19, 121, 193], [197, 201, 199]];
+  for (const [loop, nodes, sus] of slots) {
+    if (!isFilterSlot(old, loop)) continue;
+    for (let b = 0; b < 2; b++) { principal[loop + b] = old[loop + b]; principal[sus + b] = old[sus + b]; }
+    for (let b = 0; b < 50; b++) principal[nodes + b] = old[nodes + b];
+  }
+  return { principal, slots };
+}
+
+/** Is the pitch/filter slot whose LOOP word is at `loop` present, in the filter role? */
+function isFilterSlot(rec, loop) {
+  const w = rec[loop] | (rec[loop + 1] << 8);
+  return ((w >>> 7) & 1) === 1 && ((w >>> 13) & 1) === 1;
+}
+
+/**
+ * Plan rewriting the OPL instrument in `slot` as an Easy Mode FM rack, in
+ * place (item 356; doc/opltofm.js has the reading): one sample operator per
+ * chip operator, each its waveform as one looped cycle with the chip's
+ * envelope, ratio and level; the chip's connection as the rack's wiring and
+ * its feedback as a loop on operator 1; and a principal carrying everything
+ * the record shared — envelopes, filter, fadeout, note actions, pan. Every
+ * note the song writes on the instrument plays the rack. One undo step.
+ * Returns {error, reason} or a planImport-shaped plan with `metaSlot`,
+ * `childSlots`, `model` and `lost` (what the rack does not carry).
+ */
+export function planOplFm(destDoc, slot) {
+  if (destDoc.sampleInstImage === null) return { error: "This project has no sample+instrument image.", reason: "image" };
+  const inst = destDoc.instruments[slot];
+  if (!inst?.isOpl) return { error: "Not an OPL instrument.", reason: "notOpl" };
+  if (slot >= 0x100) return { error: "Only an instrument the patterns play can become a rack.", reason: "sub" };
+  const used = new Set(destDoc.usedInstrumentSlots());
+  for (const other of used) {
+    if (other !== slot && destDoc.instruments[other]?.sourceSlots?.includes(slot)) {
+      return { error: "Another instrument plays this one as a layer or an operator.", reason: "used" };
+    }
+  }
+  const spec = oplRackSpec(inst.opl, inst.samplingRate);
+  if (spec.error) return { error: "The chip's noise drums have no FM rack to become.", reason: spec.error };
+
+  const old = destDoc.instRecordBytes(slot);
+  const taken = new Set(used);
+  const pool = poolPlacer(destDoc);
+  const place = (pcm) => {
+    const r = pool.place(pcm, new Uint8Array(0));
+    if (r.error) throw new Error(r.error);
+    return r.ptr;
+  };
+  const insts = [];
+  const names = [];
+  const child = (record, label, pitchExt = undefined) => {
+    const c = allocChildSlot(taken);
+    if (c < 0) throw new Error("No free sub-instrument slots left in $100–$3FF.");
+    insts.push({ srcSlot: -(insts.length + 1), destSlot: c, topLevel: false, record, ixmpBlob: null, ixmpCount: 0,
+      ...(pitchExt !== undefined ? { pitchExt } : {}) });
+    names.push([c, label]);
+    return c;
+  };
+  // The instrument's own pitch — its rate and its detune — goes to every
+  // operator, which is where a rack's pitch is.
+  const pitchOffset = 4096 * Math.log2((inst.samplingRate || OPL_C4_RATE) / OPL_C4_RATE) +
+    inst.sampleDetuneSigned + (inst.dSampleDetune ?? 0);
+
+  let model;
+  try {
+    const wavePtr = new Map();
+    const waveOf = (ws) => {
+      if (!wavePtr.has(ws)) wavePtr.set(ws, place(oplWavePcm(ws, OPL_WAVE_FRAMES)));
+      return wavePtr.get(ws);
+    };
+    const ops = spec.ops.map((o) => {
+      // 8-bit envelope nodes (byte 14 bit 6): the chip's fall is drawn to −48 dB.
+      const cycle = easyCycleRecord(waveOf(o.ws), OPL_WAVE_FRAMES);
+      cycle[14] |= 0x40;
+      const rec = recordWithVolEnvelope(cycle, o.env);
+      if (o.vibDepth > 0) {
+        // The chip's vibrato: 6.07 Hz (49716 ÷ 8192) at 50 ticks a second,
+        // ±7 or ±14 cents (255 is a semitone), a sine at once.
+        rec[175] = Math.round((OPL_RATE / 8192) * 1024 / 50);
+        rec[176] = 0;
+        rec[187] = Math.round((255 * o.vibDepth) / 100);
+        rec[188] = 0;
+        rec[186] &= ~0x1c;
+      }
+      const opSlot = child(rec, o.name);
+      const { field, delta } = splitPitchDelta(fitOffset(4096 * Math.log2(o.ratio) + pitchOffset), { signed: true });
+      return Object.assign(makeMetaLayer(opSlot, easyOctetForGain(o.gain), field, 0x0000, 0xffff, 0, 63), { dDetune: delta });
+    });
+    const dcPtr = place(easyDcPcm(EASY_DC_FRAMES));
+    const { principal } = principalFrom(old, dcPtr, true);
+    principal[255] = 0; // the mixing chain stays the rack's, which the voices route by
+    // A record with no release of its own would hold the rack for ever after
+    // the key is let go; the chip's carriers say how long it rings.
+    const oldFade = old[172] | ((old[173] & 0x0f) << 8);
+    if (oldFade === 0 && spec.release !== null) {
+      const fade = releaseFadeout(Math.max(0.05, spec.release * 1.25));
+      principal[172] = fade & 0xff;
+      principal[173] = (principal[173] & 0xf0) | ((fade >>> 8) & 0x0f);
+    }
+    const srcExt = destDoc.pitchExtGroupsNow(slot);
+    const panExt = srcExt.base ? srcExt.base[1] : 0;
+    const pSlot = child(principal, "FM out", { base: panExt !== 0 ? [0, panExt, 0] : null });
+    const feedback = [];
+    if (spec.feedback) {
+      const octet = easyOctetForGain(spec.feedback.gain);
+      let constant = null;
+      if (octet !== OCTET_UNITY) {
+        const rec = easyConstRecord(dcPtr);
+        let constSlot = 0;
+        for (const s of used) {
+          if (s < 0x100 || destDoc.instruments[s].isMeta) continue;
+          if (bytesEqual(destDoc.instRecordBytes(s), rec)) { constSlot = s; break; }
+        }
+        if (constSlot === 0) constSlot = child(rec, "FM const");
+        constant = makeMetaLayer(constSlot, 0, 0, 0x0000, 0xffff, 0, 63);
+      }
+      feedback.push({ from: 0, to: 0, octet, constant });
+    }
+    model = {
+      principal: { ...easyBlankEntry(), instIdx: pSlot },
+      ops,
+      labels: ops.map((_, i) => i),
+      mods: spec.mods.map((m) => m.slice()),
+      carriers: spec.carriers.slice(),
+      feedback,
+    };
+  } catch (e) {
+    return { error: e.message, reason: "slots" };
+  }
+
+  const { ops, program } = easyCompile(model);
+  if (ops.length > FM_MAX_OPERATORS || !fmValidate(program, ops.length).ok) {
+    return { error: "This patch does not fit in an FM rack's record.", reason: "full" };
+  }
+  insts.push({
+    srcSlot: -1000, destSlot: slot, topLevel: true, ixmpBlob: null, ixmpCount: 0,
+    record: buildMetaRecord(ops, {
+      type: META_TYPE_FM, program, easy: true, percussion: (old[14] & 0x10) !== 0, imixId: old[255],
+    }),
+    pitchExt: { table: pitchTableOf(ops) },
+  });
+  return {
+    insts,
+    samples: pool.samples,
+    inamPayload: inamPayloadWith(destDoc, names),
+    ...pool.snam(false),
+    slotMap: new Map(insts.map((it) => [it.srcSlot, it.destSlot])),
+    newSampleBytes: pool.newSampleBytes(),
+    dedupedSamples: pool.dedupedSamples(),
+    metaSlot: slot,
+    childSlots: insts.filter((it) => !it.topLevel).map((it) => it.destSlot),
+    model,
+    lost: spec.lost,
   };
 }
 

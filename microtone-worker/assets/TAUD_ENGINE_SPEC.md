@@ -24,7 +24,7 @@ Each playhead carries the transport-scope values a song table supplies: BPM, tic
 
 A song has 32 lanes, or 64 when the file's `xHDR` section selects 64-lane mode. Each lane owns exactly one **foreground voice**, which is monophonic: a chord needs several lanes.
 
-Beyond the foreground voices, each playhead keeps a mixer-private pool of **background voices**, at most 64. Two things put a voice there:
+Beyond the foreground voices, each playhead keeps a mixer-private pool of **background voices**, at most 64 sounding at once by default. That cap is the **polyphony limit**, and a host **MAY** set another, from 1 to 2048 (Microtone's desktop app offers 64 to 2048 and starts at 256); it is a property of the host and not of the song, so a file cannot ask for one, and no reset changes it. Lowered while more voices sound, the surplus is evicted at once, by the order below. Wherever this section says 64 below, read the limit in force, and 128 is twice it. Two things put a voice there:
 
 - **NNA ghosts.** When a fresh note displaces a still-sounding voice, the old voice is copied into the pool and keeps ringing under the instrument's New Note Action.
 - **Metainstrument layer children.** A Metainstrument trigger sounds its first matching layer on the foreground voice and every further layer as a background voice bound to that lane.

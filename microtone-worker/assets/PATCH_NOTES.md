@@ -6,6 +6,32 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 
 ## Version 5.1.0 (2026-11-20)
 
+**Mini Mode: the whole song at a glance**: the Timeline's Cells button has a fourth step, Cells: mini, which shrinks every row to a few pixels and draws each lane as the contour of its melody.
+
+- Each row also gets a mark for each column it writes — key-offs and the other markers, volume, panning, effects — in that column's colour, and each cue's number stands at its first row.
+- It is for looking: a click moves the cursor and the wheel scrolls, and typing waits until you step back to a wider cell.
+- A right-click on the Cells button now steps back a width, as a click steps on.
+
+**OPL instruments can become FM racks**: Convert to FM rack on the OPL tab rewrites an OPL instrument as an Easy Mode FM rack of sample operators, in its own slot, so the patch can be taken further than the chip goes.
+
+- Each chip operator keeps its waveform, multiple, level, envelope and vibrato, and the connection and the feedback carry over; the instrument's own envelopes, filter and the rest move onto the rack. One undo step brings the OPL instrument back.
+- The chip's key scale level and rate are kept as they are at middle C, and its tremolo is left out; the app says so when an instrument used them. The snare, cymbal and hi-hat, which are made of noise, cannot be converted.
+
+**A scope in every lane header**: Scope in the toolbox shows each lane's own waveform in its header, to see what a lane is really playing.
+
+- It is the lane's sound as the mixer adds it up — its note, a layered instrument's other layers and the notes it left ringing — drawn sample for sample and scaled to fit.
+- The trace is lined up on a rising edge, so a steady tone stands still; the small triangles mark where, and the wheel or a drag across the scope moves them.
+- A sound with several rising edges a cycle keeps to the same one from moment to moment, and the scale eases down as a note decays instead of jumping to fit; opening another song clears the scopes and puts their triangles back in the middle.
+
+**Notes as Amiga periods**: a new notation, Amiga periods, shows every note as the Amiga timer period that plays it (`%1AC` is C4), the numbers a ProTracker module stores.
+
+- Type the period in hex in the note column; Ctrl+←/→ and the mouse wheel step it a period at a time. A pitch between two whole periods is yellow.
+- A song in this notation exports to .mod with its periods exactly as written.
+
+**The desktop app can sound more at once**: its Settings tab has Polyphony under Performance, from 64 to 2048 voices besides the lanes' own, starting at 256.
+
+- It counts the notes a New Note Action leaves ringing, a layered instrument's further layers and an FM rack's operators; past it the oldest fades out. Exports from the app use the same limit, and the website keeps 64.
+
 **Layered instruments sound where the pattern puts them**: a layered instrument whose layers have positions of their own no longer sweeps across the stereo field at the start of every note that the pattern pans.
 
 - Fixed: with a pan in the panning column, a note on a layered instrument started each of its layers at the layer's own position and then glided to the pattern's within a few milliseconds; the pan reached the layers a tick after it reached the lane. They now start where the pattern says, each keeping its distance from the others.
@@ -21,6 +47,7 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 **Messages and questions no longer stop the page**: every message the app shows — "Nothing to clean up", a file it cannot read, a full table — and every question it asks — discarding unsaved changes, deleting rows, replacing a sample — is now one of its own dialogs, in the theme, instead of the browser's alert and confirm boxes.
 
 - The rest of the page keeps going while one is open, the playhead and the meters included, and the browser's offer to prevent the page from creating more dialogs can no longer silence them.
+- Fixed: discarding unsaved changes with the reload button asked twice, once in the app and once more in the browser's "Leave this page?"; the app's answer now stands.
 
 **Every scrollbar in the desktop app widens under the pointer**: the instrument lists of an import, the notation maker's degrees, the Motif editor and its Structure panel, and every list inside a dialog now have the same scrollbar as the Samples list, which lingers and thickens when you reach for it, instead of a thin one that faded at once. The panel around them clipped them to its rounded corners, and the engine under the desktop app cannot follow the pointer through such a clip.
 

@@ -80,7 +80,7 @@ import { renderFmEasyTab, fmVibratoChip } from "./instfmeasy.js";
 import {
   easyDecode, easyOscOf, easyPhaseBytes, easyMultiplierText,
 } from "../../doc/fmeasy.js";
-import { planEasyConvert } from "../../doc/bankmerge.js";
+import { planEasyConvert, planOplFm } from "../../doc/bankmerge.js";
 import { MixingPanel } from "./instmixing.js";
 import { psgBadge } from "../../doc/psgedit.js";
 import { ANCHOR_NOTE, stepNoteInTable } from "../../../core/tuning/pitchtables.js";
@@ -1070,6 +1070,41 @@ export class InstrumentsView {
     btn.title = t("inst.filterOffTitle");
     btn.addEventListener("click", () =>
       this.store.undo.apply(setInstBytesOp(this.selected, [[182, 0xff], [252, 0xff]])));
+    box.append(btn);
+    row.append(lab, box);
+    return row;
+  }
+
+  /** The OPL tab's "Convert to FM rack" (item 356): the instrument becomes
+   *  an Easy Mode rack of sample operators in place, one undo step, and the
+   *  tab moves to it; what the rack could not carry over is said after. */
+  oplToFmRow(slot) {
+    const row = document.createElement("div");
+    row.className = "slider-row";
+    const lab = document.createElement("span");
+    lab.className = "sl-label";
+    const box = document.createElement("div");
+    box.className = "sl-buttons";
+    const btn = document.createElement("button");
+    btn.className = "inst-opl-to-fm";
+    btn.textContent = t("opl.toFm");
+    btn.title = t("opl.toFmTitle");
+    btn.addEventListener("click", () => {
+      const plan = planOplFm(this.store.doc, slot);
+      if (plan.error) {
+        showNotice({ title: t("opl.toFmFail"), body: t(`opl.toFmWhy.${plan.reason}`) });
+        return;
+      }
+      this.store.undo.apply(importBankOp(plan));
+      this.tab = "fmeasy";
+      this.refresh();
+      if (plan.lost.length > 0) {
+        showNotice({
+          title: t("opl.toFmDone"),
+          body: t("opl.toFmLost", { list: plan.lost.map((k) => t(`opl.toFmLost.${k}`)).join(t("opl.toFmListSep")) }),
+        });
+      }
+    });
     box.append(btn);
     row.append(lab, box);
     return row;
@@ -3054,6 +3089,7 @@ export class InstrumentsView {
       this.checkRow(t("opl.lowFnum"), f.lowFnum,
         (on) => this.store.undo.apply(setInstBytesOp(slot, oplSwitchBytes(inst, "lowFnum", on))),
         { title: t("opl.lowFnumTitle") }),
+      this.oplToFmRow(slot),
     );
 
     // ── the algorithm: the operators drawn as the chip's data sheet draws

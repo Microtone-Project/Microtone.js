@@ -43,8 +43,13 @@ import {
 export const CELLS_FULL = 0;
 export const CELLS_TWO = 1;
 export const CELLS_ONE = 2;
+/** Mini Mode (item 357): rows a few pixels high and lanes a few dozen wide,
+ *  the pitch plot and a mark per column instead of any text — the shape of
+ *  the whole song rather than its words. A view, not an editor: the cursor
+ *  moves, nothing is typed. Its narrow-cell rules are CELLS_ONE's. */
+export const CELLS_MINI = 3;
 /** How many modes the toolbox button cycles through. */
-export const CELL_MODES = 3;
+export const CELL_MODES = 4;
 
 /** The columns a slot can show — one element per logical column. Slot A's
  *  field shows one of the first three; EL_INST is slot A's instrument, which

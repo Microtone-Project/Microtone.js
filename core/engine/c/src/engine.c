@@ -671,6 +671,33 @@ void te_set_monitor_mode(TaudEngine *e, int mode)
     apply_surround_model(e);
 }
 
+/* The polyphony limit (item 355): how many background voices — ghosts, layer
+ * children, FM operands — may sound at once. A host setting, like the monitor
+ * mode: no reset touches it. Lowered under sounding voices, the surplus is
+ * ramped out at once by the usual eviction order. */
+void te_set_polyphony(TaudEngine *e, int limit)
+{
+    if (limit < POLYPHONY_MIN) limit = POLYPHONY_MIN;
+    if (limit > POLYPHONY_MAX) limit = POLYPHONY_MAX;
+    e->bgLimit = limit;
+    te_cap_background_voices(e);
+}
+
+/* The lane wavescopes' tap (item 358): every switch-on — the page's, and the
+ * one a host sends with each song it loads (item 376) — starts every lane's
+ * ring silent, so a scope never shows the last song. */
+void te_set_lane_scope(TaudEngine *e, bool on)
+{
+    if (on && e->laneScope == NULL) {
+        e->laneScope = (float *)calloc((size_t)MAX_VOICES * LANE_SCOPE_FRAMES, sizeof(float));
+        if (e->laneScope == NULL) { e->oom = true; return; }
+    } else if (on) {
+        memset(e->laneScope, 0, sizeof(float) * (size_t)MAX_VOICES * LANE_SCOPE_FRAMES);
+    }
+    e->laneScopeOn = on && e->laneScope != NULL;
+    e->laneScopeWrite = 0;
+}
+
 /* Swap the render target the object bus feeds (setSpatialRenderer): −1 is the
  * device's own monitor again. No-op for a stereo song, which has no bus. */
 void te_set_spatial_renderer(TaudEngine *e, int kind, int order, bool planar, int layout)
@@ -915,6 +942,7 @@ TaudEngine *te_engine_new(int rate)
     if (e == NULL) return NULL;
     e->rate = rate;
     e->spanFrames = TRACKER_CHUNK;
+    e->bgLimit = MAX_BG_VOICES;
     e->rampOutSamples = (int)js_round(RAMP_OUT_SEC * rate);
     e->volRampSamples = (int)js_round(VOL_RAMP_SEC * rate);
     e->attackRampSamples = (int)js_round(ATTACK_RAMP_SEC * rate);
@@ -998,6 +1026,7 @@ void te_engine_free(TaudEngine *e)
     te_master_chain_free(e->busMastering);
     for (i = 0; i < IMX_METER_SEATS; i++) free(e->imixMeters[i]);
     free(e->stemLog);
+    free(e->laneScope);
     te_binaural_free(e->binaural);
     te_master_chain_free(e->mastering);
     te_imix_free_routes(e);

@@ -9,7 +9,7 @@
 
 import { ANALYSIS_MAX_METERS, SCOPE_FRAMES, SCOPE_CHANNELS } from "../engine/analysis.js";
 import { SPEC_FRAMES, TAP_STAGES, HIST_BUCKETS } from "../engine/loudness.js";
-import { TOTAL_VOICES, NUM_INTERRUPTS, MAX_BG_VOICES } from "../engine/constants.js";
+import { TOTAL_VOICES, MAX_VOICES, NUM_INTERRUPTS, POLYPHONY_DESKTOP } from "../engine/constants.js";
 import { IMX_RING_FRAMES, IMX_COMP_MAX_BANDS, IMX_DEQ_BANDS, IMX_TSH_MAX_BANDS, IMX_TAP_STAGES, IMX_METER_SEATS } from "../engine/imix.js";
 
 export const CMD = Object.freeze({
@@ -63,6 +63,8 @@ export const CMD = Object.freeze({
   USE_AUDIO_PORT: "useAudioPort",                  // {port: MessagePort} — Tier 2 WITHOUT shared memory: one end of a
                                                    //   MessageChannel each to the worklet and the worker (AP below)
   SET_PROFILE: "setProfile",                       // {on} — the audio profiler; sent to the worklet AND the render Worker
+  SET_POLYPHONY: "setPolyphony",                   // {limit} — item 355, background voices that may sound at once
+  SET_LANE_SCOPE: "setLaneScope",                  // {on} — item 358, the lane headers' wavescopes (SNAP_LS_*)
 });
 
 // The audio port (CMD.USE_AUDIO_PORT, AUDIO_PORT_MSG): a non-isolated page has no
@@ -348,9 +350,22 @@ export const SNAP_EP_AZIMUTH = 16;
 export const SNAP_EP_ELEVATION = 17;
 export const SNAP_EP_LOUD = 18;
 export const SNAP_EP_STRIDE = 19;
-export const SNAP_EP_MAX = TOTAL_VOICES + MAX_BG_VOICES;
+// Room for the desktop's default polyphony limit (item 355): past it, the
+// voices beyond are left out of the snapshot (they still sound).
+export const SNAP_EP_MAX = TOTAL_VOICES + POLYPHONY_DESKTOP;
 
-export const SNAP_FLOATS = SNAP_EP_ENTRIES + SNAP_EP_MAX * SNAP_EP_STRIDE;
+// ── Lane wavescopes (item 358) ──
+// Each lane's own signal, mono — its voice, its layers and the ghosts it left,
+// as the mixer adds them (the stem exporter's value) — the latest
+// SNAP_LS_FRAMES frames of each, oldest first. SNAP_LS_LANES says how many
+// lanes are filled: 0 while the tap is off (CMD.SET_LANE_SCOPE), and then
+// nothing after it is current.
+export const SNAP_LS_BASE = SNAP_EP_ENTRIES + SNAP_EP_MAX * SNAP_EP_STRIDE;
+export const SNAP_LS_LANES = SNAP_LS_BASE;
+export const SNAP_LS_DATA = SNAP_LS_BASE + 1;
+export const SNAP_LS_FRAMES = 1024;
+
+export const SNAP_FLOATS = SNAP_LS_DATA + MAX_VOICES * SNAP_LS_FRAMES;
 
 // SAB fast path (crossOriginIsolated deploys): one shared buffer holding the
 // float snapshot region plus a trailing Int32 block — cell 0 is the interrupt

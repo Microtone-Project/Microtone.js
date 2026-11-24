@@ -32,7 +32,7 @@
 // hand: a Carlos scale's is a 2 followed by its step in tenths of a cent
 // (20780 alpha, 20638 beta, 20351 gamma).
 
-import { MIDDLE_C } from "../engine/constants.js";
+import { MIDDLE_C, AMIGA_BASE_PERIOD } from "../engine/constants.js";
 
 export const ANCHOR_NOTE = 0x5000; // C4 — fixed reference for all periods
 
@@ -87,6 +87,10 @@ export const pitchTablePresets = {
     table: PT_PERIODS.map((p) => ptNoteFor(p) - PT_BASE),
     sym: PT_PERIODS.map((_, i) => SYM_12[i % 12]),
   },
+  // Raw Amiga periods (item 359): every note as the period that sounds it,
+  // %HHH — no table, so every grid rule treats it as Raw; `periods` says how
+  // the note column shows and takes it (amigaPeriodOf / noteOfAmigaPeriod).
+  2: { index: 2, name: "Amiga periods", table: [], interval: 0x1000, t: "", periods: true },
   10: { index: 10, name: "Octave only", table: [0x0], interval: 0x1000, t: "M", sym: [" C-"] },
   20: { index: 20, name: "2-TET", table: [0x0, 0x800], interval: 0x1000, t: "M", sym: [" C-", " F#"] },
   30: { index: 30, name: "3-TET", table: [0x0, 0x555, 0xaab], interval: 0x1000, t: "M", sym: [" C-", " E-", " G#"] },
@@ -152,6 +156,48 @@ export const pitchTablePresets = {
 /** Round a pitch in 4096-TET units to the nearest sixteenth (65536-TET). */
 export function quantiseNote(v) {
   return Math.round(v * 16) / 16;
+}
+
+// ── Raw Amiga periods (notation index 2, item 359) ──
+// A note shown as the Amiga period that sounds it, where the engine's Amiga
+// mode and mod2taud put period 428 at C4: period = 428 × 2^((C4 − note)/4096).
+// Three hex digits, %001…%FFF; every one of them is a note in range ($DBDD
+// down to $1BDE), and a 65536-TET note holds each to within 0.022 of a period
+// (a whole 4096-TET word to within 0.35), so a period typed in reads back as
+// itself.
+
+/** The largest period the notation writes (three hex digits). */
+export const AMIGA_PERIOD_MAX = 0xfff;
+
+/** Whether `preset` shows notes as raw Amiga periods. */
+export function isPeriodPreset(preset) {
+  return preset?.periods === true;
+}
+
+/** The exact (fractional) period of a note in 4096-TET units. */
+export function amigaPeriodExact(note) {
+  return AMIGA_BASE_PERIOD * 2 ** ((MIDDLE_C - note) / 4096);
+}
+
+/** The whole period nearest `note`, or null when it falls outside
+ *  1…AMIGA_PERIOD_MAX (or the note is a sentinel). */
+export function amigaPeriodOf(note) {
+  if (!(note >= 0x20)) return null;
+  const p = Math.round(amigaPeriodExact(note));
+  return p >= 1 && p <= AMIGA_PERIOD_MAX ? p : null;
+}
+
+/** The 65536-TET note (4096-TET units carrying sixteenths) that sounds
+ *  period `p`. */
+export function noteOfAmigaPeriod(p) {
+  return quantiseNote(MIDDLE_C + 4096 * Math.log2(AMIGA_BASE_PERIOD / p));
+}
+
+/** Whether `note` sits on a whole period: what a period typed in writes, or
+ *  that pitch rounded to a whole note word (a .mod's notes, an 8-byte cell). */
+export function onAmigaPeriod(note) {
+  const p = amigaPeriodOf(note);
+  return p !== null && Math.abs(noteOfAmigaPeriod(p) - note) <= 0.5 + 1 / 32;
 }
 
 const LOG2_3 = Math.log2(3);
@@ -474,6 +520,12 @@ export function noteForDegree(octave, d, preset) {
  * (empty table) steps one raw 4096-TET unit.
  */
 export function stepNoteInTable(note, preset, dir) {
+  // Amiga periods step one period: up in pitch is one period SHORTER.
+  if (isPeriodPreset(preset)) {
+    const p = amigaPeriodOf(note);
+    if (p === null) return Math.min(Math.max(note + dir, 0x20), 0xffff);
+    return noteOfAmigaPeriod(Math.min(Math.max(p - dir, 1), AMIGA_PERIOD_MAX));
+  }
   if (!preset || preset.table.length === 0) {
     return Math.min(Math.max(note + dir, 0x20), 0xffff);
   }

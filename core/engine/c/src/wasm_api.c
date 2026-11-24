@@ -329,6 +329,12 @@ int tw_spatial_bus_channels(const TaudEngine *e) { return e->spatial != NULL ? e
 TW_EXPORT(tw_set_monitor_mode)
 void tw_set_monitor_mode(TaudEngine *e, int mode) { te_set_monitor_mode(e, mode); }
 
+TW_EXPORT(tw_set_polyphony)
+void tw_set_polyphony(TaudEngine *e, int limit) { te_set_polyphony(e, limit); }
+
+TW_EXPORT(tw_set_lane_scope)
+void tw_set_lane_scope(TaudEngine *e, int on) { te_set_lane_scope(e, on != 0); }
+
 TW_EXPORT(tw_set_cue_position)
 void tw_set_cue_position(TaudEngine *e, int pos) { te_set_cue_position(e, pos); }
 
@@ -404,6 +410,7 @@ TW_GET_INT(tw_get_song_mixing_volume, e->mixingVolume)
 TW_GET_INT(tw_get_tracker_mixer_flags, e->initialGlobalFlags)
 TW_GET_INT(tw_get_surround_model, e->surroundModel)
 TW_GET_INT(tw_get_monitor_mode, e->monitorMode)
+TW_GET_INT(tw_get_polyphony, e->bgLimit)
 TW_GET_INT(tw_get_cue_position, e->position)
 TW_GET_INT(tw_get_cue_pos, e->cuePos)
 TW_GET_INT(tw_get_tracker_row, e->rowIndex)

@@ -8,6 +8,7 @@ import { DocSync } from "../doc/sync.js";
 import { UndoStack } from "../doc/undo.js";
 import { AudioSystem } from "../../core/audio/audio-system.js";
 import { createProfileOverlay } from "./profileoverlay.js";
+import { applyPolyphony } from "./polyphony.js";
 import { Store } from "./store.js";
 import { TimelineView } from "./views/timeline.js";
 import { CuesView } from "./views/cues.js";
@@ -86,6 +87,7 @@ applyDom(); // translate the static index.html chrome
 }
 
 const $ = (id) => document.getElementById(id);
+applyPolyphony(); // offline renders follow it from the start (item 355)
 const store = new Store();
 store.record = true;
 store.editStep = 1;
@@ -108,6 +110,8 @@ async function ensureAudio({ resume = true } = {}) {
       const audio = new AudioSystem();
       await audio.init();
       audio.setMonitorMode(0, store.binaural ? 1 : 0); // #998.3, survives reloads
+      applyPolyphony(audio); // item 355: the desktop's choice, the engine's default elsewhere
+      if (store.laneScope) audio.setLaneScope(true); // item 358, switched on before audio started
       store.audio = audio;
     })();
   }
@@ -823,8 +827,12 @@ window.addEventListener("drop", async (e) => {
   e.preventDefault();
   await loadFileSet(e.dataTransfer.files);
 });
+// Set once the app has asked "Discard unsaved changes?" itself and been told
+// yes (item 375): the leave that follows is that answer, so the browser's own
+// "Leave this page?" must not ask it a second time.
+let leaveConfirmed = false;
 window.addEventListener("beforeunload", (e) => {
-  if (store.doc?.dirty) e.preventDefault();
+  if (store.doc?.dirty && !leaveConfirmed) e.preventDefault();
 });
 
 function rebuildSongList() {
@@ -1055,6 +1063,7 @@ function refreshToolbox() {
   // view on its own, in a stereo song).
   $("tbMasterSep").hidden = $("tbMaster").hidden && $("tbBinaural").hidden;
   refreshCellsBtn();
+  refreshScopeBtn();
   // A plain "Master", lit while the strip is open — as Instruments is at the
   // toolbox's other end (item 324).
   $("tbMaster").classList.toggle("active", masterStrip.visible);
@@ -1331,6 +1340,7 @@ $("brandBtn").addEventListener("click", () => showAbout());
 // ── reload (refresh the page back to the initial state) ──
 $("reloadBtn").addEventListener("click", async () => {
   if (store.doc?.dirty && !(await showConfirm(t("confirm.discard")))) return;
+  leaveConfirmed = true;
   location.reload();
 });
 
@@ -1484,11 +1494,13 @@ eachView("timeline", (v) => { v.cellsChanged(); v.resize(); }); // any built bef
 function refreshCellsBtn() {
   const btn = $("tbCells");
   btn.hidden = !store.viewOpen("timeline");
-  btn.textContent = t(["toolbox.cellsFull", "toolbox.cellsTwo", "toolbox.cellsOne"][store.timelineCells]);
+  btn.textContent = t(["toolbox.cellsFull", "toolbox.cellsTwo", "toolbox.cellsOne", "toolbox.cellsMini"][store.timelineCells]);
   btn.classList.toggle("active", store.timelineCells !== 0);
 }
-$("tbCells").addEventListener("click", () => {
-  store.timelineCells = (store.timelineCells + 1) % CELL_MODES;
+/** Step the Cells width by `dir`: a click goes on to the next, a right-click
+ *  back to the one before (item 377), round the ends either way. */
+function stepCells(dir) {
+  store.timelineCells = (store.timelineCells + dir + CELL_MODES) % CELL_MODES;
   try {
     if (store.timelineCells !== 0) localStorage.setItem(CELLS_KEY, String(store.timelineCells));
     else localStorage.removeItem(CELLS_KEY);
@@ -1497,6 +1509,11 @@ $("tbCells").addEventListener("click", () => {
   // Every column has moved and the header may be shorter: re-measure.
   eachView("timeline", (v) => { v.cellsChanged(); v.resize(); });
   store.emit("cursor"); // the cursor may now stand on another column
+}
+$("tbCells").addEventListener("click", () => stepCells(1));
+$("tbCells").addEventListener("contextmenu", (e) => {
+  e.preventDefault();
+  stepCells(-1);
 });
 refreshCellsBtn();
 // Second effect column (§5.5) — hidden by default, because most songs never
@@ -1513,6 +1530,23 @@ function refreshFx2Btn() {
 }
 $("tbFx2").addEventListener("click", () => store.setAllFx2(!store.fx2AllShown()));
 store.on("fx2", () => refreshFx2Btn());
+// Lane wavescopes (item 358): a scope in every Timeline lane header, showing
+// that lane's own signal. A diagnostic, so off by default and not
+// remembered; the engine's tap runs only while it is on.
+function refreshScopeBtn() {
+  const btn = $("tbScope");
+  btn.hidden = !store.viewOpen("timeline");
+  btn.textContent = t(store.laneScope ? "toolbox.scopeOn" : "toolbox.scopeOff");
+  btn.classList.toggle("active", store.laneScope);
+}
+$("tbScope").addEventListener("click", () => {
+  store.laneScope = !store.laneScope;
+  store.audio?.setLaneScope(store.laneScope);
+  refreshScopeBtn();
+  // the header got taller/shorter — every Timeline's row layout follows
+  eachView("timeline", (v) => { v.resize(); v.invalidate(); });
+});
+refreshScopeBtn();
 // Surround radar (#998.6): expands every Timeline lane header into a
 // top-down dial. Collapsed, the pan strip already shows that dial's horizontal
 // shadow, so the toggle is "show me the other axis", not a different reading.

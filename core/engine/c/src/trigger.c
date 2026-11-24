@@ -173,14 +173,14 @@ static inline bool bg_leaving(const TaudVoice *v)
         (v->fmOperator && v->fmParent != NULL && v->fmParent->rampOutSamples > 0);
 }
 
-/* Cap the pool at MAX_BG_VOICES SOUNDING voices (trigger.js
- * capBackgroundVoices): the evicted voice is ramped out, not dropped; a hard
- * drop only past twice the cap. */
+/* Cap the pool at e->bgLimit SOUNDING voices (the polyphony limit,
+ * MAX_BG_VOICES unless the host set another): the evicted voice is ramped
+ * out, not dropped; a hard drop only past twice the cap. */
 void te_cap_background_voices(TaudEngine *e)
 {
     int live = 0, i;
     for (i = 0; i < e->bgCount; i++) if (!bg_leaving(e->bg[i])) live++;
-    while (live > MAX_BG_VOICES) {
+    while (live > e->bgLimit) {
         int idx = -1;
         TaudVoice *culled;
         for (i = 0; i < e->bgCount; i++) {
@@ -204,7 +204,7 @@ void te_cap_background_voices(TaudEngine *e)
             }
         }
     }
-    while (e->bgCount > 2 * MAX_BG_VOICES) {
+    while (e->bgCount > 2 * e->bgLimit) {
         int idx = -1;
         for (i = 0; i < e->bgCount; i++) if (!e->bg[i]->isLayerChild && !e->bg[i]->fmOperator) { idx = i; break; }
         if (idx < 0) for (i = 0; i < e->bgCount; i++) if (!e->bg[i]->fmOperator) { idx = i; break; }

@@ -702,6 +702,31 @@ export const SCENARIOS = {
       r.note(spins);
     },
   },
+  // The polyphony limit (item 355): Temjin_speaki's formant ghosts reach
+  // hundreds when nothing stops them. Played under a tight limit, then with
+  // the desktop's largest, then lowered under sounding voices (the surplus
+  // ramps out at once), then an out-of-range ask (clamped).
+  "the polyphony limit: tight, at its largest, lowered under sounding voices": {
+    file: DEMO("Temjin_speaki"),
+    script(r) {
+      const { eng } = r;
+      eng.setPolyphony(8);
+      r.note(eng.getPolyphony());
+      playFromTop(r);
+      r.render(600);
+      eng.setPolyphony(2048);
+      r.note(eng.getPolyphony());
+      r.render(900);
+      eng.setPolyphony(16);
+      r.note(eng.getPolyphony());
+      r.render(300);
+      eng.setPolyphony(0);
+      r.note(eng.getPolyphony());
+      eng.setPolyphony(1 << 20);
+      r.note(eng.getPolyphony());
+      r.render(100);
+    },
+  },
 };
 
 function runScenario(scenario) {

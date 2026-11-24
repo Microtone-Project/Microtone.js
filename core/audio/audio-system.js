@@ -42,10 +42,11 @@ import {
   SNAP_EP_VOL_IDX, SNAP_EP_PAN_IDX, SNAP_EP_PITCH_IDX, SNAP_EP_FILTER_IDX,
   SNAP_EP_NOTE, SNAP_EP_EFF_VOL, SNAP_EP_SAMPLE_PTR, SNAP_EP_SAMPLE_LEN, SNAP_EP_SAMPLE_POS,
   SNAP_EP_LANE, SNAP_EP_PAN, SNAP_EP_AZIMUTH, SNAP_EP_ELEVATION, SNAP_EP_LOUD,
+  SNAP_LS_LANES, SNAP_LS_DATA, SNAP_LS_FRAMES,
 } from "../worklet/protocol.js";
 import {
   NUM_VOICES, TOTAL_VOICES, JAM_VOICES, JAM_VOICE_BASE,
-  PATTERN_BYTES, PATTERN_BYTES_WIDE, NUM_INTERRUPTS,
+  PATTERN_BYTES, PATTERN_BYTES_WIDE, NUM_INTERRUPTS, MAX_BG_VOICES,
 } from "../engine/constants.js";
 import { AR_SAB_BYTES, AR_CTRL_LEN, AR_DOORBELL } from "./audio-ring.js";
 import { NativeEngineLink, nativeApiName } from "./native-engine.js";
@@ -107,6 +108,8 @@ export class AudioSystem {
     this.modMasks = new Map();   // slot → Uint8Array (its inversion mask)
     this.wideCells = false; // format v3's 16-byte cell (set by loadDocument)
     this.monitorMode = 0;   // #998.3 fold/binaural — re-sent on every song load
+    this.polyphony = MAX_BG_VOICES; // item 355: background voices that may sound — likewise
+    this.laneScopeOn = false; // item 358: the lane headers' wavescopes; the Timeline owns it
     this.analysisTarget = ANALYSIS_OFF; // item 98 master-strip tap; the strip owns it
     this.masterMeterOn = false; // item 178 Mastering-view tap; that view owns it
     this.masterMeterDepth = DEFAULT_BIT_DEPTH; // …and which output its census describes
@@ -489,6 +492,8 @@ export class AudioSystem {
     this.setTrackerMixerFlags(0, song.globalFlags);
     this.setSurroundModel(0, song.surroundModel ?? 0);
     this.setMonitorMode(0, this.monitorMode); // survives a context rebuild
+    this.setPolyphony(this.polyphony);        // likewise
+    this.setLaneScope(this.laneScopeOn);      // likewise
     this.setSongGlobalVolume(0, song.globalVolume);
     this.setSongMixingVolume(0, song.mixingVolume);
     this.setMasterVolume(0, 255);
@@ -541,6 +546,36 @@ export class AudioSystem {
   setMonitorMode(ph, mode) {
     if (ph === 0) this.monitorMode = mode;
     this._post({ t: CMD.SET_MONITOR_MODE, ph, mode });
+  }
+  /** Item 355: how many background voices — ghosts, layer children, FM
+   *  operands — may sound at once (the desktop's Settings; the website keeps
+   *  MAX_BG_VOICES). Kept here and re-sent with every song load. */
+  setPolyphony(limit) {
+    this.polyphony = limit;
+    this._post({ t: CMD.SET_POLYPHONY, limit });
+  }
+  /** Item 358: the lane wavescopes' tap. Costs the mixer a sum per lane per
+   *  frame while on, so the Timeline turns it off when no scope is shown. */
+  setLaneScope(on) {
+    this.laneScopeOn = !!on;
+    this._post({ t: CMD.SET_LANE_SCOPE, on: this.laneScopeOn });
+  }
+  /** Item 376: forget every lane's trace — a new song is loading, and the
+   *  last one's would otherwise stand in the scopes until the tap writes
+   *  again (on a stopped transport, perhaps never). The engine's rings are
+   *  cleared by the SET_LANE_SCOPE the load sends. */
+  clearLaneScope() {
+    const f = this.snapshot;
+    f.fill(0, SNAP_LS_DATA, SNAP_LS_DATA + (f[SNAP_LS_LANES] | 0) * SNAP_LS_FRAMES);
+  }
+  /** Lane `vi`'s latest SNAP_LS_FRAMES frames, mono, oldest first — a view
+   *  of the snapshot (read it before the next one lands) — or null while the
+   *  tap is off or the lane is past the song's. */
+  getLaneScope(vi) {
+    const f = this.snapshot;
+    if (!this.laneScopeOn || vi >= (f[SNAP_LS_LANES] | 0)) return null;
+    const o = SNAP_LS_DATA + vi * SNAP_LS_FRAMES;
+    return f.subarray(o, o + SNAP_LS_FRAMES);
   }
   /**
    * Item 98: install (or drop) the master strip's analysis tap. The engine
@@ -682,6 +717,8 @@ export class AudioSystem {
   // ── snapshot-backed synchronous readbacks (audio.*-shaped) ──
 
   isPlaying() { return (this.snapshot[SNAP_FLAGS] & 1) !== 0; }
+  /** Is a jam (audition) note sounding? */
+  isJamming() { return (this.snapshot[SNAP_FLAGS] & 2) !== 0; }
   getCuePosition() { return this.snapshot[SNAP_CUE_POS]; }
   getTrackerRow() { return this.snapshot[SNAP_ROW_INDEX]; }
   getBPM() { return this.snapshot[SNAP_BPM]; }

@@ -74,7 +74,8 @@ uint32_t mt_host_drain_interrupts(MtHost *h, int32_t args[16]);
 int mt_snap_floats(void);
 typedef struct MtSnapLayout {
     int floats, interruptMask, interruptArgs, headerSize, meterBase, mmBase,
-        imBase, imStride, imSeats, imSlot, epBase, epEntries, epStride, epCount;
+        imBase, imStride, imSeats, imSlot, epBase, epEntries, epStride, epCount,
+        lsLanes, lsData, lsFrames;
 } MtSnapLayout;
 void mt_snap_layout(MtSnapLayout *out);
 
