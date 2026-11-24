@@ -16,12 +16,25 @@
 /* What the meters read as a voice's loudness: its envelope (whether or not
  * the instrument HAS a volume envelope, as the page has always had it), its
  * fadeout, its mix volume and its lane's fader, clamped to 0…1. */
-static float voice_eff_volume(const TaudVoice *v)
+static float voice_eff_volume_at(const TaudVoice *v, int fader)
 {
     double effEnvVol = v->volEnvOn ? v->envVolMix : 1.0;
-    double faderGain = (255 - v->fader) / 255.0;
+    double faderGain = (255 - fader) / 255.0;
     double ev = effEnvVol * v->fadeoutMix * v->currentMixVolume * faderGain;
     return (float)(ev < 0 ? 0 : ev > 1 ? 1 : ev);
+}
+
+static float voice_eff_volume(const TaudVoice *v) { return voice_eff_volume_at(v, v->fader); }
+
+/* The fader the mixer hears a voice through: its own, or — a background voice
+ * (a layer, an NNA ghost) — its lane's when that is lower (mixer.c's bgFader),
+ * so a muted lane's layers and ghosts read silent too. */
+static int mixer_fader(const TaudEngine *e, const TaudVoice *v)
+{
+    const TaudVoice *src;
+    if (v >= e->voices && v < e->voices + TOTAL_VOICES) return v->fader;
+    src = v->sourceChannel >= 0 && v->sourceChannel < TOTAL_VOICES ? &e->voices[v->sourceChannel] : NULL;
+    return src != NULL && src->fader > v->fader ? src->fader : v->fader;
 }
 
 static float voice_note(const TaudVoice *v)
@@ -42,9 +55,9 @@ static int source_lane(const TaudEngine *e, const TaudVoice *v)
 
 /* How loud the mixer makes a voice before the song's own gains: the meter's
  * reading times the layer's mix gain and its zone's attenuation. */
-static float voice_loudness(const TaudVoice *v)
+static float voice_loudness(const TaudEngine *e, const TaudVoice *v)
 {
-    double l = (double)voice_eff_volume(v) * v->layerMixGain * v->activeAttenGain;
+    double l = (double)voice_eff_volume_at(v, mixer_fader(e, v)) * v->layerMixGain * v->activeAttenGain;
     return (float)(l < 0 ? 0 : l > 1 ? 1 : l);
 }
 
@@ -64,7 +77,7 @@ static int put_env_playhead(const TaudEngine *e, float *f, int n, const TaudVoic
     o[SNAP_EP_FILTER_IDX] = (float)v->envFilterIndex;
     o[SNAP_EP_FILTER_TIME] = (float)v->envFilterTimeSec;
     o[SNAP_EP_NOTE] = voice_note(v);
-    o[SNAP_EP_EFF_VOL] = voice_eff_volume(v);
+    o[SNAP_EP_EFF_VOL] = voice_eff_volume_at(v, mixer_fader(e, v));
     o[SNAP_EP_SAMPLE_PTR] = (float)v->activeSamplePtr;
     o[SNAP_EP_SAMPLE_LEN] = (float)v->activeSampleLength;
     o[SNAP_EP_SAMPLE_POS] = (float)v->samplePos;
@@ -73,7 +86,7 @@ static int put_env_playhead(const TaudEngine *e, float *f, int n, const TaudVoic
     /* A stereo song reports its pan byte on the front arc, as the lane block. */
     o[SNAP_EP_AZIMUTH] = (float)(e->ts_surroundModel == SURROUND_STEREO ? te_voice_pan_byte(v) : te_voice_azimuth(v));
     o[SNAP_EP_ELEVATION] = (float)(e->ts_surroundModel == SURROUND_SPATIAL ? te_voice_elevation(v) : 0.0);
-    o[SNAP_EP_LOUD] = voice_loudness(v);
+    o[SNAP_EP_LOUD] = voice_loudness(e, v);
     return n + 1;
 }
 

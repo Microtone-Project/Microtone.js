@@ -53,6 +53,8 @@ import { t } from "../i18n.js";
 import { lyricContinues } from "../../doc/lyrics.js";
 import { uiDpr, localPoint } from "../zoom.js";
 
+/** Below this a source is silent (a muted lane's): no mark (master strip, Panner: 0.002). */
+const MIN_AUDIBLE = 0.002;
 const FONT_PX = 13; // family comes from --cv-font via fonts.js
 const CHAR_W = 7.9;
 const ROW_H = 16;
@@ -432,7 +434,9 @@ export class TimelineView {
     // layered note, where each one is, sized by how loud each one is. Never
     // their average, which slides while layers attack at different speeds
     // although none of them moves.
-    const srcs = audio.getLaneSources(ch, this._srcScratch ??= []);
+    // A silent source — a muted lane's, its fader closing it — has no place
+    // to show (MIN_AUDIBLE, as the master strip and the Panner).
+    const srcs = audio.getLaneSources(ch, this._srcScratch ??= []).filter((src) => src.loud > MIN_AUDIBLE);
     for (const src of srcs) {
       const k = Math.cos((src.el * Math.PI) / (2 * ELEVATION_QUARTER));
       const rad = ((src.az - 128) * 2 * Math.PI) / AZIMUTH_TURN;
@@ -1880,6 +1884,7 @@ export class TimelineView {
       ctx.fillStyle = C.accent2;
       if (audio && audio.getVoiceActive(ch)) {
         for (const src of audio.getLaneSources(ch, this._srcScratch ??= [])) {
+          if (src.loud <= MIN_AUDIBLE) continue; // a muted lane's sources are silent
           const pan = surroundSong ? 0.5 + 0.5 * lateralProjection(src.az, src.el) : src.pan / 255;
           ctx.fillRect(barX + pan * (barW - 3), PAN_Y, 3, 7);
         }

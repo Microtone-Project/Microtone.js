@@ -337,7 +337,8 @@ export const SNAP_EP_SAMPLE_POS = 13;
 // own voice and that lane's layer children; -1 for an NNA ghost or an FM
 // operator, which carries no place of its own), its pan byte, azimuth and
 // elevation, and how loud the mixer makes it (envelope × fadeout × note volume
-// × fader × the layer's mix gain × its zone's attenuation). The lane block's
+// × fader × the layer's mix gain × its zone's attenuation; the fader is the one
+// the mixer hears it through, so a muted lane's layers and ghosts read 0). The lane block's
 // SNAP_V_EFF_PAN / AZIMUTH are a loudness-weighted MEAN of a layered note's
 // sources; these are the sources themselves, so a view can draw each layer
 // where it is (getLaneSources).
