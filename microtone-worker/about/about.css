@@ -161,6 +161,41 @@ html:has(.about-page) { scroll-padding-top: 5rem; }
 .ab-shot img { display: block; width: 100%; height: auto; border: 1px solid var(--border); }
 .about-page figcaption { color: var(--dim); margin-top: 0.7rem; max-width: 70ch; }
 
+/* ── films ────────────────────────────────────────────────────────────── */
+/* A poster with a flat Play pill until somebody presses it, then the player
+   in the same box (about.js). The pill is the page's Buy-now yellow: the one
+   thing on the poster to press. */
+.ab-film { margin: 0; }
+.ab-video {
+  position: relative;
+  display: block;
+  aspect-ratio: 16 / 9;
+  border: 1px solid var(--border);
+  background: var(--panel);
+}
+.ab-video img, .ab-video iframe { display: block; width: 100%; height: 100%; border: 0; }
+.ab-play {
+  position: absolute; left: 1.2rem; bottom: 1.2rem;
+  display: flex; align-items: center; gap: 0.6rem;
+  padding: 0.5rem 1.1rem 0.5rem 0.95rem;
+  border-radius: 999px;
+  background: var(--proceed-bg);
+  color: var(--proceed-fg);
+  font-family: var(--ui-font);
+  font-weight: var(--weight-proceed);
+  line-height: 1.2;
+}
+/* the triangle is drawn, not typed, as the plan ticks are */
+.ab-play::before {
+  content: "";
+  border-style: solid;
+  border-width: 0.45rem 0 0.45rem 0.75rem;
+  border-color: transparent transparent transparent currentColor;
+}
+.ab-play-len { font-family: var(--mono-font); font-weight: 400; font-size: 0.9em; }
+.ab-video:hover .ab-play { background: var(--proceed-hover); }
+.ab-stories-film { margin: 2.4rem 0 0; max-width: 56rem; }
+
 /* ── logo wall ────────────────────────────────────────────────────────── */
 .ab-trust {
   max-width: var(--ab-max); margin: 0 auto;

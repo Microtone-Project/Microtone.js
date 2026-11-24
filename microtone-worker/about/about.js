@@ -1,6 +1,7 @@
-// microtone.cc/about — the two things the page does: name the current
-// version in the hero (package.json's, as the About popup reads it), and work
-// the plan tabs (an ARIA tablist: arrows move between tabs, Home/End jump).
+// microtone.cc/about — the three things the page does: name the current
+// version in the hero (package.json's, as the About popup reads it), work
+// the plan tabs (an ARIA tablist: arrows move between tabs, Home/End jump),
+// and play the films.
 
 const kicker = document.querySelector("[data-version]");
 fetch(new URL("../package.json", import.meta.url))
@@ -31,5 +32,33 @@ for (const tab of tabs) {
     if (to === undefined) return;
     e.preventDefault();
     select(tabs[(to + tabs.length) % tabs.length], true);
+  });
+}
+
+// The films are posters that link to YouTube, so they work without this
+// script and nothing of YouTube's loads until somebody presses one. A plain
+// click puts the no-cookie player in the poster's place; a click meant for a
+// new tab or window is left to go to YouTube.
+//
+// `credentialless` is for a host that still sends COEP require-corp here (the
+// dev server; _headers drops it for /about/ on the site): YouTube sends no
+// CORP header, so without it Chromium refuses the frame. Firefox has no
+// credentialless frames, hence the header.
+for (const link of document.querySelectorAll("a.ab-video[data-video]")) {
+  link.addEventListener("click", (e) => {
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    const frame = document.createElement("iframe");
+    frame.setAttribute("credentialless", "");
+    frame.title = link.dataset.title;
+    frame.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen";
+    frame.allowFullscreen = true;
+    frame.referrerPolicy = "strict-origin-when-cross-origin";
+    frame.src = `https://www.youtube-nocookie.com/embed/${encodeURIComponent(link.dataset.video)}?autoplay=1&rel=0`;
+    const box = document.createElement("div");
+    box.className = "ab-video";
+    box.append(frame);
+    link.replaceWith(box);
+    frame.focus();
   });
 }

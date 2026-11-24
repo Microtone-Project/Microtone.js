@@ -11,6 +11,8 @@ yourself are a setting away. Sources can be placed anywhere on the sphere and
 delivered as ambisonic B-format as readily as stereo. It runs in a browser tab,
 and that is the entire install.
 
+[![Introducing Microtone — watch the film on YouTube (2:40)](Video1.jpg)](https://www.youtube.com/watch?v=eUhRd748rWA)
+
 ## Try it
 
 Simply visit **[microtone.cc](https://microtone.cc)** and start tracking; no
@@ -87,7 +89,9 @@ open these formats. Ask whether they play these four:
 The first three are in the engine's golden set. Every change to the engine
 renders them again and has to match bit for bit, so "it works" cannot quietly
 stop being true. We don't just support the format; we support what people
-actually did with it.
+actually did with it. Hear all four:
+
+[![It plays what people actually wrote — watch the film on YouTube (3:38)](Video2.jpg)](https://www.youtube.com/watch?v=9va0qiVSRjk)
 
 ## A look around
 

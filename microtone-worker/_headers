@@ -4,3 +4,10 @@
 /*
   Cross-Origin-Opener-Policy: same-origin
   Cross-Origin-Embedder-Policy: require-corp
+
+# The product page needs no isolation, and its films are YouTube frames, which
+# send no CORP header and so cannot load under require-corp (about/about.js).
+/about/
+  ! Cross-Origin-Embedder-Policy
+/about/*
+  ! Cross-Origin-Embedder-Policy
