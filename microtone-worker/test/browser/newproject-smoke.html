@@ -147,7 +147,8 @@
         //    because newProject() skipped the \uHHHH escape every other name
         //    write path applies before the ASCII-only sMet/PNam readers see it). ──
         const { unescapeName } = await import("../../core/format/names.js");
-        win.confirm = () => true; // doc is dirty now — newProject()'s discard guard
+        // showConfirm() (the app's confirm): answer every one with Proceed
+        new win.MutationObserver(() => { for (const d of win.document.querySelectorAll("dialog.modal-confirm[open]")) d.querySelector(".proceed").click(); }).observe(win.document.body, { childList: true }); // doc is dirty now — newProject()'s discard guard
         doc.getElementById("newBtn").click();
         await sleep(60);
         const dlg2 = doc.querySelector("dialog.np-modal");

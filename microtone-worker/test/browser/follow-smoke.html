@@ -35,7 +35,8 @@
           const w = frame.contentWindow;
           return w && w.__microtone?.store.doc ? w : null;
         }, 20000);
-        win.confirm = () => true;
+        // showConfirm() (the app's confirm): answer every one with Proceed
+        new win.MutationObserver(() => { for (const d of win.document.querySelectorAll("dialog.modal-confirm[open]")) d.querySelector(".proceed").click(); }).observe(win.document.body, { childList: true });
         // A notice from showAlert() (the app's alert): record it and dismiss it.
         new win.MutationObserver(() => { for (const d of win.document.querySelectorAll("dialog.modal-alert")) { const m = d.querySelector("p")?.textContent ?? ""; d.querySelector(".act-dismiss").click(); ((m) => log("alert: " + m))(m); } }).observe(win.document.body, { childList: true });
         const { store } = win.__microtone;
@@ -82,7 +83,7 @@
         await sleep(100);
         check("a second song: the picker appears with both", !songCtl.hidden &&
           wdoc.getElementById("songSel").options.length === 2 && songCtl.getBoundingClientRect().width > 0);
-        win.__microtone.projectView.removeSong(1);
+        await win.__microtone.projectView.removeSong(1);
         await sleep(100);
         check("back to one: the picker goes", doc.songs.length === 1 && songCtl.hidden);
 

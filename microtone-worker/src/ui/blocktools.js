@@ -16,7 +16,7 @@
 
 import { ICON, fxGlyph } from "./icons.js";
 import { t } from "./i18n.js";
-import { showModal, showAlert } from "./components/modal.js";
+import { showModal, showAlert, showConfirm } from "./components/modal.js";
 import { stepsMap, stepsCentsText } from "./spinmaps.js";
 import { COL_NOTE, COL_INST, COL_VOL, COL_PAN, COL_FX, COL_FX2, SUB_PAN } from "./edit.js";
 import { scaleVolumeAt, transformPanAt, changeInstrumentAt } from "../doc/patterntools.js";
@@ -284,7 +284,7 @@ async function interpolateTool(ctx) {
   };
   const probe = planInterpolate(base);
   if (probe.usable === 0) { showAlert(t("interp.needTwo")); return false; }
-  if (probe.stairs && !confirm(t("interp.stairsWarn"))) return false;
+  if (probe.stairs && !(await showConfirm(t("interp.stairsWarn")))) return false;
   const v = await interpolateDialog(kinds, ctx.scope);
   if (!v) return false;
   // Glissando quantises onto the song's OWN notation, so the notes a glide

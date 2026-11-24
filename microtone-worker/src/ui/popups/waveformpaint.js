@@ -24,7 +24,7 @@ import { t } from "../i18n.js";
 import { actionRow } from "../components/actions.js";
 import { LINEAR_FREQ_C4_HZ } from "../../../core/engine/constants.js";
 import { toLayout } from "../zoom.js";
-import { showAlert } from "../components/modal.js";
+import { showAlert, showConfirm } from "../components/modal.js";
 
 const MIN_LEN = 2, MAX_LEN = 0xffff, DEF_LEN = 256;
 const LANE_H = 200;   // canvas height PER CHANNEL
@@ -70,7 +70,7 @@ export function paintNewSample(store) {
     okLabel: t("common.create"),
     showName: true,
     showRepeat: true,
-    commit: (bufs, name, repeat) => {
+    commit: async (bufs, name, repeat) => {
       const motif = bufs[0];
       // Tuned off the MOTIF's length, not the repeated total: a tiled copy is
       // verbatim, so the waveform's true periodicity — and the pitch an ear
@@ -79,7 +79,7 @@ export function paintNewSample(store) {
       const maxRepeat = Math.max(1, Math.floor(MAX_LEN / motif.length));
       let reps = Math.max(1, repeat || 1);
       if (reps > maxRepeat) {
-        if (!confirm(t("wave.repeatTooLong", { requested: reps, limit: MAX_LEN, max: maxRepeat }))) {
+        if (!(await showConfirm(t("wave.repeatTooLong", { requested: reps, limit: MAX_LEN, max: maxRepeat })))) {
           return undefined; // "go back" — leave the modal open, motif untouched
         }
         reps = maxRepeat;
@@ -97,11 +97,11 @@ export function paintNewSample(store) {
 /** EDIT the pooled sample `sample` (a doc.sampleList() entry) by painting over
  *  its current bytes. Resolves true on apply, else null. A stereo sample opens
  *  with one lane per channel and commits both in a single undo step. */
-export function paintEditSample(store, sample) {
-  if (!store.doc || !sample) return Promise.resolve(null);
+export async function paintEditSample(store, sample) {
+  if (!store.doc || !sample) return null;
   if (sample.len > PAINT_WARN_LEN &&
-      !confirm(t("wave.longWarn", { len: sample.len, limit: PAINT_WARN_LEN }))) {
-    return Promise.resolve(null);
+      !(await showConfirm(t("wave.longWarn", { len: sample.len, limit: PAINT_WARN_LEN })))) {
+    return null;
   }
   const spans = sampleSpans(sample);
   const initial = spans.map((sp) =>
@@ -328,9 +328,9 @@ function openPaintModal(opts) {
     dlg.querySelector(".wave-cancel").addEventListener("click", () => close(null));
     dlg.addEventListener("cancel", (e) => { e.preventDefault(); close(null); });
     dlg.addEventListener("keydown", (e) => e.stopPropagation()); // don't leak to the grid
-    dlg.querySelector(".wave-ok").addEventListener("click", () => {
+    dlg.querySelector(".wave-ok").addEventListener("click", async () => {
       const repeat = repeatInput ? parseInt(repeatInput.value, 10) || 1 : 1;
-      const result = opts.commit(bufs, nameInput ? nameInput.value : "", repeat);
+      const result = await opts.commit(bufs, nameInput ? nameInput.value : "", repeat);
       if (result === undefined) return; // commit reported an error; keep the modal open
       close(result);
     });

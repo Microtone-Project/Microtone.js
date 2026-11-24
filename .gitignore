@@ -35,3 +35,4 @@ microtone-worker/index_kaputt.html
 
 # the Qt desktop build tree
 desktop-qt/build/
+desktop-qt/local-package.sh

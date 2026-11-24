@@ -26,11 +26,11 @@ const fire = (el, type) => el.dispatchEvent(new Event(type, { bubbles: true }));
   for (let i = 0; i < 200 && !(M.store.doc && M.store.undo); i++) await sleep(50);
   const { store, instrumentsView: iv, projectView: pv, jam } = M;
   const doc = store.doc;
-  // A real confirm() blocks the headless page — stub and record it.
+  // showConfirm() (the app's confirm): record it and answer with confirmAnswer.
   let lastAlert = null, confirmAnswer = true;
   // A notice from showAlert() (the app's alert): record it and dismiss it.
   new win.MutationObserver(() => { for (const d of win.document.querySelectorAll("dialog.modal-alert")) { const m = d.querySelector("p")?.textContent ?? ""; d.querySelector(".act-dismiss").click(); ((m) => { lastAlert = m; log("  alert: " + m); })(m); } }).observe(win.document.body, { childList: true });
-  win.confirm = (m) => { log("  confirm: " + m); return confirmAnswer; };
+  new win.MutationObserver(() => { for (const d of win.document.querySelectorAll("dialog.modal-confirm[open]")) { log("  confirm: " + (d.querySelector("p")?.textContent ?? "")); d.querySelector(confirmAnswer ? ".proceed" : ".act-cancel").click(); } }).observe(win.document.body, { childList: true });
   const dialogs = () => [...win.document.querySelectorAll("dialog")];
   const lastDialog = () => dialogs()[dialogs().length - 1];
   const btnIn = (dlg, label) => [...dlg.querySelectorAll("button")].find((b) => b.textContent === label);

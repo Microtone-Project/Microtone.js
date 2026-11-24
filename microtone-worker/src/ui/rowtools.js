@@ -15,7 +15,7 @@
 
 import { ICON } from "./icons.js";
 import { t } from "./i18n.js";
-import { showModal, showAlert } from "./components/modal.js";
+import { showModal, showAlert, showConfirm } from "./components/modal.js";
 import {
   planInsertRows, planDeleteRows, planInsertCue, planSplitCue, planCutCue,
   planLengthenSong, planShortenSong, splitPointAt,
@@ -169,10 +169,10 @@ async function insertRows(ctx, at) {
  * out from under a song, and "I meant to delete one row" is a click away from
  * "I had a hundred selected".
  */
-function deleteRows(ctx) {
+async function deleteRows(ctx) {
   const { store, row0, row1 } = ctx;
   const n = row1 - row0 + 1;
-  if (n > 4 && !confirm(t("rows.deleteConfirm", { n }))) return false;
+  if (n > 4 && !(await showConfirm(t("rows.deleteConfirm", { n })))) return false;
   return applyPlan(store, planDeleteRows(store.song, row0, row1, planOpts(store)), "rows.noRoom");
 }
 

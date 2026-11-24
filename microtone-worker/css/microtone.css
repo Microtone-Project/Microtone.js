@@ -1962,15 +1962,22 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   border-radius: var(--radius-lg);
   padding: 1rem 1.4rem;
   min-width: 320px;
+  /* Never a rounded clip unless it must scroll: Chromium cannot hit-test
+     through an ancestor's ROUNDED clip, so a list inside a scrolling dialog
+     (the browser makes a modal <dialog> overflow: auto) kept a thin overlay
+     scrollbar that never widened under the pointer. modal.js puts
+     `modal-scrolls` on a dialog whose content outgrows it. */
+  overflow: visible;
 }
+.modal.modal-scrolls { overflow: auto; }
 /* Form dialogs built by components/modal.js: prose sets their width, so cap it at
    a readable measure rather than letting one long paragraph span the viewport. */
 .modal-text { max-width: min(560px, calc(94vw / var(--ui-zoom, 1))); }
 .modal-text p { margin: 0.4rem 0 0.8rem; line-height: 1.45; text-align: justify; hyphens: auto; white-space: pre-line; }
 .modal::backdrop { background: var(--scrim); }
-/* showAlert(): the message alone, no heading — it is the whole dialog, so it
+/* showAlert() and showConfirm(): the message alone, no heading — it is the whole dialog, so it
    starts at the top and reads in the body ink, not a gloss's dim. */
-.modal-alert p { margin-top: 0.1rem; color: var(--fg); }
+.modal-alert p, .modal-confirm p { margin-top: 0.1rem; color: var(--fg); }
 .modal h3 { margin-top: 0; }
 .modal-field { display: block; margin: 0.6rem 0; color: var(--dim); }
 .modal-field input, .modal-field select {
@@ -3397,7 +3404,7 @@ button.nota-assign { font-size: 0.85rem; }
    a row at a time, so the dialog caps its height and scrolls rather than
    walking off a laptop screen, and keeps the count + Apply pinned to the foot
    where they stay readable while the form above them scrolls. */
-.findchange-modal { max-width: min(1080px, calc(96vw / var(--ui-zoom, 1))); max-height: min(calc(88vh / var(--ui-zoom, 1)), 56rem); overflow-y: auto; }
+.findchange-modal { max-width: min(1080px, calc(96vw / var(--ui-zoom, 1))); max-height: min(calc(88vh / var(--ui-zoom, 1)), 56rem); }
 .findchange-modal .fc-lead { margin: 0.2rem 0 0.7rem; font-size: 0.85rem; }
 .fc-block { margin: 0 0 0.7rem; }
 .fc-legend { font-size: 0.9rem; color: var(--fg2); margin-bottom: 0.3rem; }
@@ -3467,7 +3474,7 @@ button.nota-assign { font-size: 0.85rem; }
 /* ── About popup (brand click) ── */
 /* The blurb is three paragraphs plus the support ask, so cap the height and
    scroll rather than overflow a laptop viewport, and tighten the stack. */
-.about-modal { max-width: min(calc(94vw / var(--ui-zoom, 1)), 600px); max-height: min(calc(84vh / var(--ui-zoom, 1)), 46rem); overflow-y: auto; }
+.about-modal { max-width: min(calc(94vw / var(--ui-zoom, 1)), 600px); max-height: min(calc(84vh / var(--ui-zoom, 1)), 46rem); }
 .about-modal h3 { font-size: 1.3rem; }
 .about-modal p { margin: 0.55rem 0; text-align: justify; hyphens: auto; }
 .about-modal p.dim { font-size: 0.85rem; }
@@ -3656,7 +3663,8 @@ button.nota-assign { font-size: 0.85rem; }
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--code-bg);
-  overflow: hidden;
+  /* no overflow clip: under a rounded one Chromium never widens the editor's
+     scrollbar (see .modal). The gutter rounds its own corners instead. */
 }
 /* One face, one size, no synthesised bold or italic and no kerning: the
    highlighted <pre> sits under the textarea glyph for glyph. Motif Code is
@@ -3680,6 +3688,7 @@ button.nota-assign { font-size: 0.85rem; }
   text-align: right;
   color: var(--code-gutter-fg);
   background: var(--code-gutter-bg);
+  border-radius: calc(var(--radius-sm) - 1px) 0 0 calc(var(--radius-sm) - 1px);
   overflow: hidden;
   user-select: none;
 }
@@ -3746,7 +3755,7 @@ button.nota-assign { font-size: 0.85rem; }
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--panel);
-  overflow: hidden;
+  /* no overflow clip, like .motif-editor: its body is a scroller */
 }
 .motif-side[hidden] { display: none; }
 .motif-side-head {

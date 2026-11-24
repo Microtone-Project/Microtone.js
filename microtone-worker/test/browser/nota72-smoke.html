@@ -38,7 +38,8 @@ const numsOf = (dlg) => [...dlg.querySelectorAll(".nota-degrees tbody tr")].map(
   const doc = win.document;
   // A notice from showAlert() (the app's alert) would cover the page: dismiss it.
   new win.MutationObserver(() => { for (const d of win.document.querySelectorAll("dialog.modal-alert")) d.querySelector(".act-dismiss").click(); }).observe(win.document.body, { childList: true });
-  win.confirm = () => true;
+  // showConfirm() (the app's confirm): answer every one with Proceed
+  new win.MutationObserver(() => { for (const d of win.document.querySelectorAll("dialog.modal-confirm[open]")) d.querySelector(".proceed").click(); }).observe(win.document.body, { childList: true });
 
   doc.querySelector('#tabs button[data-view="project"]').click();
   await sleep(100);

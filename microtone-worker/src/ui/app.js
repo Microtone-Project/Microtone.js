@@ -36,7 +36,7 @@ import { showHelp } from "./popups/help.js";
 import { showAbout } from "./popups/about.js";
 import { showWarmthSplash } from "./popups/warmth.js";
 import { showNewProject } from "./popups/newproject.js";
-import { showModal, showNotice } from "./components/modal.js";
+import { showModal, showNotice, showConfirm } from "./components/modal.js";
 import * as opfs from "../storage/opfs.js";
 import { carryOverFromOpfs, oldAppCopy, oldAppTold } from "../storage/carry-over.js";
 import { startDesktopUpdates } from "./desktopupdates.js";
@@ -336,7 +336,7 @@ async function loadBytes(name, bytes, { sf2 = null, bank = null, saveToOpfs = fa
   // standalone it seeds a new project.
   if (parsed.kind === "tsii") {
     if (store.doc) {
-      if (!confirm(t("confirm.replaceBank", { name }))) return;
+      if (!(await showConfirm(t("confirm.replaceBank", { name })))) return;
       store.audio?.stop(0);
       store.doc.sampleInstImage = parsed.sampleInstImage;
       store.doc.ixmp = parsed.ixmp.map((e) => ({ instId: e.instId, count: e.count, blob: Uint8Array.from(e.blob) }));
@@ -394,7 +394,7 @@ async function loadBytes(name, bytes, { sf2 = null, bank = null, saveToOpfs = fa
   if (fromMotif) converted = true;
 
   if (store.doc?.dirty) {
-    if (!confirm(t("confirm.discardNamed", { name: store.fileName ?? t("common.currentProject") }))) return false;
+    if (!(await showConfirm(t("confirm.discardNamed", { name: store.fileName ?? t("common.currentProject") })))) return false;
   }
   store.audio?.stop(0);
   store.doc = new Document(parsed);
@@ -556,7 +556,7 @@ async function newProject({ fromBank = null, bankName = null } = {}) {
   const result = await showNewProject({ fromBank, bankName });
   if (!result) return;
   if (store.doc?.dirty) {
-    if (!confirm(t("confirm.discard"))) return;
+    if (!(await showConfirm(t("confirm.discard")))) return;
   }
   const is64 = result.channels === 64;
   const chans = is64 ? 64 : 32;
@@ -1328,8 +1328,8 @@ $("redoBtn").addEventListener("click", () => store.undo?.redo());
 $("brandBtn").addEventListener("click", () => showAbout());
 
 // ── reload (refresh the page back to the initial state) ──
-$("reloadBtn").addEventListener("click", () => {
-  if (store.doc?.dirty && !confirm(t("confirm.discard"))) return;
+$("reloadBtn").addEventListener("click", async () => {
+  if (store.doc?.dirty && !(await showConfirm(t("confirm.discard")))) return;
   location.reload();
 });
 

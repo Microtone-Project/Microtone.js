@@ -709,8 +709,8 @@ export class CuesView {
     }
   }
 
-  insertChannel(at) {
-    if (insertChannelAt(this.store, at)) this.invalidate();
+  async insertChannel(at) {
+    if (await insertChannelAt(this.store, at)) this.invalidate();
   }
 
   /** Move / duplicate / delete the patterns in `slots` (item 103.1). A move carries the

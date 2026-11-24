@@ -191,7 +191,8 @@
         await pLab2;
 
         const { paintEditSample } = await win.eval('import("/src/ui/popups/waveformpaint.js")');
-        win.confirm = () => true; // the long-sample warning would block headless
+        // showConfirm() (the app's confirm): answer every one with Proceed
+        new win.MutationObserver(() => { for (const d of win.document.querySelectorAll("dialog.modal-confirm[open]")) d.querySelector(".proceed").click(); }).observe(win.document.body, { childList: true }); // the long-sample warning would block headless
         const preL = Array.from(bin.subarray(l.ptr, l.ptr + 32));
         const preR = Array.from(bin.subarray(r.ptr, r.ptr + 32));
         const pPaint = paintEditSample(store, entry);

@@ -244,3 +244,76 @@ export function showNotice({ title, body = null, okLabel = "OK", clickAnywhere =
 export function showAlert(message) {
   return showNotice({ title: null, body: String(message), okLabel: t("common.ok"), className: "modal-alert" });
 }
+
+/**
+ * The app's `confirm()`: `message` with Cancel (Esc) and Proceed (Enter, and
+ * focused, as the browser's own OK is), resolved true for Proceed. Never
+ * `window.confirm()`, for showAlert's reasons — and a suppressed confirm reads
+ * as "no", which once silently cancelled whatever asked. `okLabel` names the
+ * action where there is a word for it ("Delete"); OK otherwise.
+ */
+export function showConfirm(message, { okLabel = null } = {}) {
+  return new Promise((resolve) => {
+    const dlg = document.createElement("dialog");
+    dlg.className = "modal modal-text modal-confirm";
+    const p = document.createElement("p");
+    p.textContent = String(message);
+    dlg.appendChild(p);
+    const { row, proceed, cancel } = actionRow({ cancel: true, proceed: okLabel ?? t("common.ok") });
+    dlg.appendChild(row);
+    document.body.appendChild(dlg);
+    const finish = (yes) => { dlg.close(); dlg.remove(); resolve(yes); };
+    proceed.addEventListener("click", (e) => { e.preventDefault(); finish(true); });
+    cancel.addEventListener("click", (e) => { e.preventDefault(); finish(false); });
+    dlg.addEventListener("cancel", (e) => { e.preventDefault(); finish(false); });
+    dlg.addEventListener("keydown", (e) => e.stopPropagation()); // no piano/transport keys underneath
+    dlg.showModal();
+    proceed.focus();
+  });
+}
+
+/**
+ * A dialog scrolls only while it has to. Chromium (the desktop shell's engine)
+ * cannot hit-test through an ancestor's ROUNDED clip, so a list or text box
+ * inside a scrolling dialog — the browser makes every modal <dialog>
+ * `overflow: auto`, and ours have rounded corners — never saw the pointer: its
+ * overlay scrollbar stayed thin, faded early and would not widen. So `.modal`
+ * is `overflow: visible` (microtone.css), and this watch puts `modal-scrolls`
+ * (back to `overflow: auto`) on an open dialog while its content is taller or
+ * wider than the dialog may be — a long form on a small window still scrolls.
+ * Installed once, when this module first loads in a page.
+ */
+function watchModalOverflow() {
+  const open = new Set();
+  const check = () => {
+    for (const d of open) {
+      if (!d.open || !d.isConnected) { open.delete(d); continue; }
+      const over = d.scrollHeight > d.clientHeight + 1 || d.scrollWidth > d.clientWidth + 1;
+      if (d.classList.contains("modal-scrolls") !== over) d.classList.toggle("modal-scrolls", over);
+    }
+  };
+  const sizes = new ResizeObserver(check);
+  // A dialog's box stops growing at its max-height while its content goes on,
+  // so watch the content too; and a dialog that rebuilds its body brings new
+  // children to watch.
+  const children = new MutationObserver((records) => {
+    for (const r of records) for (const n of r.addedNodes) if (n.nodeType === 1) sizes.observe(n);
+    check();
+  });
+  const track = (d) => {
+    if (!d.matches?.("dialog.modal") || !d.open || open.has(d)) return;
+    open.add(d);
+    sizes.observe(d);
+    for (const c of d.children) sizes.observe(c);
+    children.observe(d, { childList: true });
+  };
+  new MutationObserver((records) => {
+    for (const r of records) {
+      if (r.type === "attributes") track(r.target);
+      else for (const n of r.addedNodes) if (n.nodeType === 1) { track(n); n.querySelectorAll?.("dialog.modal[open]").forEach(track); }
+    }
+  }).observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ["open"] });
+  document.querySelectorAll("dialog.modal[open]").forEach(track);
+}
+
+if (typeof document !== "undefined" && typeof ResizeObserver !== "undefined") watchModalOverflow();

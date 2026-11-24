@@ -24,7 +24,7 @@ window.addEventListener("error", (e) => log("ERROR: " + e.message));
   const hasBtns = ["Cleanup patterns", "Renumber patterns", "Cleanup instruments & samples"]
     .every((x) => labels.includes(x));
 
-  const origConfirm = win.confirm; win.confirm = () => true;
+  const yesToConfirms = new win.MutationObserver(() => { for (const d of win.document.querySelectorAll("dialog.modal-confirm[open]")) d.querySelector(".proceed").click(); }); yesToConfirms.observe(win.document.body, { childList: true });
   // A notice from showAlert() (the app's alert): record it and dismiss it.
   new win.MutationObserver(() => { for (const d of win.document.querySelectorAll("dialog.modal-alert")) { const m = d.querySelector("p")?.textContent ?? ""; d.querySelector(".act-dismiss").click(); ((m) => log("alert: " + m))(m); } }).observe(win.document.body, { childList: true });
 
@@ -36,7 +36,7 @@ window.addEventListener("error", (e) => log("ERROR: " + e.message));
   // Pattern cleanup + undo (rewrites cues, one undo step). Light enough for the
   // sandboxed headless chromium; the bank cleanup op is node-tested separately.
   const patsBefore = store.doc.songs[store.songIndex].patterns.length; // ≥ 601
-  pv.cleanupPatterns();
+  await pv.cleanupPatterns();
   const patStep = store.undo.undoStack.length === d0 + 1;
   const patsAfter = store.doc.songs[store.songIndex].patterns.length;
   const removedUnused = patsAfter < patsBefore;
@@ -55,7 +55,7 @@ window.addEventListener("error", (e) => log("ERROR: " + e.message));
   // A packed pool has nothing to do, and says so rather than writing an undo
   // step for a no-op (the corpus comes out of a converter packed end to end).
   const dPacked = store.undo.undoStack.length;
-  pv.defragPool();
+  await pv.defragPool();
   await sleep(20);
   const packedNoop = store.undo.undoStack.length === dPacked;
   const census = store.doc.sampleList();
@@ -63,7 +63,7 @@ window.addEventListener("error", (e) => log("ERROR: " + e.message));
   const holesBefore = poolMap(store.doc, { scanBytes: false }).stats.holeCount;
   const d1 = store.undo.undoStack.length;
   const poolBefore = Uint8Array.from(store.doc.sampleBin);
-  pv.defragPool();
+  await pv.defragPool();
   await sleep(50);
   const defragStep = store.undo.undoStack.length === d1 + 1;
   const holesAfter = poolMap(store.doc, { scanBytes: false }).stats.holeCount;
@@ -71,7 +71,7 @@ window.addEventListener("error", (e) => log("ERROR: " + e.message));
   await sleep(20);
   const poolBack = store.doc.sampleBin.every((v, i) => v === poolBefore[i]);
 
-  win.confirm = origConfirm;
+  yesToConfirms.disconnect();
   pv.hide();
 
   log(`buttons present: ${hasBtns}`);

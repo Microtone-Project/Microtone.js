@@ -18,11 +18,11 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 - Fixed: the Advanced tab's zone map, envelope cursor and play-position marks showed nothing for an instrument sounding as a layer of a layered instrument or an operator of an FM rack; they follow every voice that plays it now.
 - The Advanced tab's per-zone overrides show their values in hex beside the boxes, as the instrument's own fields do: pan, note volume and the four vibrato settings.
 
-**Messages no longer stop the page**: every message the app shows — "Nothing to clean up", a file it cannot read, a full table — is now one of its own dialogs, in the theme, instead of the browser's alert box.
+**Messages and questions no longer stop the page**: every message the app shows — "Nothing to clean up", a file it cannot read, a full table — and every question it asks — discarding unsaved changes, deleting rows, replacing a sample — is now one of its own dialogs, in the theme, instead of the browser's alert and confirm boxes.
 
 - The rest of the page keeps going while one is open, the playhead and the meters included, and the browser's offer to prevent the page from creating more dialogs can no longer silence them.
 
-**Every scrollbar in the desktop app widens under the pointer**: the instrument lists of an import, the notation maker's degrees, the Motif editor and the project message now have the same scrollbar as the Samples list, which lingers and thickens when you reach for it, instead of a thin one that faded at once.
+**Every scrollbar in the desktop app widens under the pointer**: the instrument lists of an import, the notation maker's degrees, the Motif editor and its Structure panel, and every list inside a dialog now have the same scrollbar as the Samples list, which lingers and thickens when you reach for it, instead of a thin one that faded at once. The panel around them clipped them to its rounded corners, and the engine under the desktop app cannot follow the pointer through such a clip.
 
 - It holds for every scroller in the app, including the ones in dialogs. A browser draws its scrollbars its own way, and is unchanged.
 

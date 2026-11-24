@@ -182,6 +182,18 @@ test("nothing calls window.alert(): a message is showAlert()", () => {
   }
 });
 
+test("nothing calls window.confirm() or prompt(): a question is showConfirm()", () => {
+  // The same reasons as alert(), and one more: a page whose dialogs the
+  // browser suppresses answers every confirm() "no". The translation
+  // workbench (src/cat/) has a confirm() of its own — confirming a segment.
+  for (const f of trackerSources()) {
+    if (f.startsWith("microtone-worker/src/cat/")) continue;
+    const code = read(f).replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/.*$/gm, "$1");
+    assert.doesNotMatch(code, /(?<![\w$.])(confirm|prompt)\s*\(|window\.(confirm|prompt)\s*\(/,
+      `${f} calls confirm()/prompt() — use showConfirm() / showModal() (components/modal.js)`);
+  }
+});
+
 /** Just enough DOM for actions.js: elements that hold children and classes. */
 function fakeDom() {
   const el = (tag) => ({

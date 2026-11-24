@@ -40,7 +40,7 @@ import {
 import { encodeFloatWav } from "../../audio/wavwrite.js";
 import { download } from "../../storage/import-export.js";
 import { sanitiseName } from "../../audio/stem-export.js";
-import { showModal, showAlert } from "../components/modal.js";
+import { showModal, showAlert, showConfirm } from "../components/modal.js";
 import { themeColors } from "../theme.js";
 import { escapeNonAscii } from "../../../core/format/names.js";
 import { t } from "../i18n.js";
@@ -924,7 +924,7 @@ export function openSampleLab(store, { data, rate, name = "", sourceLabel = "", 
       };
     }
 
-    function commit() {
+    async function commit() {
       const kept = keptChunks();
       if (kept.length === 0) { showAlert(t("lab.noChunks")); return; }
       const nm = finalName();
@@ -938,7 +938,7 @@ export function openSampleLab(store, { data, rate, name = "", sourceLabel = "", 
           pcm: r.pcm, pcmR: r.pcmR, rate: r.rate,
         };
       });
-      if (clippedCount > 0 && !confirm(t("lab.clipWarn", { n: clippedCount }))) return;
+      if (clippedCount > 0 && !(await showConfirm(t("lab.clipWarn", { n: clippedCount })))) return;
       const plan = planMultiSampleImport(store.doc, items);
       if (plan.error) { showAlert(plan.error); return; }
       store.undo.apply(importBankOp(plan));
@@ -951,13 +951,13 @@ export function openSampleLab(store, { data, rate, name = "", sourceLabel = "", 
      * the session's position map composed with the chunk crop and the final
      * resample ratio, so a loop still lands on the sound it looped.
      */
-    function commitReplace() {
+    async function commitReplace() {
       if (!replaceTarget) return;
       const kept = keptChunks();
       if (kept.length !== 1) { showAlert(t("lab.replaceOneOnly")); return; }
       const c = kept[0];
       const r = renderChunk(c);
-      if (r.clipped && !confirm(t("lab.clipWarn", { n: 1 }))) return;
+      if (r.clipped && !(await showConfirm(t("lab.clipWarn", { n: 1 })))) return;
       const renamed = nameInput.value !== openedWithName;
       const plan = planReplaceSample(store.doc, replaceTarget, {
         pcm: r.pcm,
@@ -975,7 +975,7 @@ export function openSampleLab(store, { data, rate, name = "", sourceLabel = "", 
       if (plan.rate !== replaceTarget.rate) ask += "\n" + t("lab.replaceRateNote", { from: replaceTarget.rate, to: plan.rate });
       if (plan.droppedChannel) ask += "\n" + t("lab.replaceMonoNote");
       if (plan.clampedLoops > 0) ask += "\n" + t("lab.replaceLoopNote", { n: plan.clampedLoops });
-      if (!confirm(ask)) return;
+      if (!(await showConfirm(ask))) return;
       store.undo.apply(importBankOp(plan));
       finish({ replaced: true, ptr: plan.ptr, len: plan.len });
     }
@@ -986,8 +986,8 @@ export function openSampleLab(store, { data, rate, name = "", sourceLabel = "", 
       dlg.remove();
       resolve(result);
     }
-    function requestCancel() {
-      if ((confirmDiscard || edited) && !confirm(t("lab.confirmClose"))) return;
+    async function requestCancel() {
+      if ((confirmDiscard || edited) && !(await showConfirm(t("lab.confirmClose")))) return;
       finish(null);
     }
     okBtn.addEventListener("click", (e) => { e.preventDefault(); commit(); });

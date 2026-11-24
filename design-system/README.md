@@ -42,7 +42,7 @@ Every dialog's button row is built by `actionRow()` (`components/actions.js`); n
 - **Cancel** abandons the dialog: nothing it was about to do happens. Always the **left end**, so it is in the same place every time. Esc does the same.
 - **Proceed** does what the dialog is for — Apply, Create, Import, Delete, Save. Always the **right end**. At most one. Enter does the same where the dialog has typed fields.
 - **Alternatives** are other actions that do not cancel — Preview, Record, Import as new, Clear. They are **prepended to Proceed**: immediately left of it, in the order given.
-- **Dismiss**: a dialog with nothing to commit and nothing to abandon — About, a notice, a finished log, a panel whose edits apply live — has **one** button, at the right end, and neither Cancel nor Proceed. Use `showNotice()` for a message someone only has to read; never a Cancel/OK pair where both do the same thing.
+- **Dismiss**: a dialog with nothing to commit and nothing to abandon — About, a notice, a finished log, a panel whose edits apply live — has **one** button, at the right end, and neither Cancel nor Proceed. Use `showNotice()` for a message someone only has to read (`showAlert(message)` for the bare one); never a Cancel/OK pair where both do the same thing. A yes/no question is `showConfirm(message)`; never `window.alert()` or `window.confirm()`.
 - Something that is not a button but belongs with the actions — a status line, an option that changes what Proceed does — goes in `extras`, just before the alternatives.
 - The DOM order is the visual order and the Tab order. Never reorder with CSS.
 
@@ -60,7 +60,7 @@ Every colour, DOM and canvas alike, is a custom property on `:root` in `microton
 
 Native checkboxes, radios, sliders and progress bars are themed once, by `:root { accent-color: var(--accent) }`. Never restate `accent-color` on a widget; a control that cannot be native — a canvas fader, a flip switch — paints itself from `var(--accent)`.
 
-Scrollbars are themed the same way, once, by `:root { scrollbar-color: var(--dim) transparent }`: a dim thumb on whatever ground it scrolls, never a rail of its own. Never restate it on a widget; warmth alone lifts it, for its moulded `::-webkit-scrollbar` rail. The Qt desktop app floats them over the content (Chromium's Fluent overlay scrollbars, on every scroller: the shell has Chromium composite them all, or a scroller with no opaque ground would get the thin, quickly fading one) and eases the wheel, both in its shell — so never leave room for a scrollbar's width, or measure one: it is zero there.
+Scrollbars are themed the same way, once, by `:root { scrollbar-color: var(--dim) transparent }`: a dim thumb on whatever ground it scrolls, never a rail of its own. Never restate it on a widget; warmth alone lifts it, for its moulded `::-webkit-scrollbar` rail. The Qt desktop app floats them over the content (Chromium's Fluent overlay scrollbars, which widen under the pointer — on every scroller, as long as two things hold: the shell has Chromium composite them all, or a scroller with no opaque ground would get the thin, quickly fading one; and **no scroller sits inside an ancestor that clips with rounded corners** (`overflow` other than visible + `border-radius`, or a rounded `clip-path`), where Chromium cannot hit-test the pointer and the bar never widens. A rounded panel holding a list leaves its overflow visible and rounds its own pieces; a dialog is `overflow: visible` and only scrolls, as `.modal-scrolls`, when its content outgrows it — a scroller's OWN radius is fine) and eases the wheel, both in its shell — so never leave room for a scrollbar's width, or measure one: it is zero there.
 
 ### One meaning per hue
 
@@ -156,7 +156,7 @@ The library is `microtone-worker/src/ui/components/`, linked here as `components
 | Component | Module | What it is |
 |---|---|---|
 | ActionRow | `actions.js` | a dialog's button row, laid out by role |
-| Modal | `modal.js` | `showModal` form dialogs from field specs; `showNotice` for a one-button message |
+| Modal | `modal.js` | `showModal` form dialogs from field specs; `showNotice` for a one-button message; `showAlert` / `showConfirm`, the app's alert() and confirm() |
 | ValueControl | `spinner.js` | every number field and dropdown as a − value + group, applied automatically |
 | ContextMenu | `contextmenu.js` | the icon-cell menu pinned to the pointer |
 | DragGrip | `dragsort.js` | a handle that reorders rows, by pointer or ↑ ↓ |

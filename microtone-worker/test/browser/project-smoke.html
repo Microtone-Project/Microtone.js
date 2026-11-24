@@ -21,7 +21,8 @@
         });
         const { store, projectView } = win.__microtone;
         const doc = win.document;
-        win.confirm = () => true; // auto-accept the delete confirm
+        // showConfirm() (the app's confirm): answer every one with Proceed
+        new win.MutationObserver(() => { for (const d of win.document.querySelectorAll("dialog.modal-confirm[open]")) d.querySelector(".proceed").click(); }).observe(win.document.body, { childList: true }); // auto-accept the delete confirm
 
         win.document.querySelector('#tabs button[data-view="project"]').click();
         await sleep(30);

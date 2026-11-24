@@ -253,9 +253,8 @@
             return { p, dlg: win.document.querySelector("dialog.samplelab-modal") };
           };
 
-          // headless auto-dismisses dialogs (a confirm would read as "no")
-          const realConfirm = win.confirm;
-          win.confirm = () => true;
+          // showConfirm() (the app's confirm): answer with Proceed
+          const yesLab = new win.MutationObserver(() => { for (const d of win.document.querySelectorAll("dialog.modal-confirm[open]")) d.querySelector(".proceed").click(); }); yesLab.observe(win.document.body, { childList: true });
           // A notice from showAlert() (the app's alert): record it and dismiss it.
           new win.MutationObserver(() => { for (const d of win.document.querySelectorAll("dialog.modal-alert")) { const m = d.querySelector("p")?.textContent ?? ""; d.querySelector(".act-dismiss").click(); ((m) => log(`Sample Lab alert: ${m}`))(m); } }).observe(win.document.body, { childList: true });
 
@@ -285,7 +284,7 @@
           dlg.__lab.tool("reverse");
           dlg.__lab.replace();
           const res = await closed;
-          win.confirm = realConfirm;
+          yesLab.disconnect();
           const users = s.users.filter((u) => !doc.instruments[u].isMeta);
           const kept = res?.replaced === true &&
             span().some((v, i) => v !== before[i]) &&
@@ -450,14 +449,16 @@
           smpView.selected = smpView.list.indexOf(sample);
           const before = Uint8Array.from(doc.sampleBin.subarray(sample.ptr, sample.ptr + sample.len));
           const d0 = store.undo.undoStack.length;
-          const origConfirm = win.confirm; win.confirm = () => true; // accept any >1024 warning
+          const yesPaint = new win.MutationObserver(() => { for (const d of win.document.querySelectorAll("dialog.modal-confirm[open]")) d.querySelector(".proceed").click(); }); yesPaint.observe(win.document.body, { childList: true }); // accept any >1024 warning
           const pe = paintEditSample(store, sample);
+          // the long-sample question (showConfirm) comes first, answered above
+          for (let i = 0; i < 100 && !win.document.querySelector("dialog.wavepaint-modal"); i++) await new Promise((r) => setTimeout(r, 20));
           dlg = [...win.document.querySelectorAll("dialog.wavepaint-modal")].pop();
           const noLenInput = !dlg.querySelector(".wave-len"); // fixed length in edit mode
           dlg.querySelector('.wave-shapes button[data-shape="square"]').click();
           dlg.querySelector(".wave-ok").click();
           await pe;
-          win.confirm = origConfirm;
+          yesPaint.disconnect();
           const changed = [...doc.sampleBin.subarray(sample.ptr, sample.ptr + sample.len)].some((v, i) => v !== before[i]);
           const editOneStep = store.undo.undoStack.length === d0 + 1;
           store.undo.undo();

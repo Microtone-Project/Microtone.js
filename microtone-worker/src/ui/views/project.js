@@ -27,7 +27,7 @@ import { resizeSongDialog } from "../rowtools.js";
 import { defToPreset } from "../../doc/notation.js";
 import { CENTS_DIGITS } from "../spinmaps.js";
 import { Song } from "../../doc/document.js";
-import { showModal, showNotice, showAlert } from "../components/modal.js";
+import { showModal, showNotice, showAlert, showConfirm } from "../components/modal.js";
 import {
   decodeProjectString, encodeProjectString, escapeNonAscii, unescapeName,
 } from "../../../core/format/names.js";
@@ -562,7 +562,7 @@ export class ProjectView {
 
   /** Remove patterns no cue references, merge byte-identical duplicates onto their
    *  lowest copy, then renumber survivors and rewrite cues + pNam. */
-  cleanupPatterns() {
+  async cleanupPatterns() {
     const store = this.store, song = store.song;
     const referenced = planCleanupPatterns(song);
     const { order, canon } = planMergeDuplicatePatterns(song, referenced);
@@ -571,7 +571,7 @@ export class ProjectView {
     const removed = total - referenced.filter(materialised).length; // dropped: unreferenced
     const merged = referenced.filter(materialised).length - order.filter(materialised).length;
     if (removed <= 0 && merged <= 0 && this._isIdentityOrder(order, song)) { showAlert(t("clean.nothing")); return; }
-    if (!confirm(t("clean.patternsConfirm", { removed: Math.max(removed, 0), merged: Math.max(merged, 0) }))) return;
+    if (!(await showConfirm(t("clean.patternsConfirm", { removed: Math.max(removed, 0), merged: Math.max(merged, 0) })))) return;
     this._applyRemap(order, canon);
   }
 
@@ -601,15 +601,15 @@ export class ProjectView {
 
   /** Remove unused instruments, prune the survivors' unreachable patches, and
    *  free every sample byte that leaves behind (items 60 + 147) — one undo step. */
-  cleanupBank() {
+  async cleanupBank() {
     const store = this.store;
     const plan = planBankCleanup(store.doc);
     if (plan.removedInstruments === 0 && plan.removedPatches === 0 && plan.freedSampleBytes === 0) {
       showAlert(t("clean.nothing")); return;
     }
-    if (!confirm(t("clean.bankConfirm", {
+    if (!(await showConfirm(t("clean.bankConfirm", {
       insts: plan.removedInstruments, patches: plan.removedPatches, bytes: plan.freedSampleBytes,
-    }))) return;
+    })))) return;
     store.undo.apply(cleanupBankOp(plan));
     store.emit("edit", [{ kind: "bank" }]);
     this.refresh();
@@ -619,14 +619,14 @@ export class ProjectView {
    *  blobs, degenerate rectangles, patches shadowed by higher-priority ones, and
    *  (for a slot with no ambiguous trigger row) patches no pattern cell actually
    *  plays — see cleanup.reachablePatchesByUsage. */
-  cleanupIxmp() {
+  async cleanupIxmp() {
     const store = this.store;
     const plan = planIxmpCleanup(store.doc);
     if (plan.noop) { showAlert(t("clean.nothing")); return; }
-    if (!confirm(t("clean.ixmpConfirm", {
+    if (!(await showConfirm(t("clean.ixmpConfirm", {
       patches: plan.removedPatches, insts: plan.report.length, blobs: plan.removedBlobs,
       bytes: plan.freedSampleBytes,
-    }))) return;
+    })))) return;
     store.undo.apply(cleanupBankOp(plan));
     store.emit("edit", [{ kind: "bank" }]);
     this.refresh();
@@ -642,17 +642,17 @@ export class ProjectView {
    * nothing about the music, so the confirm quotes the one number that decides
    * whether it was worth pressing: how big the free run becomes.
    */
-  defragPool() {
+  async defragPool() {
     const store = this.store;
     const plan = planPoolDefrag(store.doc);
     if (plan.error) { showAlert(plan.error); return; }
     if (plan.noop) { showAlert(t("clean.defragPacked")); return; }
     const r = plan.report;
-    if (!confirm(t("clean.defragConfirm", {
+    if (!(await showConfirm(t("clean.defragConfirm", {
       moved: fmtSize(r.movedBytes), freed: fmtSize(r.freedBytes),
       was: fmtSize(r.wasLargestRun), now: fmtSize(r.largestRun),
       insts: r.instruments, regions: r.regions,
-    }))) return;
+    })))) return;
     store.undo.apply(importBankOp(plan));
     store.emit("edit", [{ kind: "bank" }]);
     this.refresh();
@@ -798,13 +798,13 @@ export class ProjectView {
   /** Remove song `index` (default: current), guarded against emptying the
    *  project. The re-selection keeps the currently-viewed song when a DIFFERENT
    *  one is deleted. */
-  removeSong(index = this.store.songIndex) {
+  async removeSong(index = this.store.songIndex) {
     const store = this.store;
     const doc = store.doc;
     if (doc.songs.length <= 1) return;
     const idx = index;
     const nm = unescapeName(doc.meta.songMeta[idx]?.name ?? "");
-    if (!confirm(t("confirm.removeSong", { idx, name: nm ? ` "${nm}"` : "" }))) return;
+    if (!(await showConfirm(t("confirm.removeSong", { idx, name: nm ? ` "${nm}"` : "" })))) return;
     const cur = store.songIndex;
     doc.songs.splice(idx, 1);
     // songMeta is keyed by song index — shift entries above `idx` down by one.

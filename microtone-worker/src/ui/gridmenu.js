@@ -6,6 +6,7 @@
 
 import { ICON } from "./icons.js";
 import { t } from "./i18n.js";
+import { showConfirm } from "./components/modal.js";
 import {
   insertChannelOp, channelHasContent, setCuesOp, createPatternOp, compositeOp,
   deletePatternOp,
@@ -365,13 +366,13 @@ export function runFx2Item(store, id, ch) {
  * of it one place along — mutes included, which is why the live array goes in.
  * The lane count is a fixed 32/64, so the last lane falls off the end:
  * ask first when it is carrying something (the drop is in the op's inverse, so
- * it undoes either way). Returns true when the document changed.
+ * it undoes either way). Resolves true when the document changed.
  */
-export function insertChannelAt(store, at) {
+export async function insertChannelAt(store, at) {
   const chans = store.doc.channelCount;
   if (at < 0 || at >= chans) return false;
   if (channelHasContent(store.song, chans - 1) &&
-      !confirm(t("ctx.dropLastConfirm", { ch: chans }))) return false;
+      !(await showConfirm(t("ctx.dropLastConfirm", { ch: chans })))) return false;
   store.undo.apply(insertChannelOp(store.songIndex, at, null, store.voiceMutes));
   return true;
 }

@@ -26,7 +26,7 @@
 import { t } from "../i18n.js";
 import { actionRow } from "../components/actions.js";
 import { lampButton } from "../components/lampbutton.js";
-import { showModal, showAlert } from "../components/modal.js";
+import { showModal, showAlert, showConfirm } from "../components/modal.js";
 import { pickFile, download } from "../../storage/import-export.js";
 import { setSectionOp } from "../../doc/ops.js";
 import { noteGlyph } from "../components/noteglyph.js";
@@ -387,9 +387,9 @@ export function showNotationMaker(store) {
       mkBtn(t("nota.exportTaudnot"), null, () => {
         download(buildTaudnot([def]), (def.name.trim() || `custom-${def.slot}`) + ".taudnot");
       }, "exportTaudnot");
-      mkBtn(t("nota.delete"), null, () => {
+      mkBtn(t("nota.delete"), null, async () => {
         const refs = referencedBy(def.slot);
-        if (refs.length > 0 && !confirm(t("nota.deleteRefWarn", { songs: refs.join(", ") }))) return;
+        if (refs.length > 0 && !(await showConfirm(t("nota.deleteRefWarn", { songs: refs.join(", ") })))) return;
         defs.splice(sel, 1);
         sel = defs.length > 0 ? 0 : -1;
         renderAll();
