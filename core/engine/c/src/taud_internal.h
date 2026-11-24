@@ -2105,6 +2105,8 @@ void te_reset_pattern_loop_state(TaudEngine *e);
 /* tick.c */
 void te_apply_tracker_tick(TaudEngine *e);
 void te_apply_tick_events(TaudEngine *e);
+void te_sync_child_position(TaudEngine *e, TaudVoice *bg, const TaudVoice *parent);
+void te_sync_lane_children_position(TaudEngine *e, int vi);
 void te_psg_quarter_pass(TaudEngine *e);
 bool te_psg_live(const TaudEngine *e);
 void te_advance_sample_mod_extended(TaudEngine *e, TaudVoice *v, double spt);

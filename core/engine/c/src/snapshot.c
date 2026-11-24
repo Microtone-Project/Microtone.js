@@ -13,6 +13,22 @@
 #include "taud_internal.h"
 #include "snap_layout.h"
 
+/* What the meters read as a voice's loudness: its envelope (whether or not
+ * the instrument HAS a volume envelope, as the page has always had it), its
+ * fadeout, its mix volume and its lane's fader, clamped to 0…1. */
+static float voice_eff_volume(const TaudVoice *v)
+{
+    double effEnvVol = v->volEnvOn ? v->envVolMix : 1.0;
+    double faderGain = (255 - v->fader) / 255.0;
+    double ev = effEnvVol * v->fadeoutMix * v->currentMixVolume * faderGain;
+    return (float)(ev < 0 ? 0 : ev > 1 ? 1 : ev);
+}
+
+static float voice_note(const TaudVoice *v)
+{
+    return (float)(js_toint32(v->renderPitch > 0 ? v->renderPitch : v->noteVal) & 0xffff);
+}
+
 /* One voice's envelope-playhead entry at index n, if it is sounding. */
 static int put_env_playhead(float *f, int n, const TaudVoice *v)
 {
@@ -28,6 +44,11 @@ static int put_env_playhead(float *f, int n, const TaudVoice *v)
     o[SNAP_EP_PITCH_TIME] = (float)v->envPitchTimeSec;
     o[SNAP_EP_FILTER_IDX] = (float)v->envFilterIndex;
     o[SNAP_EP_FILTER_TIME] = (float)v->envFilterTimeSec;
+    o[SNAP_EP_NOTE] = voice_note(v);
+    o[SNAP_EP_EFF_VOL] = voice_eff_volume(v);
+    o[SNAP_EP_SAMPLE_PTR] = (float)v->activeSamplePtr;
+    o[SNAP_EP_SAMPLE_LEN] = (float)v->activeSampleLength;
+    o[SNAP_EP_SAMPLE_POS] = (float)v->samplePos;
     return n + 1;
 }
 
@@ -48,12 +69,7 @@ void te_fill_snapshot(TaudEngine *e, float *f)
         float *o = f + SNAP_HEADER_SIZE + vi * SNAP_VOICE_STRIDE;
         o[SNAP_V_ACTIVE] = v->active ? 1.0f : 0.0f;
         if (v->active) {
-            /* The meter's own reading, which does not ask whether the
-             * instrument HAS a volume envelope (as the page has always had it). */
-            double effEnvVol = v->volEnvOn ? v->envVolMix : 1.0;
-            double faderGain = (255 - v->fader) / 255.0;
-            double ev = effEnvVol * v->fadeoutMix * v->currentMixVolume * faderGain;
-            o[SNAP_V_EFF_VOL] = (float)(ev < 0 ? 0 : ev > 1 ? 1 : ev);
+            o[SNAP_V_EFF_VOL] = voice_eff_volume(v);
             /* Where the lane SOUNDS: the sum the mixer pans by, and for a
              * metainstrument the mix-weighted mean of its layers. */
             o[SNAP_V_EFF_PAN] = (float)te_display_pan_byte(e, vi, v);
@@ -67,7 +83,7 @@ void te_fill_snapshot(TaudEngine *e, float *f)
                 o[SNAP_V_AZIMUTH] = o[SNAP_V_EFF_PAN];
                 o[SNAP_V_ELEVATION] = 0.0f;
             }
-            o[SNAP_V_NOTE] = (float)(js_toint32(v->renderPitch > 0 ? v->renderPitch : v->noteVal) & 0xffff);
+            o[SNAP_V_NOTE] = voice_note(v);
             /* The pattern-level instrument (a meta's slot), not the layer it
              * resolved to. */
             o[SNAP_V_INST] = (float)((v->displayInst != 0 ? v->displayInst : v->instrumentId) & 0x3ff);

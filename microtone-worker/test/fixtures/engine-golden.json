@@ -24,8 +24,8 @@
     "flourish": {
       "file": "test/corpus/flourish.taud",
       "frames": 960000,
-      "u8": "a2f5e686c091b3bc78bf9bbf175bf592f6d6046cccc3ac64413e9e07ebf011c6",
-      "f32": "456c8f81a4a7a7e2f290cdb471482a6afc4038c08866d5cde703a0918bc3ca98"
+      "u8": "645d4f1b0ba2cd4ae4e4604799899806e79bf1fcc25d4e4b10117573c5a470b3",
+      "f32": "430c9fd9a1820164a1feb7e71714b39dda5f4091a5a9c48d748e45084d3f2dcb"
     },
     "Insaniq2": {
       "file": "test/corpus/Insaniq2.taud",
@@ -36,14 +36,14 @@
     "M_E1M1": {
       "file": "test/corpus/M_E1M1.taud",
       "frames": 960000,
-      "u8": "a17a02f7c6ae491498d36589f2677ea0a9df547a32d264c1065b9aae36262950",
-      "f32": "a3d59cbdf795e62363590fb864818a22490a9117785b1cf045e72b235afcfe9d"
+      "u8": "e10fd55c086e8af129eea7ef9403735afa8c475f00c3b230e5985d221e164b66",
+      "f32": "271530a1da66072b0b0b8d3ce9b036529cca35d7c793308ad5155f85d77872db"
     },
     "Onestop": {
       "file": "test/corpus/Onestop.taud",
       "frames": 960000,
-      "u8": "a49f4bc90581c199289b25db5a1fae4d6314b262d940b677690fdb17a8903a9a",
-      "f32": "f6256770b084ef99965ad0123ea0b1aa6a1151244f301872b533ea9b61ae5eff"
+      "u8": "715b75fdd49b1ed2dbd030d9a2ba5d43545ee8502f84def55cacbbd652d526d7",
+      "f32": "2edcf02da5edf8f137f6cffd770b0ea60b20c17c81cbca41edfe5e491f209633"
     },
     "slumberjack": {
       "file": "test/corpus/slumberjack.taud",
@@ -54,8 +54,8 @@
     "town": {
       "file": "test/corpus/town.taud",
       "frames": 960000,
-      "u8": "011bb5a0d6891597c7029fa68746a4c4a5922c9e46bc61faf5ce60f7ee44b8ec",
-      "f32": "f9e4e475b616565aada72d999dd15ceb4c84fc28d5d36bc86a3983cecf7a3a20"
+      "u8": "60cb7cec6af2b0e367cd0032cf0fb49c01989dfb3c0569abb5c0aa09b20aedbe",
+      "f32": "da71b6d5396f6a04e8bfaf7dd5718d19167d643b82d9dcdc7818aef208fa6b10"
     },
     "WHEN": {
       "file": "test/corpus/WHEN.taud",
@@ -72,8 +72,8 @@
     "Temjin_speaki": {
       "file": "assets/demo_projects/Temjin_speaki.taud",
       "frames": 960000,
-      "u8": "08d86d169378c0196635ef061b4058044615882e5c1a3406a4da38d0c63bc56b",
-      "f32": "1a4d4bd560be81f3819b6880313cdfaaff4ae83cb5702da4ec50e3443c1457be"
+      "u8": "03320ce70282b48b1fab2534fbae9c0d98de153497cba0d35801383f9740be8a",
+      "f32": "d4497d55fb932a7787dfede3a0c35996e7faa7157af1515e4e5e7df91e5136e0"
     },
     "WHEN_AMBI": {
       "file": "assets/demo_projects/WHEN_AMBI.taud",
@@ -91,15 +91,15 @@
     "Huygens_clock": {
       "file": "assets/demo_projects/Huygens_clock.taud",
       "frames": 960000,
-      "u8": "6b413a5efa62f16f1586a4f1b563a7bf573e2ef35b6b7549ab08a2eeadb7c4c9",
-      "f32": "5c798906465eb82fb682a6bedb7e0c9696c92501dfeadbad1dec40fc002933ba"
+      "u8": "8a8d2524dbf5b8035bc05a21910fb528ef48b5b6c20944b36866397476dd1576",
+      "f32": "b2eb0caadfab6a65926ab9bc299846291b765cb5e1872a017cab6fc0bc13dd64"
     },
     "Huygens_clock@imix": {
       "file": "assets/demo_projects/Huygens_clock.taud",
       "imix": true,
       "frames": 960000,
-      "u8": "78c4a5dcd97a4bcbe21a99b7476b3ec6b35da765e8b6e7f6ef3e2ef0d6705fe2",
-      "f32": "54db008f8116f7ded7cea6ab50d583ff50382ed3c9a5b2fbaf0b9b9af48fac5e"
+      "u8": "e57db3352ba50c0548356edc717bf1d898c7854a2c26f5ecd5388183dcc743d0",
+      "f32": "2556823c7e5c23e82762a2bc0e8d49a04644d950ccd56ed46de106b9eb7a7b41"
     },
     "WHEN_AMBI@imix": {
       "file": "assets/demo_projects/WHEN_AMBI.taud",
@@ -112,22 +112,22 @@
       "file": "assets/demo_projects/Huygens_clock.taud",
       "imix": "bus",
       "frames": 960000,
-      "u8": "43fb236d468ae9e9c612a64ffc76e5c544c43b15eec49539b8781643c719e62c",
-      "f32": "3ce86d1ca3241151f928e8c275d310c735e1d2a89f8f24772a7f731d88a97b66"
+      "u8": "a983a31142e922a2a2c3acfe216b2581dc77d9c1bfc12b2ea464d7af7277dcdc",
+      "f32": "86c6888934494c54353477f6897a343b64baa904d182084fd66e0035e2cd6a0b"
     },
     "Huygens_clock@imixtsh": {
       "file": "assets/demo_projects/Huygens_clock.taud",
       "imix": "tsh",
       "frames": 960000,
-      "u8": "e4a6fa775bda01b7b68276cfda5493ba3aa4a1ff0ea70f120620c12375878007",
-      "f32": "d851210e3069dbb5cffa60f19d50c534233810ef180d4cb057cce24702a9dcff"
+      "u8": "dad0baa6d5e0dee91ff807597afc81b52d033f648bc2c78076e587511d0adedf",
+      "f32": "4d0d7f59249d5aec900047200a73b991bf93c3d9e381d30dba61e47f2eff3bdb"
     },
     "Huygens_clock@imixexpd": {
       "file": "assets/demo_projects/Huygens_clock.taud",
       "imix": "expd",
       "frames": 960000,
-      "u8": "08f9f643b2ed591e17a4664bcbf8a676becc135f71b3ec7cb83077ef39983082",
-      "f32": "2f53e4ea8fc5a6e98c0b057885630c9267dbc905fe4ae272adc21a3e6c5a5331"
+      "u8": "482eb8c6357381e45551e5024aec80de18e8996419cdef027fc6a4d4caf49514",
+      "f32": "e1957fd196d095b2086e693036012ff0656975b6d87b687a4827e00d7f9247ee"
     },
     "Zeta_valley": {
       "file": "assets/demo_projects/Zeta_valley.taud",

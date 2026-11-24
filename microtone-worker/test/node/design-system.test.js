@@ -172,6 +172,16 @@ test("every tracker dialog builds its action row with actionRow()", () => {
   }
 });
 
+test("nothing calls window.alert(): a message is showAlert()", () => {
+  // Comments may name it; code may not. A blocking alert stops the page for
+  // nothing, and a few of them earn the browser's "prevent this page from
+  // creating additional dialogs", which then swallows every later one.
+  for (const f of trackerSources()) {
+    const code = read(f).replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/.*$/gm, "$1");
+    assert.doesNotMatch(code, /(?<![\w$.])alert\s*\(|window\.alert\s*\(/, `${f} calls alert() — use showAlert() (components/modal.js)`);
+  }
+});
+
 /** Just enough DOM for actions.js: elements that hold children and classes. */
 function fakeDom() {
   const el = (tag) => ({

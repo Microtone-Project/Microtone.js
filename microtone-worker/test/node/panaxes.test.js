@@ -89,12 +89,16 @@ function loadSong(eng, rows) {
   return eng;
 }
 
-const CHUNKS_PER_TICK = (SAMPLING_RATE * 2.5) / 125 / TRACKER_CHUNK;
-assert.ok(Number.isInteger(CHUNKS_PER_TICK));
+// A tick is a whole number of frames, not of chunks (960 at 48 kHz against a
+// 512-frame chunk), so render in spans that end on tick boundaries.
+const FRAMES_PER_TICK = (SAMPLING_RATE * 2.5) / 125;
+assert.ok(Number.isInteger(FRAMES_PER_TICK));
 
 function render(eng, ticks) {
   const out = new Uint8Array(TRACKER_CHUNK * 2);
-  for (let i = 0; i < ticks * CHUNKS_PER_TICK; i++) eng.renderChunk(0, out);
+  for (let left = ticks * FRAMES_PER_TICK; left > 0; left -= TRACKER_CHUNK) {
+    eng.renderFrames(0, Math.min(left, TRACKER_CHUNK), out);
+  }
 }
 
 const voice0 = (eng) => eng.playheads[0].trackerState.voices[0];
@@ -322,6 +326,30 @@ test("a pan-less layer 0 still lets the others spread around the commanded point
   assert.equal(kidOf(eng).notePan, centre + 0x20);
 });
 
+// The row pass places the lane's voice after the trigger; the children used to
+// learn of it only in the tick pass, at the END of the tick — so each layer
+// sounded the trigger row's first tick at its own (patch) pan, then glided
+// across to the lane's (item 353).
+test("a pan SET on the meta's own trigger row places every layer from the first frame", () => {
+  const eng = loadSong(makeMetaEngine(), [{ row: 0, note: 0x5000, inst: 3, pan: 0x10, panEff: 0 }]);
+  eng.renderFrames(0, 1);
+  const centre = colFor(0x10) - 0x80;
+  assert.equal(voice0(eng).notePan, centre, "layer 0 took the column");
+  assert.equal(kidOf(eng).notePan, centre + 0x40, "layer 1 too, before tick 0 has sounded");
+  const first = kidOf(eng).currentPan;
+  render(eng, 2);
+  assert.equal(kidOf(eng).currentPan, first, "and it sounded there from the start: no glide at tick 1");
+});
+
+test("an S $80xx on the trigger row moves every layer's channel from the first frame", () => {
+  const eng = loadSong(makeMetaEngine(), [{ row: 0, note: 0x5000, inst: 3, effect: EffectOp.OP_S, arg: 0x8040 }]);
+  eng.renderFrames(0, 1);
+  assert.equal(kidOf(eng).channelPan, 0x40, "the child follows the channel at once");
+  const first = kidOf(eng).currentPan;
+  render(eng, 2);
+  assert.equal(kidOf(eng).currentPan, first, "no glide when the tick pass catches up");
+});
+
 // ── Panbrello (Y) rides the same sum ─────────────────────────────────────
 // Y used to write `rowPan`, the 6-bit register the mixer stopped reading when
 // pan went 8-bit: the LFO ran every tick and the sound never moved. It is an
@@ -341,9 +369,10 @@ function worstImbalance(eng, ticks) {
   let worst = 1;
   for (let t = 0; t < ticks; t++) {
     let eL = 0, eR = 0;
-    for (let i = 0; i < CHUNKS_PER_TICK; i++) {
-      eng.renderChunk(0, out);
-      for (let n = 0; n < TRACKER_CHUNK; n++) {
+    for (let left = FRAMES_PER_TICK; left > 0; left -= TRACKER_CHUNK) {
+      const span = Math.min(left, TRACKER_CHUNK);
+      eng.renderFrames(0, span, out);
+      for (let n = 0; n < span; n++) {
         eL += Math.abs(out[n * 2] - 128);
         eR += Math.abs(out[n * 2 + 1] - 128);
       }

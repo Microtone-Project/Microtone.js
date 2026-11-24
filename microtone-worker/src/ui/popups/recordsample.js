@@ -8,6 +8,7 @@ import { openSampleLab } from "./samplelab.js";
 import { t } from "../i18n.js";
 import { actionRow } from "../components/actions.js";
 import { setIconLabel } from "../icons.js";
+import { showAlert } from "../components/modal.js";
 
 const MAX_REC_SECONDS = 120;
 const METER_W = 260, METER_H = 16;
@@ -17,7 +18,7 @@ const WORKLET_URL = new URL("../../audio/record-worklet.js", import.meta.url);
 export async function recordSample(store) {
   if (!store.doc) return null;
   if (!navigator.mediaDevices?.getUserMedia) {
-    alert(t("rec.noMic", { err: "mediaDevices unavailable" }));
+    showAlert(t("rec.noMic", { err: "mediaDevices unavailable" }));
     return null;
   }
   let stream;
@@ -26,7 +27,7 @@ export async function recordSample(store) {
       audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
     });
   } catch (err) {
-    alert(t("rec.noMic", { err: err.message ?? err }));
+    showAlert(t("rec.noMic", { err: err.message ?? err }));
     return null;
   }
 

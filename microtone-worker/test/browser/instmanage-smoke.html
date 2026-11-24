@@ -26,9 +26,10 @@ const fire = (el, type) => el.dispatchEvent(new Event(type, { bubbles: true }));
   for (let i = 0; i < 200 && !(M.store.doc && M.store.undo); i++) await sleep(50);
   const { store, instrumentsView: iv, projectView: pv, jam } = M;
   const doc = store.doc;
-  // A real alert()/confirm() blocks the headless page — stub and record them.
+  // A real confirm() blocks the headless page — stub and record it.
   let lastAlert = null, confirmAnswer = true;
-  win.alert = (m) => { lastAlert = m; log("  alert: " + m); };
+  // A notice from showAlert() (the app's alert): record it and dismiss it.
+  new win.MutationObserver(() => { for (const d of win.document.querySelectorAll("dialog.modal-alert")) { const m = d.querySelector("p")?.textContent ?? ""; d.querySelector(".act-dismiss").click(); ((m) => { lastAlert = m; log("  alert: " + m); })(m); } }).observe(win.document.body, { childList: true });
   win.confirm = (m) => { log("  confirm: " + m); return confirmAnswer; };
   const dialogs = () => [...win.document.querySelectorAll("dialog")];
   const lastDialog = () => dialogs()[dialogs().length - 1];

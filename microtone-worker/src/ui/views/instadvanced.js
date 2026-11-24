@@ -20,7 +20,6 @@ import {
 import {
   writePatchesBlob, makeInstPatch, patchVibratoInherits, baseStereoPatchIndex, envPresent, envCarry,
 } from "../../../core/engine/inst.js";
-import { TOTAL_VOICES } from "../../../core/engine/constants.js";
 import { encodeNameTable } from "../../doc/cleanup.js";
 import {
   envActiveCount, envAddNode, envRemoveNode, envFollowTailSustain, envClampWrap,
@@ -35,7 +34,7 @@ import { themeColors } from "../theme.js";
 import { canvasMonoFont } from "../fonts.js";
 import { unescapeName } from "../../../core/format/names.js";
 import {
-  annFadeout, annFilter, SEG_MINIFLOAT_MAP,
+  annFadeout, annFilter, annHex2, SEG_MINIFLOAT_MAP,
 } from "../units.js";
 import { mapSpinner } from "../components/spinner.js";
 import { lampButton } from "../components/lampbutton.js";
@@ -50,16 +49,16 @@ import { EnvAxis, paintEnvGraph, attachEnvGraph, envClipButtons } from "../envgr
 const ENV_KINDS = [
   { key: "volEnv", loopKey: "volEnvLoop", susKey: "volEnvSustain", labelKey: "adv.volEnv",
     max: 63, defVal: 0x3f, mbit: null, base: "vol",
-    liveIdx: "getVoiceEnvVolIndex", liveTime: "getVoiceEnvVolTime" },
+    live: "vol" },
   { key: "panEnv", loopKey: "panEnvLoop", susKey: "panEnvSustain", labelKey: "adv.panEnv",
     max: 255, defVal: 0x80, mbit: null, base: "pan",
-    liveIdx: "getVoiceEnvPanIndex", liveTime: "getVoiceEnvPanTime" },
+    live: "pan" },
   { key: "filterEnv", loopKey: "filterEnvLoop", susKey: "filterEnvSustain", labelKey: "adv.filterEnv",
     max: 255, defVal: 0x80, mbit: 1, base: "role",
-    liveIdx: "getVoiceEnvFilterIndex", liveTime: "getVoiceEnvFilterTime" },
+    live: "filter" },
   { key: "pitchEnv", loopKey: "pitchEnvLoop", susKey: "pitchEnvSustain", labelKey: "adv.pitchEnv",
     max: 255, defVal: 0x80, mbit: 0, base: "role",
-    liveIdx: "getVoiceEnvPitchIndex", liveTime: "getVoiceEnvPitchTime" },
+    live: "pitch" },
 ];
 const ENV_WAVE = 4; // the fifth sub-tab: sample wavescope
 
@@ -373,21 +372,21 @@ export class AdvancedZoneEditor {
     const liveKeys = new Set();
     const blobs = [];
     if (audio) {
-      for (let vi = 0; vi < TOTAL_VOICES; vi++) {
-        if (!audio.getVoiceActive(vi) || audio.getVoiceInstrument(vi) !== this.slot) {
-          this._voicePeak[vi] = null;
-          continue;
-        }
-        liveKeys.add(`${audio.getVoiceSamplePtr(vi)}:${audio.getVoiceSampleLength(vi)}`);
-        const note = audio.getVoiceNote(vi);
-        const eff = audio.getVoiceEffectiveVolume(vi) || 0;
+      // Every voice sounding THIS instrument, a layer's or an operator's
+      // included (item 353): the lanes report a metainstrument's slot.
+      const peaks = [];
+      for (const v of audio.getSoundingVoices(this.slot)) {
+        liveKeys.add(`${v.samplePtr}:${v.sampleLength}`);
+        const eff = v.vol || 0;
         // pin the blob's Y to the PEAK volume since the note started (taut
         // voicePeak) so it marks the trigger velocity, not the env decay
-        let pk = this._voicePeak[vi];
-        if (!pk || pk.note !== note) pk = this._voicePeak[vi] = { note, peak: eff };
+        let pk = this._voicePeak[v.key];
+        if (!pk || pk.note !== v.note) pk = { note: v.note, peak: eff };
         else if (eff > pk.peak) pk.peak = eff;
-        blobs.push({ x: g.X(note), y: g.Y(Math.round(pk.peak * 63)) });
+        peaks[v.key] = pk;
+        blobs.push({ x: g.X(v.note), y: g.Y(Math.round(pk.peak * 63)) });
       }
+      this._voicePeak = peaks;
     }
 
     patches.forEach((p, i) => {
@@ -633,13 +632,13 @@ export class AdvancedZoneEditor {
       this.chk(t("adv.panOverride"), p.defaultPan !== 0xff,
         (on) => this._field("defaultPan", on ? 0x80 : 0xff), t("adv.inheritTitle")));
     if (p.defaultPan !== 0xff) {
-      panRow.append(this.num("", p.defaultPan, 0, 254, (v) => this._field("defaultPan", Math.min(v, 0xfe))));
+      panRow.append(this.num("", p.defaultPan, 0, 254, (v) => this._field("defaultPan", Math.min(v, 0xfe)), annHex2));
     }
     const nvRow = this.row(ov,
       this.chk(t("adv.noteVolOverride"), p.defaultNoteVolume !== 0,
         (on) => this._field("defaultNoteVolume", on ? 0xff : 0), t("adv.inheritTitle")));
     if (p.defaultNoteVolume !== 0) {
-      nvRow.append(this.num("", p.defaultNoteVolume, 1, 255, (v) => this._field("defaultNoteVolume", Math.max(v, 1))));
+      nvRow.append(this.num("", p.defaultNoteVolume, 1, 255, (v) => this._field("defaultNoteVolume", Math.max(v, 1)), annHex2));
     }
     // Auto-vibrato is ONE override, not five (item 170): the $FF waveform
     // sentinel plus four zeroes is what "inherit" looks like on the wire, so
@@ -664,10 +663,10 @@ export class AdvancedZoneEditor {
         this.sel(t("adv.vibWave"), p.vibratoWaveform === 0xff ? "255" : String(p.vibratoWaveform & 0x07),
           [["255", t("adv.vibInherit")], ...VIB_WAVES.map((w, i) => [String(i), w])],
           (v) => this._field("vibratoWaveform", Number(v))),
-        this.num(t("adv.vibSpeed"), p.vibratoSpeed, 0, 255, (v) => this._field("vibratoSpeed", v)),
-        this.num(t("adv.vibSweep"), p.vibratoSweep, 0, 255, (v) => this._field("vibratoSweep", v)),
-        this.num(t("adv.vibDepth"), p.vibratoDepth, 0, 255, (v) => this._field("vibratoDepth", v)),
-        this.num(t("adv.vibRate"), p.vibratoRate, 0, 255, (v) => this._field("vibratoRate", v)));
+        this.num(t("adv.vibSpeed"), p.vibratoSpeed, 0, 255, (v) => this._field("vibratoSpeed", v), annHex2),
+        this.num(t("adv.vibSweep"), p.vibratoSweep, 0, 255, (v) => this._field("vibratoSweep", v), annHex2),
+        this.num(t("adv.vibDepth"), p.vibratoDepth, 0, 255, (v) => this._field("vibratoDepth", v), annHex2),
+        this.num(t("adv.vibRate"), p.vibratoRate, 0, 255, (v) => this._field("vibratoRate", v), annHex2));
     }
 
     // Extra block ('x'): fadeout / filter / attenuation
@@ -997,11 +996,9 @@ export class AdvancedZoneEditor {
     const live = [];
     const audio = this.store.audio;
     if (audio && p) {
-      for (let vi = 0; vi < TOTAL_VOICES; vi++) {
-        if (!audio.getVoiceActive(vi) || audio.getVoiceInstrument(vi) !== this.slot) continue;
-        if (audio.getVoiceSamplePtr(vi) !== p.samplePtr ||
-            audio.getVoiceSampleLength(vi) !== p.sampleLength) continue;
-        live.push({ idx: audio[kind.liveIdx](vi), t: audio[kind.liveTime](vi) });
+      for (const v of audio.getSoundingVoices(this.slot)) {
+        if (v.samplePtr !== p.samplePtr || v.sampleLength !== p.sampleLength) continue;
+        live.push(v.env(kind.live));
       }
     }
     paintEnvGraph(canvas, Math.max(240, canvas.parentElement.clientWidth - 2), 180, {
@@ -1095,11 +1092,9 @@ export class AdvancedZoneEditor {
     const audio = this.store.audio;
     if (audio) {
       ctx.fillStyle = C.playCursor;
-      for (let vi = 0; vi < TOTAL_VOICES; vi++) {
-        if (!audio.getVoiceActive(vi) || audio.getVoiceInstrument(vi) !== this.slot) continue;
-        if (audio.getVoiceSamplePtr(vi) !== smp.ptr ||
-            audio.getVoiceSampleLength(vi) !== smp.len) continue;
-        const pos = audio.getVoiceSamplePos(vi);
+      for (const v of audio.getSoundingVoices(this.slot)) {
+        if (v.samplePtr !== smp.ptr || v.sampleLength !== smp.len) continue;
+        const pos = v.samplePos;
         if (pos < 0) continue;
         ctx.fillRect((pos / smp.len) * w - 1, 0, 2, h);
       }
@@ -1172,10 +1167,9 @@ export class AdvancedZoneEditor {
     // frame after, to erase the last hairline)
     let sig = "";
     let any = false;
-    for (let vi = 0; vi < TOTAL_VOICES; vi++) {
-      if (!audio.getVoiceActive(vi) || audio.getVoiceInstrument(vi) !== this.slot) continue;
+    for (const v of audio.getSoundingVoices(this.slot)) {
       any = true;
-      sig += `${vi}:${audio.getVoiceNote(vi)}:${(audio.getVoiceEffectiveVolume(vi) || 0).toFixed(2)};`;
+      sig += `${v.key}:${v.note}:${(v.vol || 0).toFixed(2)};`;
     }
     if (sig !== this._liveSig) {
       this._liveSig = sig;

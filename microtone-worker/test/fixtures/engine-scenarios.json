@@ -196,9 +196,9 @@
     "device-sized spans: play, jam over it, stop, spin down": {
       "file": "assets/demo_projects/Huygens_clock.taud",
       "chunks": 801,
-      "f32": "c55779b39fe1f5ac85768811a0b2ffa71bfe6a304e9c0d8f3319a07f997429ba",
-      "u8": "ee6b4e52e645b048c456af8307477adecb05933646948b2365631e18b4787db0",
-      "notes": "3a42e79f9debe08cd98c1f08c9996bc6fc063f39e768d09b7979676d5547bcaa",
+      "f32": "12fd97c0632b38e6742dde3f93aa5fd4c2436237b6454035dcfa084fb30f9e3c",
+      "u8": "6b9122e01ce9a3e5263c72c3b066cd508da6d6ac6dc04a70b8098f7c220a9625",
+      "notes": "44d4dd5286abfd310bde4da84feb622db13988e1cb4fc416b7544f2a26c355ad",
       "peak": 0.668
     }
   }

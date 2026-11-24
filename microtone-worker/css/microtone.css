@@ -1968,6 +1968,9 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .modal-text { max-width: min(560px, calc(94vw / var(--ui-zoom, 1))); }
 .modal-text p { margin: 0.4rem 0 0.8rem; line-height: 1.45; text-align: justify; hyphens: auto; white-space: pre-line; }
 .modal::backdrop { background: var(--scrim); }
+/* showAlert(): the message alone, no heading — it is the whole dialog, so it
+   starts at the top and reads in the body ink, not a gloss's dim. */
+.modal-alert p { margin-top: 0.1rem; color: var(--fg); }
 .modal h3 { margin-top: 0; }
 .modal-field { display: block; margin: 0.6rem 0; color: var(--dim); }
 .modal-field input, .modal-field select {

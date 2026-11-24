@@ -27,7 +27,7 @@ import { resizeSongDialog } from "../rowtools.js";
 import { defToPreset } from "../../doc/notation.js";
 import { CENTS_DIGITS } from "../spinmaps.js";
 import { Song } from "../../doc/document.js";
-import { showModal, showNotice } from "../components/modal.js";
+import { showModal, showNotice, showAlert } from "../components/modal.js";
 import {
   decodeProjectString, encodeProjectString, escapeNonAscii, unescapeName,
 } from "../../../core/format/names.js";
@@ -551,8 +551,8 @@ export class ProjectView {
     const toStr = String(result.to ?? "").replace(/^\$/, "").trim();
     const from = fromStr === "" ? null : (parseInt(fromStr, 16) & 0xff);
     const to = parseInt(toStr || "0", 16) & 0xff;
-    if (from !== null && !Number.isFinite(parseInt(fromStr, 16))) { alert(t("del.badNumber")); return; }
-    if (toStr !== "" && !Number.isFinite(parseInt(toStr, 16))) { alert(t("del.badNumber")); return; }
+    if (from !== null && !Number.isFinite(parseInt(fromStr, 16))) { showAlert(t("del.badNumber")); return; }
+    if (toStr !== "" && !Number.isFinite(parseInt(toStr, 16))) { showAlert(t("del.badNumber")); return; }
     // Scoped to the current song (85.00) — a global operation must not reach
     // into the project's other songs.
     store.undo.apply(changeInstrumentOp(from, to, [store.songIndex]));
@@ -570,7 +570,7 @@ export class ProjectView {
     const total = song.patterns.filter(Boolean).length;
     const removed = total - referenced.filter(materialised).length; // dropped: unreferenced
     const merged = referenced.filter(materialised).length - order.filter(materialised).length;
-    if (removed <= 0 && merged <= 0 && this._isIdentityOrder(order, song)) { alert(t("clean.nothing")); return; }
+    if (removed <= 0 && merged <= 0 && this._isIdentityOrder(order, song)) { showAlert(t("clean.nothing")); return; }
     if (!confirm(t("clean.patternsConfirm", { removed: Math.max(removed, 0), merged: Math.max(merged, 0) }))) return;
     this._applyRemap(order, canon);
   }
@@ -581,7 +581,7 @@ export class ProjectView {
   renumberPatterns() {
     const store = this.store, song = store.song;
     const plan = planRenumberPatterns(song, store.doc._nameTable("pNam"), store.doc.wideCells === true);
-    if (renumberIsIdentity(song, plan)) { alert(t("clean.nothing")); return; }
+    if (renumberIsIdentity(song, plan)) { showAlert(t("clean.nothing")); return; }
     store.undo.apply(remapPatternsOp(store.songIndex, plan.patterns, plan.cues, encodeNameTable(plan.pNam)));
     store.emit("edit", [{ kind: "resync", song: store.songIndex }]);
     this.refresh();
@@ -605,7 +605,7 @@ export class ProjectView {
     const store = this.store;
     const plan = planBankCleanup(store.doc);
     if (plan.removedInstruments === 0 && plan.removedPatches === 0 && plan.freedSampleBytes === 0) {
-      alert(t("clean.nothing")); return;
+      showAlert(t("clean.nothing")); return;
     }
     if (!confirm(t("clean.bankConfirm", {
       insts: plan.removedInstruments, patches: plan.removedPatches, bytes: plan.freedSampleBytes,
@@ -622,7 +622,7 @@ export class ProjectView {
   cleanupIxmp() {
     const store = this.store;
     const plan = planIxmpCleanup(store.doc);
-    if (plan.noop) { alert(t("clean.nothing")); return; }
+    if (plan.noop) { showAlert(t("clean.nothing")); return; }
     if (!confirm(t("clean.ixmpConfirm", {
       patches: plan.removedPatches, insts: plan.report.length, blobs: plan.removedBlobs,
       bytes: plan.freedSampleBytes,
@@ -645,8 +645,8 @@ export class ProjectView {
   defragPool() {
     const store = this.store;
     const plan = planPoolDefrag(store.doc);
-    if (plan.error) { alert(plan.error); return; }
-    if (plan.noop) { alert(t("clean.defragPacked")); return; }
+    if (plan.error) { showAlert(plan.error); return; }
+    if (plan.noop) { showAlert(t("clean.defragPacked")); return; }
     const r = plan.report;
     if (!confirm(t("clean.defragConfirm", {
       moved: fmtSize(r.movedBytes), freed: fmtSize(r.freedBytes),

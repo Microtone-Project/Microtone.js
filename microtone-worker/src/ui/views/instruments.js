@@ -40,7 +40,7 @@ import {
   classifyMetaChildren, classifySetChildren, uniqueSampleSpansForSet,
 } from "../../doc/cleanup.js";
 import { planDuplicateInstruments } from "../../doc/bankmerge.js";
-import { showNotice } from "../components/modal.js";
+import { showNotice, showAlert } from "../components/modal.js";
 import { showModal } from "../components/modal.js";
 import { AdvancedZoneEditor } from "./instadvanced.js";
 import { TOTAL_VOICES } from "../../../core/engine/constants.js";
@@ -508,7 +508,7 @@ export class InstrumentsView {
     const slots = this.pickedSlots();
     if (!doc || slots.length === 0) return;
     const plan = planDuplicateInstruments(doc, slots);
-    if (plan.error) { alert(plan.error); return; }
+    if (plan.error) { showAlert(plan.error); return; }
     this.store.undo.apply(importBankOp(plan));
     this.picked = new Set(plan.duplicates.map((d) => d.destSlot));
     this._pickAnchor = null;
@@ -542,10 +542,10 @@ export class InstrumentsView {
     });
     if (!res) return;
     const by = parseHexOffset(res.by);
-    if (by === null) { alert(t("renum.badOffset")); return; }
+    if (by === null) { showAlert(t("renum.badOffset")); return; }
     const plan = planRenumberInstruments(doc, slots.map((s) => [s, s + by]),
       { remapPatterns: res.cells === true });
-    if (plan.error) { alert(plan.error); return; }
+    if (plan.error) { showAlert(plan.error); return; }
     // Follow the moves BEFORE applying: the edit refreshes the list on the
     // spot, and would prune picks and a selection that still name old numbers.
     const map = new Map(plan.moves);
@@ -629,10 +629,10 @@ export class InstrumentsView {
       if (raw !== "") {
         reassignTo = parseInt(raw, 16);
         if (!/^[0-9a-f]+$/i.test(raw) || reassignTo < 1 || reassignTo > 0xff) {
-          alert(t("del.badNumber"));
+          showAlert(t("del.badNumber"));
           return;
         }
-        if (set.has(reassignTo)) { alert(t("del.reassignInSet")); return; }
+        if (set.has(reassignTo)) { showAlert(t("del.reassignInSet")); return; }
       }
     }
     const plan = planDeleteInstruments(doc, slots, {
@@ -640,7 +640,7 @@ export class InstrumentsView {
       reassignTo,
       deleteLowChildren: lowChildren.length > 0 && res.deleteLow === true,
     });
-    if (plan.error) { alert(plan.error); return; }
+    if (plan.error) { showAlert(plan.error); return; }
     this.store.undo.apply(deleteInstrumentOp(plan));
 
     this.picked.clear();
@@ -858,7 +858,7 @@ export class InstrumentsView {
     const slot = this.selected;
     if (!doc || !doc.usedInstrumentSlots().includes(slot)) return;
     const plan = planDuplicateInstruments(doc, [slot]);
-    if (plan.error) { alert(plan.error); return; }
+    if (plan.error) { showAlert(plan.error); return; }
     this.store.undo.apply(importBankOp(plan));
 
     // The copy is a top-level instrument even when the source was a layer child
@@ -940,7 +940,7 @@ export class InstrumentsView {
       if (raw !== "") {
         reassignTo = parseInt(raw, 16);
         if (!Number.isFinite(reassignTo) || reassignTo < 1 || reassignTo > 0xff) {
-          alert(t("del.badNumber"));
+          showAlert(t("del.badNumber"));
           return;
         }
       }
@@ -949,7 +949,7 @@ export class InstrumentsView {
     const deleteLowChildren = lowChildren.length > 0 && res.deleteLow === true;
 
     const plan = planDeleteInstrument(doc, slot, { freeSamples, reassignTo, deleteLowChildren });
-    if (plan.error) { alert(plan.error); return; }
+    if (plan.error) { showAlert(plan.error); return; }
     this.store.undo.apply(deleteInstrumentOp(plan));
 
     // Move selection off the deleted slot. A layer child returns to its parent
@@ -999,9 +999,9 @@ export class InstrumentsView {
     });
     if (!res) return;
     const to = parseInt(String(res.to).replace(/^\$/, ""), 16);
-    if (!Number.isFinite(to)) { alert(t("renum.badNumber")); return; }
+    if (!Number.isFinite(to)) { showAlert(t("renum.badNumber")); return; }
     const plan = planRenumberInstrument(doc, from, to, { remapPatterns: res.cells === true });
-    if (plan.error) { alert(plan.error); return; }
+    if (plan.error) { showAlert(plan.error); return; }
     this.store.undo.apply(renumberInstrumentOp(plan));
     this.selected = to;
     if (this._childSelected === from) this._childSelected = to;
@@ -1053,6 +1053,28 @@ export class InstrumentsView {
   /** Apply an inst op WITHOUT rebuilding the panel — for slider drags whose
    *  widgets update themselves in place (a rebuild would detach the control
    *  mid-drag). The engine still re-syncs via the dirty tag. */
+  /** The Filter group's "Switch filter off" (item 354): not a toggle — it
+   *  writes the cutoff that means off in either mode, $FFFF (byte 182 ← $FF,
+   *  252 ← $FF: the IT cutoff is byte 182 alone, so $FF there is its off too),
+   *  as one undo step. Turning it back on is moving the cutoff. */
+  filterOffRow() {
+    const row = document.createElement("div");
+    row.className = "slider-row";
+    const lab = document.createElement("span");
+    lab.className = "sl-label";
+    const box = document.createElement("div");
+    box.className = "sl-buttons";
+    const btn = document.createElement("button");
+    btn.className = "inst-filter-off";
+    btn.textContent = t("inst.filterOff");
+    btn.title = t("inst.filterOffTitle");
+    btn.addEventListener("click", () =>
+      this.store.undo.apply(setInstBytesOp(this.selected, [[182, 0xff], [252, 0xff]])));
+    box.append(btn);
+    row.append(lab, box);
+    return row;
+  }
+
   applyQuiet(op) {
     this._quiet = true;
     try { this.store.undo.apply(op); }
@@ -1135,7 +1157,15 @@ export class InstrumentsView {
     range.min = opts.signedLog ? -LOG_STEPS : (opts.log ? 0 : min);
     range.max = opts.signedLog ? LOG_STEPS : (opts.log ? LOG_STEPS : max);
     range.step = 1;
-    range.value = toPos(clampN(value, min, max));
+    // `off` (linear sliders only): a stored value outside [min, max] that means
+    // "switched off" (a SoundFont cutoff's $FFFF). The slider gets one more
+    // stop past `max` for it, as the IT cutoff's $FF is its own top stop.
+    const OFF = opts.off ?? null;
+    const isOff = (v) => OFF !== null && v === OFF;
+    const offPos = max + 1;
+    if (OFF !== null) range.max = offPos;
+    const posOf = (v) => (isOff(v) ? offPos : toPos(clampN(v, min, max)));
+    range.value = posOf(value);
 
     // `annNode` hands back an element (a note glyph) where `ann` hands back text.
     const paint = (v) => {
@@ -1147,14 +1177,17 @@ export class InstrumentsView {
     let gid = null;
     const commit = (v, g) => {
       // `fine`: a pitch at 65536-TET keeps its sixteenths of a unit (§9.18).
-      v = clampN(opts.fine ? Math.round(v * 16) / 16 : Math.round(v), min, max);
+      if (!isOff(v)) v = clampN(opts.fine ? Math.round(v * 16) / 16 : Math.round(v), min, max);
       if (opts.map) setMapped(num, v); else num.value = v;
-      range.value = toPos(v); paint(v);
+      range.value = posOf(v); paint(v);
       onChange(v, g);
     };
     range.addEventListener("pointerdown", () => { gid = "sl" + Date.now() + Math.random(); });
     range.addEventListener("keydown", () => { if (!gid) gid = "sl" + Date.now(); });
-    range.addEventListener("input", () => commit(fromPos(parseFloat(range.value)), gid ?? ("sl" + Date.now())));
+    range.addEventListener("input", () => {
+      const p = parseFloat(range.value);
+      commit(OFF !== null && p >= offPos ? OFF : fromPos(p), gid ?? ("sl" + Date.now()));
+    });
     range.addEventListener("change", () => { gid = null; });
     num.addEventListener("change", () =>
       commit(opts.map ? num.rawValue : parseInt(num.value || "0", 10), null));
@@ -1533,15 +1566,18 @@ export class InstrumentsView {
       sfMode
         // SoundFont: 16-bit cutoff (absolute cents, bytes 182/252) → Hz,
         // resonance (centibels above DC gain, bytes 183/253) → dB.
-        ? this.sliderRow(t("inst.cutoff"), inst.defaultCutoff16, 1500, 13500, (v, gid) =>
+        // $FFFF (and anything from it up, as the engine reads it) is "off".
+        ? this.sliderRow(t("inst.cutoff"), inst.defaultCutoff16 >= 0xffff ? 0xffff : inst.defaultCutoff16, 1500, 13500, (v, gid) =>
             this.applyQuiet(setInstBytesOp(this.selected, [[182, (v >> 8) & 0xff], [252, v & 0xff]], gid)),
-            { map: hzSpinnerMap(), wide: true, title: t("inst.cutoffTitle") })
+            { map: hzSpinnerMap({ off: 0xffff, offLabel: t("inst.annOff") }), off: 0xffff, wide: true,
+              ann: (v) => (v === 0xffff ? t("inst.annOff") : ""), title: t("inst.cutoffTitle") })
         : this.sliderRow(t("inst.cutoff"), inst.defaultCutoff, 0, 255, fSet("defaultCutoff"), { ann: annFilter, title: t("inst.cutoffTitle") }),
       sfMode
         ? this.sliderRow(t("inst.resonance"), inst.defaultResonance16, 0, 960, (v, gid) =>
             this.applyQuiet(setInstBytesOp(this.selected, [[183, (v >> 8) & 0xff], [253, v & 0xff]], gid)),
             { map: sfResoDbMap(), wide: true, title: t("inst.resonanceTitle") })
         : this.sliderRow(t("inst.resonance"), inst.defaultResonance, 0, 255, fSet("defaultResonance"), { ann: annFilter, title: t("inst.resonanceTitle") }),
+      this.filterOffRow(),
     );
 
     // Each waveform button shows its wave in Motif Grid's waveform glyphs —
@@ -2486,7 +2522,7 @@ export class InstrumentsView {
         this.metaIconBtn(null, t("meta.unlink"), t("meta.unlinkTitle"), async () => {
           const { planUnlinkMetaLayer } = await import("../../doc/bankmerge.js");
           const plan = planUnlinkMetaLayer(doc, slot, i);
-          if (plan.error) { alert(plan.error); return; }
+          if (plan.error) { showAlert(plan.error); return; }
           this.store.undo.apply(importBankOp(plan));
           this.refresh();
         }, links < 2),
@@ -2772,7 +2808,7 @@ export class InstrumentsView {
         this.metaIconBtn(null, t("meta.unlink"), t("meta.unlinkTitle"), async () => {
           const { planUnlinkMetaLayer } = await import("../../doc/bankmerge.js");
           const plan = planUnlinkMetaLayer(doc, slot, i);
-          if (plan.error) { alert(plan.error); return; }
+          if (plan.error) { showAlert(plan.error); return; }
           this.store.undo.apply(importBankOp(plan));
           this.refresh();
         }, links < 2),

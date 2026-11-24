@@ -15,7 +15,7 @@ import { planImportRegion } from "../../doc/bankmerge.js";
 import { importBankOp } from "../../doc/ops.js";
 import { largestFreeRun } from "../../doc/sampleregions.js";
 import { sampleSpans } from "../../doc/document.js";
-import { showModal } from "../components/modal.js";
+import { showModal, showAlert } from "../components/modal.js";
 import { escapeNonAscii } from "../../../core/format/names.js";
 import { t } from "../i18n.js";
 
@@ -49,7 +49,7 @@ export async function importRegion(store) {
     decoded = await decodeAudioToFloat(new Uint8Array(await file.arrayBuffer()),
       { rate: DECODE_RATE, stereo: true });
   } catch (err) {
-    alert(t("import.cantDecode", { name: file.name, err: err.message ?? err }));
+    showAlert(t("import.cantDecode", { name: file.name, err: err.message ?? err }));
     return null;
   }
 
@@ -105,7 +105,7 @@ export async function importRegion(store) {
 
   const nameBytes = new TextEncoder().encode(escapeNonAscii(res.name || baseName));
   const plan = planImportRegion(doc, { channels: pcm, rate, nameBytes });
-  if (plan.error) { alert(plan.error); return null; }
+  if (plan.error) { showAlert(plan.error); return null; }
   store.undo.apply(importBankOp(plan));
   store.emit("edit", [{ kind: "bank" }]);
   return plan.region;

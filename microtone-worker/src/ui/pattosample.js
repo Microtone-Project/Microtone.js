@@ -14,7 +14,7 @@ import {
 } from "../doc/pattosample.js";
 import { planChordMeta } from "../doc/bankmerge.js";
 import { importBankOp, setCellsBytesOp } from "../doc/ops.js";
-import { showModal, showNotice } from "./components/modal.js";
+import { showModal, showNotice, showAlert } from "./components/modal.js";
 import { escapeNonAscii, unescapeName } from "../../core/format/names.js";
 import { t } from "./i18n.js";
 
@@ -74,7 +74,7 @@ export async function patternToSample(store, spec) {
     if (v.as === "meta") {
       const plan = planChordMeta(store.doc, stack.layers.map((l) => ({ slot: l.slot, detune: l.detune })),
         escapeNonAscii(v.name?.trim() || names.join(" + ")));
-      if (plan.error) { alert(plan.error); return false; }
+      if (plan.error) { showAlert(plan.error); return false; }
       store.undo.apply(importBankOp(plan));
       const writes = planStackReplacement(store.doc, s, region, stack, plan.metaSlot);
       if (writes.length) store.undo.apply(setCellsBytesOp(s, writes));

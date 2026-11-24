@@ -303,7 +303,7 @@ export const SNAP_IM_EXPD_LVL = SNAP_IM_EXPD_GR + 1;
 export const SNAP_IM_STRIDE = SNAP_IM_EXPD_LVL + 1;
 export const SNAP_IM_SEATS = IMX_METER_SEATS;
 
-// ── Envelope playheads, after the Mixing-tab blocks ──
+// ── Envelope playheads (and what each voice sounds), after the Mixing-tab blocks ──
 // Every SOUNDING voice's four envelope positions, tagged with the instrument
 // whose envelopes they are — the operator or layer the voice actually plays,
 // not the pattern-level slot SNAP_V_INST reports. The voice array above holds
@@ -324,7 +324,16 @@ export const SNAP_EP_PITCH_IDX = 5;
 export const SNAP_EP_PITCH_TIME = 6;
 export const SNAP_EP_FILTER_IDX = 7;
 export const SNAP_EP_FILTER_TIME = 8;
-export const SNAP_EP_STRIDE = 9;
+// …and what the voice is sounding, as the lane block has it for a lane's own
+// voice (SNAP_V_NOTE, SNAP_V_EFF_VOL, SNAP_V_SAMPLE_*): the Advanced tab's
+// zone map, envelope cursor and play-position hairlines find a layer's or an
+// operator's zone by these (item 353).
+export const SNAP_EP_NOTE = 9;
+export const SNAP_EP_EFF_VOL = 10;
+export const SNAP_EP_SAMPLE_PTR = 11;
+export const SNAP_EP_SAMPLE_LEN = 12;
+export const SNAP_EP_SAMPLE_POS = 13;
+export const SNAP_EP_STRIDE = 14;
 export const SNAP_EP_MAX = TOTAL_VOICES + MAX_BG_VOICES;
 
 export const SNAP_FLOATS = SNAP_EP_ENTRIES + SNAP_EP_MAX * SNAP_EP_STRIDE;

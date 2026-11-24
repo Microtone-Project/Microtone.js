@@ -24,6 +24,7 @@ import { t } from "../i18n.js";
 import { actionRow } from "../components/actions.js";
 import { LINEAR_FREQ_C4_HZ } from "../../../core/engine/constants.js";
 import { toLayout } from "../zoom.js";
+import { showAlert } from "../components/modal.js";
 
 const MIN_LEN = 2, MAX_LEN = 0xffff, DEF_LEN = 256;
 const LANE_H = 200;   // canvas height PER CHANNEL
@@ -86,7 +87,7 @@ export function paintNewSample(store) {
       const pcm = reps > 1 ? tileBuffer(motif, reps) : motif;
       const nameBytes = new TextEncoder().encode(escapeNonAscii(name || t("wave.defaultName")));
       const plan = planSampleImport(store.doc, { nameBytes, pcm, rate: samplingRate, detune, loop: true });
-      if (plan.error) { alert(plan.error); return undefined; }
+      if (plan.error) { showAlert(plan.error); return undefined; }
       store.undo.apply(importBankOp(plan));
       return { firstSlot: plan.insts[0].destSlot, count: 1 };
     },

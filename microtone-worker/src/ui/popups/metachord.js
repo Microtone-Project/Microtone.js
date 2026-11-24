@@ -30,6 +30,7 @@ import { unescapeName } from "../../../core/format/names.js";
 import { t } from "../i18n.js";
 import { actionRow } from "../components/actions.js";
 import { CENTS_DIGITS } from "../spinmaps.js";
+import { showAlert } from "../components/modal.js";
 
 /** How long a preview rings before it releases itself. A stack of sustaining
  *  layers would otherwise drone until the dialog closed. */
@@ -77,7 +78,7 @@ export function showChordStack(store, metaSlot, layerIdx) {
   const layers = metaLayers(inst);
   if (layerIdx < 0 || layerIdx >= layers.length) return Promise.resolve(null);
   if (layers.length >= META_MAX_LAYERS) {
-    alert(t("meta.fullTable", { max: META_MAX_LAYERS }));
+    showAlert(t("meta.fullTable", { max: META_MAX_LAYERS }));
     return Promise.resolve(null);
   }
 

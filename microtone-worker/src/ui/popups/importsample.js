@@ -8,7 +8,7 @@ import { pickFile } from "../../storage/import-export.js";
 import { decodeAudioToFloat } from "../audiodecode.js";
 import { planExistingSampleAsInstrument } from "../../doc/bankmerge.js";
 import { importBankOp } from "../../doc/ops.js";
-import { showModal } from "../components/modal.js";
+import { showModal, showAlert } from "../components/modal.js";
 import { escapeNonAscii, unescapeName } from "../../../core/format/names.js";
 import { t } from "../i18n.js";
 
@@ -24,7 +24,7 @@ export async function importSampleAsInstrument(store) {
   try {
     decoded = await decodeAudioToFloat(new Uint8Array(await file.arrayBuffer()));
   } catch (err) {
-    alert(t("import.cantDecode", { name: file.name, err: err.message ?? err }));
+    showAlert(t("import.cantDecode", { name: file.name, err: err.message ?? err }));
     return null;
   }
 
@@ -58,7 +58,7 @@ export async function newInstrumentFromSample(store, sample) {
 
   const nameBytes = new TextEncoder().encode(escapeNonAscii(result.name || base));
   const plan = planExistingSampleAsInstrument(store.doc, sample, nameBytes);
-  if (plan.error) { alert(plan.error); return null; }
+  if (plan.error) { showAlert(plan.error); return null; }
   store.undo.apply(importBankOp(plan));
   return { firstSlot: plan.insts[0].destSlot, count: 1 };
 }

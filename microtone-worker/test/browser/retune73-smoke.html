@@ -39,7 +39,8 @@ const clickDismiss = (dlg) => dlg.querySelector(".modal-buttons .act-dismiss").c
   if (!M) { log("no __microtone"); log("RESULT: FAIL"); return; }
   const { store } = M;
   const doc = win.document;
-  win.alert = () => {};
+  // A notice from showAlert() (the app's alert) would cover the page: dismiss it.
+  new win.MutationObserver(() => { for (const d of win.document.querySelectorAll("dialog.modal-alert")) d.querySelector(".act-dismiss").click(); }).observe(win.document.body, { childList: true });
   const { surveyTuning, presetForNotation } = await import("../../core/tuning/pitchtables.js");
   // The song is format 3, so its grid is the tunings' 65536-TET view — the
   // one the app itself reads (presetForNotation with the document).

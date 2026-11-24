@@ -40,7 +40,7 @@ import {
 import { encodeFloatWav } from "../../audio/wavwrite.js";
 import { download } from "../../storage/import-export.js";
 import { sanitiseName } from "../../audio/stem-export.js";
-import { showModal } from "../components/modal.js";
+import { showModal, showAlert } from "../components/modal.js";
 import { themeColors } from "../theme.js";
 import { escapeNonAscii } from "../../../core/format/names.js";
 import { t } from "../i18n.js";
@@ -275,7 +275,7 @@ export function openSampleLab(store, { data, rate, name = "", sourceLabel = "", 
     }
     function applyRanged(op, count = 2) {
       const [a, b] = sel ? [sel.a, sel.b] : [0, buf.length];
-      if ((op === "crop" || op === "cut") && !sel) { alert(t("lab.needSel")); return; }
+      if ((op === "crop" || op === "cut") && !sel) { showAlert(t("lab.needSel")); return; }
       pushUndo();
       // Every channel gets the same treatment; only normalise is LINKED, so a
       // stereo take keeps its balance instead of being re-centred.
@@ -736,9 +736,9 @@ export function openSampleLab(store, { data, rate, name = "", sourceLabel = "", 
     // split flag on the waveform.
     function mergeSelection() {
       if (!chopOn) return;
-      if (!sel) { alert(t("lab.mergeNoSel")); return; }
+      if (!sel) { showAlert(t("lab.mergeNoSel")); return; }
       const inSel = (p) => p > sel.a && p < sel.b;
-      if (!splits.some(inSel)) { alert(t("lab.mergeNone")); return; }
+      if (!splits.some(inSel)) { showAlert(t("lab.mergeNone")); return; }
       pushUndo();
       splits = splits.filter((p) => !inSel(p));
       // a discarded chunk whose start was one of the dropped splits is gone
@@ -926,7 +926,7 @@ export function openSampleLab(store, { data, rate, name = "", sourceLabel = "", 
 
     function commit() {
       const kept = keptChunks();
-      if (kept.length === 0) { alert(t("lab.noChunks")); return; }
+      if (kept.length === 0) { showAlert(t("lab.noChunks")); return; }
       const nm = finalName();
       let clippedCount = 0;
       const items = kept.map((c, i) => {
@@ -940,7 +940,7 @@ export function openSampleLab(store, { data, rate, name = "", sourceLabel = "", 
       });
       if (clippedCount > 0 && !confirm(t("lab.clipWarn", { n: clippedCount }))) return;
       const plan = planMultiSampleImport(store.doc, items);
-      if (plan.error) { alert(plan.error); return; }
+      if (plan.error) { showAlert(plan.error); return; }
       store.undo.apply(importBankOp(plan));
       finish({ firstSlot: plan.insts[0].destSlot, count: plan.insts.length });
     }
@@ -954,7 +954,7 @@ export function openSampleLab(store, { data, rate, name = "", sourceLabel = "", 
     function commitReplace() {
       if (!replaceTarget) return;
       const kept = keptChunks();
-      if (kept.length !== 1) { alert(t("lab.replaceOneOnly")); return; }
+      if (kept.length !== 1) { showAlert(t("lab.replaceOneOnly")); return; }
       const c = kept[0];
       const r = renderChunk(c);
       if (r.clipped && !confirm(t("lab.clipWarn", { n: 1 }))) return;
@@ -966,7 +966,7 @@ export function openSampleLab(store, { data, rate, name = "", sourceLabel = "", 
         nameBytes: renamed ? enc.encode(escapeNonAscii(finalName())) : null,
         mapPos: (p) => (Math.max(c.a, Math.min(c.b, posMap(p))) - c.a) * r.ratio,
       });
-      if (plan.error) { alert(plan.error); return; }
+      if (plan.error) { showAlert(plan.error); return; }
       const users = replaceTarget.users.map((u) => "$" + u.toString(16).toUpperCase().padStart(2, "0")).join(" ");
       let ask = t("lab.replaceAsk", {
         frames: plan.len, rate: plan.rate, list: users, n: replaceTarget.users.length,

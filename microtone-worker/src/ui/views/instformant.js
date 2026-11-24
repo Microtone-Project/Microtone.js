@@ -51,6 +51,7 @@ import { unescapeName } from "../../../core/format/names.js";
 import { noteToStr } from "../notenames.js";
 import { t } from "../i18n.js";
 import { actionRow } from "../components/actions.js";
+import { showAlert } from "../components/modal.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const POOL_END = 0x800000;
@@ -532,7 +533,7 @@ export function renderFormantTab(view, inst) {
       const to = Number(v);
       if (to === chip) return;
       const plan = planSetFormantSource(doc, slot, to);
-      if (plan.error) { alert(plan.error); return; }
+      if (plan.error) { showAlert(plan.error); return; }
       view.store.undo.apply(importBankOp(plan));
     },
     [[t("fmt.sungFromGroup"), oplItems]]);

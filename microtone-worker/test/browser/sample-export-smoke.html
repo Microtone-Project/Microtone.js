@@ -67,7 +67,8 @@
           return w && w.__microtone?.store.doc ? w : null;
         }, 30000);
         const { store } = win.__microtone;
-        win.alert = () => {};
+        // A notice from showAlert() (the app's alert) would cover the page: dismiss it.
+        new win.MutationObserver(() => { for (const d of win.document.querySelectorAll("dialog.modal-alert")) d.querySelector(".act-dismiss").click(); }).observe(win.document.body, { childList: true });
         win.confirm = () => true;
         log("app loaded");
 

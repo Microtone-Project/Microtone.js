@@ -36,7 +36,8 @@ const numsOf = (dlg) => [...dlg.querySelectorAll(".nota-degrees tbody tr")].map(
   const M = win.__microtone;
   if (!M) { log("no __microtone"); log("RESULT: FAIL"); return; }
   const doc = win.document;
-  win.alert = () => {};   // a real alert blocks the headless page
+  // A notice from showAlert() (the app's alert) would cover the page: dismiss it.
+  new win.MutationObserver(() => { for (const d of win.document.querySelectorAll("dialog.modal-alert")) d.querySelector(".act-dismiss").click(); }).observe(win.document.body, { childList: true });
   win.confirm = () => true;
 
   doc.querySelector('#tabs button[data-view="project"]').click();

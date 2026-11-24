@@ -16,7 +16,7 @@
 
 import { ICON, fxGlyph } from "./icons.js";
 import { t } from "./i18n.js";
-import { showModal } from "./components/modal.js";
+import { showModal, showAlert } from "./components/modal.js";
 import { stepsMap, stepsCentsText } from "./spinmaps.js";
 import { COL_NOTE, COL_INST, COL_VOL, COL_PAN, COL_FX, COL_FX2, SUB_PAN } from "./edit.js";
 import { scaleVolumeAt, transformPanAt, changeInstrumentAt } from "../doc/patterntools.js";
@@ -283,7 +283,7 @@ async function interpolateTool(ctx) {
     leadKinds: lanes.map((_, k) => agreedKind(instruments, ctx.leadInsts?.[k] ?? [])),
   };
   const probe = planInterpolate(base);
-  if (probe.usable === 0) { alert(t("interp.needTwo")); return false; }
+  if (probe.usable === 0) { showAlert(t("interp.needTwo")); return false; }
   if (probe.stairs && !confirm(t("interp.stairsWarn"))) return false;
   const v = await interpolateDialog(kinds, ctx.scope);
   if (!v) return false;
@@ -297,7 +297,7 @@ async function interpolateTool(ctx) {
     collapse: probe.stairs,
     snapNote: (note) => Math.min(Math.max(note - gridDelta(note, preset), 0x20), 0xffff),
   });
-  if (!plan.writes.length) { alert(t("interp.nothing")); return false; }
+  if (!plan.writes.length) { showAlert(t("interp.nothing")); return false; }
   store.undo.apply(setCellsBytesOp(store.songIndex, plan.writes));
   return true;
 }

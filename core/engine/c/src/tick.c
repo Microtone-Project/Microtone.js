@@ -377,6 +377,37 @@ static int pitch_env_delta(const TaudVoice *v)
         : 0;
 }
 
+/* A layer child's (or FM operator's) place follows its parent's: the lane's
+ * pan and elevation, the note's, plus the child's own offset from the
+ * parent's layer. The tick pass does it every tick; the row pass also does
+ * it the moment a lane's row is done (te_sync_lane_children_position), or a
+ * pan column or effect on the row that triggered a metainstrument would
+ * reach its children a tick late, and they would sound that first tick at
+ * their patches' own pan and then glide across (engine spec §5.5). */
+void te_sync_child_position(TaudEngine *e, TaudVoice *bg, const TaudVoice *parent)
+{
+    bg->channelPan = parent->channelPan;
+    bg->rowPan = parent->rowPan;
+    bg->panbrelloOffset = parent->panbrelloOffset;
+    bg->panAzimuth = parent->panAzimuth;
+    bg->panElevation = parent->panElevation;
+    bg->notePan = te_bound_note_pan(e, parent->notePan + bg->layerRelPan);
+    bg->noteElevation = parent->noteElevation + bg->layerRelElevation;
+}
+
+void te_sync_lane_children_position(TaudEngine *e, int vi)
+{
+    const TaudVoice *lane = &e->voices[vi];
+    int i;
+    if (!lane->active) return;
+    for (i = 0; i < e->bgCount; i++) {
+        TaudVoice *bg = e->bg[i];
+        if (!bg->active || !bg->isLayerChild) continue;
+        if (bg->fmOperator ? bg->fmParent != lane : bg->sourceChannel != vi) continue;
+        te_sync_child_position(e, bg, lane);
+    }
+}
+
 /* What a row scheduled for a later tick of itself: the note cut (S $Cx), the
  * delayed note event (S $Dx) and the S $Dxny follow-up action. They fire at
  * the boundary that STARTS their tick, as a row's own events fire at the
@@ -775,13 +806,7 @@ void te_apply_tracker_tick(TaudEngine *e)
                 bg->channelPanSet = parent->channelPanSet;
                 bg->noteVolume = parent->noteVolume;
                 bg->rowVolume = parent->rowVolume;
-                bg->channelPan = parent->channelPan;
-                bg->rowPan = parent->rowPan;
-                bg->panbrelloOffset = parent->panbrelloOffset;
-                bg->panAzimuth = parent->panAzimuth;
-                bg->panElevation = parent->panElevation;
-                bg->notePan = te_bound_note_pan(e, parent->notePan + bg->layerRelPan);
-                bg->noteElevation = parent->noteElevation + bg->layerRelElevation;
+                te_sync_child_position(e, bg, parent);
             }
         }
         te_advance_envelope(e, bg, tickSec);

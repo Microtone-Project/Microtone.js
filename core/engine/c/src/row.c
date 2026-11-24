@@ -341,6 +341,10 @@ void te_apply_tracker_row(TaudEngine *e)
         if (e->ts_wideCells && row->effect2 != 0) {
             te_apply_effect_row(e, voice, vi, row->effect2, row->effectArg2, ext2, hasExt2);
         }
+
+        /* The row's pan reaches the lane's layer children now, not at the
+         * end of the tick they would otherwise sound at the wrong place. */
+        te_sync_lane_children_position(e, vi);
     }
 }
 

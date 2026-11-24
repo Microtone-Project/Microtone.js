@@ -26,7 +26,7 @@
 import { t } from "../i18n.js";
 import { actionRow } from "../components/actions.js";
 import { lampButton } from "../components/lampbutton.js";
-import { showModal } from "../components/modal.js";
+import { showModal, showAlert } from "../components/modal.js";
 import { pickFile, download } from "../../storage/import-export.js";
 import { setSectionOp } from "../../doc/ops.js";
 import { noteGlyph } from "../components/noteglyph.js";
@@ -377,7 +377,7 @@ export function showNotationMaker(store) {
       }, "autoSeq");
       mkBtn(t("nota.duplicate"), null, () => {
         const s = firstFreeSlot();
-        if (s < 0) { alert(t("nota.noFreeSlot")); return; }
+        if (s < 0) { showAlert(t("nota.noFreeSlot")); return; }
         const copy = deepCopyDef(def);
         copy.slot = s;
         defs.push(copy);
@@ -547,11 +547,11 @@ export function showNotationMaker(store) {
       try {
         def = sclToDef(parseScl(await file.text()), 0);
       } catch (e) {
-        alert(t("nota.sclError", { msg: e.message }));
+        showAlert(t("nota.sclError", { msg: e.message }));
         return;
       }
       const s = firstFreeSlot();
-      if (s < 0) { alert(t("nota.noFreeSlot")); return; }
+      if (s < 0) { showAlert(t("nota.noFreeSlot")); return; }
       def.slot = s;
       if (!def.name) def.name = file.name.replace(/\.scl$/i, "");
       defs.push(def);
@@ -562,11 +562,11 @@ export function showNotationMaker(store) {
       const file = await pickFile(".taudnot", t("dialog.taudnot"));
       if (!file) return;
       const list = parseTaudnot(new Uint8Array(await file.arrayBuffer()));
-      if (!list || list.length === 0) { alert(t("nota.taudnotError")); return; }
+      if (!list || list.length === 0) { showAlert(t("nota.taudnotError")); return; }
       for (const d of list) {
         // keep the stored slot when free, else relocate
         let s = defs.some((x) => x.slot === d.slot) ? firstFreeSlot() : d.slot;
-        if (s < 0) { alert(t("nota.noFreeSlot")); break; }
+        if (s < 0) { showAlert(t("nota.noFreeSlot")); break; }
         d.slot = s;
         defs.push(d);
         sel = defs.length - 1;

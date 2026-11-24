@@ -40,6 +40,7 @@ import {
   SNAP_IM_COMP_LVL, SNAP_IM_DEQ1_LVL, SNAP_IM_DEQ2_LVL, SNAP_IM_TSH1, SNAP_IM_EXPD_GR, SNAP_IM_EXPD_LVL,
   SNAP_EP_COUNT, SNAP_EP_ENTRIES, SNAP_EP_STRIDE, SNAP_EP_MAX, SNAP_EP_INST,
   SNAP_EP_VOL_IDX, SNAP_EP_PAN_IDX, SNAP_EP_PITCH_IDX, SNAP_EP_FILTER_IDX,
+  SNAP_EP_NOTE, SNAP_EP_EFF_VOL, SNAP_EP_SAMPLE_PTR, SNAP_EP_SAMPLE_LEN, SNAP_EP_SAMPLE_POS,
 } from "../worklet/protocol.js";
 import {
   NUM_VOICES, TOTAL_VOICES, JAM_VOICES, JAM_VOICE_BASE,
@@ -769,6 +770,38 @@ export class AudioSystem {
       const o = SNAP_EP_ENTRIES + k * SNAP_EP_STRIDE;
       if (f[o + SNAP_EP_INST] !== slot) continue;
       out.push({ idx: f[o + rel], t: f[o + rel + 1] });
+    }
+    return out;
+  }
+
+  /**
+   * Every voice sounding instrument `slot` ITSELF — the lanes' own, a layered
+   * instrument's layers, an FM rack's operators, NNA ghosts — as the Advanced
+   * tab draws them (item 353): `{ key, note, vol, samplePtr, sampleLength,
+   * samplePos, env(role) }`, `env` giving `{ idx, t }` for "vol" | "pan" |
+   * "pitch" | "filter". By the instrument the voice PLAYS, where
+   * getVoiceInstrument answers with the pattern's slot (a meta's). `key` is
+   * the entry's place in this snapshot's list: lanes first, then the others.
+   */
+  getSoundingVoices(slot) {
+    const f = this.snapshot;
+    const out = [];
+    const n = Math.min(f[SNAP_EP_COUNT] | 0, SNAP_EP_MAX);
+    for (let k = 0; k < n; k++) {
+      const o = SNAP_EP_ENTRIES + k * SNAP_EP_STRIDE;
+      if (f[o + SNAP_EP_INST] !== slot) continue;
+      out.push({
+        key: k,
+        note: f[o + SNAP_EP_NOTE],
+        vol: f[o + SNAP_EP_EFF_VOL],
+        samplePtr: f[o + SNAP_EP_SAMPLE_PTR],
+        sampleLength: f[o + SNAP_EP_SAMPLE_LEN],
+        samplePos: f[o + SNAP_EP_SAMPLE_POS],
+        env: (role) => {
+          const rel = ENV_PLAYHEAD_ROLE[role];
+          return rel === undefined ? null : { idx: f[o + rel], t: f[o + rel + 1] };
+        },
+      });
     }
     return out;
   }

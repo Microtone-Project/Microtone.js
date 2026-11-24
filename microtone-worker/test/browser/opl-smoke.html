@@ -36,7 +36,8 @@
           const w = frame.contentWindow;
           return w && w.__microtone?.store.doc ? w : null;
         }, 20000);
-        win.alert = (m) => log("alert: " + m);
+        // A notice from showAlert() (the app's alert): record it and dismiss it.
+        new win.MutationObserver(() => { for (const d of win.document.querySelectorAll("dialog.modal-alert")) { const m = d.querySelector("p")?.textContent ?? ""; d.querySelector(".act-dismiss").click(); ((m) => log("alert: " + m))(m); } }).observe(win.document.body, { childList: true });
         const { store, instrumentsView: iv, masterStrip } = win.__microtone;
         const doc = store.doc;
         const wdoc = win.document;

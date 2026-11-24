@@ -6,6 +6,25 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 
 ## Version 5.1.0 (2026-11-20)
 
+**Layered instruments sound where the pattern puts them**: a layered instrument whose layers have positions of their own no longer sweeps across the stereo field at the start of every note that the pattern pans.
+
+- Fixed: with a pan in the panning column, a note on a layered instrument started each of its layers at the layer's own position and then glided to the pattern's within a few milliseconds; the pan reached the layers a tick after it reached the lane. They now start where the pattern says, each keeping its distance from the others.
+- The same holds for `S $8xxx`, `X $eeaa` and `P $xy00` written on the note's own row.
+
+**A button to switch an instrument's filter off**: the Instruments view's Filter group has Switch filter off, which sets the cutoff to off in one step and one undo, in either filter mode.
+
+- The SoundFont cutoff slider now has an off stop past its highest frequency, as the ImpulseTracker one has always had at $FF, and its box reads off there instead of a frequency.
+- Fixed: the Advanced tab's zone map, envelope cursor and play-position marks showed nothing for an instrument sounding as a layer of a layered instrument or an operator of an FM rack; they follow every voice that plays it now.
+- The Advanced tab's per-zone overrides show their values in hex beside the boxes, as the instrument's own fields do: pan, note volume and the four vibrato settings.
+
+**Messages no longer stop the page**: every message the app shows — "Nothing to clean up", a file it cannot read, a full table — is now one of its own dialogs, in the theme, instead of the browser's alert box.
+
+- The rest of the page keeps going while one is open, the playhead and the meters included, and the browser's offer to prevent the page from creating more dialogs can no longer silence them.
+
+**Every scrollbar in the desktop app widens under the pointer**: the instrument lists of an import, the notation maker's degrees, the Motif editor and the project message now have the same scrollbar as the Samples list, which lingers and thickens when you reach for it, instead of a thin one that faded at once.
+
+- It holds for every scroller in the app, including the ones in dialogs. A browser draws its scrollbars its own way, and is unchanged.
+
 **Lyric instruments can sing gibberish**: a syllable of the lyrics can leave its sounds to be drawn — `*` a whole syllable, `(` its onset, `)` its coda — so a voice sings words that sound like a language and are not one.
 
 - Write `*` for a syllable drawn whole, `(` for a drawn onset and vowel, `)` for a drawn vowel and coda, or put the brackets around a vowel of your own: `(a`, `ka)`, `(a)`. They mix freely with written syllables, in IPA or X-SAMPA, and are on the IPA keyboard under Drawn.

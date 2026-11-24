@@ -30,7 +30,7 @@ import { importBankOp, cleanupBankOp } from "../../doc/ops.js";
 import {
   regionSpans, regionBytes, wholeMemoryRegion, POOL_SIZE, DEFAULT_RATE,
 } from "../../doc/sampleregions.js";
-import { showModal } from "../components/modal.js";
+import { showModal, showAlert } from "../components/modal.js";
 import { t } from "../i18n.js";
 import { setIconLabel } from "../icons.js";
 import { PoolPanel } from "./poolpanel.js";
@@ -343,7 +343,7 @@ export class SamplesView {
     if (!res) return;
     const nameBytes = new TextEncoder().encode(escapeNonAscii(res.name || suggested));
     const plan = planDuplicateSample(doc, s, nameBytes);
-    if (plan.error) { alert(plan.error); return; }
+    if (plan.error) { showAlert(plan.error); return; }
     this.store.undo.apply(importBankOp(plan));
     this.store.emit("edit", [{ kind: "bank" }]);
     this.refresh();
@@ -363,7 +363,7 @@ export class SamplesView {
     const doc = this.store.doc;
     if (!s || !doc) return;
     const plan = planDeleteSample(doc, s);
-    if (plan.error) { alert(plan.error); return; }
+    if (plan.error) { showAlert(plan.error); return; }
     const bodyParts = [];
     if (plan.clearedInsts.length > 0) {
       bodyParts.push(t("smp.delBodyDangling", {
@@ -422,7 +422,7 @@ export class SamplesView {
     if (!res) return;
     const plan = planRenameRegion(this.store.doc,
       region, new TextEncoder().encode(escapeNonAscii(res.name ?? "")));
-    if (plan.error) { alert(plan.error); return; }
+    if (plan.error) { showAlert(plan.error); return; }
     this.store.undo.apply(importBankOp(plan));
     this.store.emit("edit", [{ kind: "bank" }]);
     this.refresh();
@@ -435,7 +435,7 @@ export class SamplesView {
     if (!region || region.synthetic) return;
     const windows = this.regionWindows(region);
     const plan = planDeleteRegion(this.store.doc, region);
-    if (plan.error) { alert(plan.error); return; }
+    if (plan.error) { showAlert(plan.error); return; }
     const bodyParts = [t("rgn.delBodyFrees", {
       human: fmtSize(plan.samples.reduce((n, w) => n + w.bytes.length, 0)),
     })];
@@ -508,7 +508,7 @@ export class SamplesView {
     const plan = planRegionSlice(doc, src, {
       from: ptr - src.ptr, len, nameBytes, loop: !!res.loop,
     });
-    if (plan.error) { alert(plan.error); return; }
+    if (plan.error) { showAlert(plan.error); return; }
     this.store.undo.apply(importBankOp(plan));
     this.store.emit("edit", [{ kind: "bank" }]);
     this.refresh();

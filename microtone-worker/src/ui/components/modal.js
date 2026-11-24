@@ -4,6 +4,7 @@
 
 import { actionRow } from "./actions.js";
 import { mapSpinner } from "./spinner.js";
+import { t } from "../i18n.js";
 
 export function showModal({ title, fields = [], okLabel = "OK", body = null }) {
   return new Promise((resolve) => {
@@ -201,16 +202,19 @@ export function showModal({ title, fields = [], okLabel = "OK", body = null }) {
  * abandon, so it has neither Cancel nor a Proceed (actions.js, `dismiss`).
  * Resolves once it is closed, by the button, Enter or Esc.
  */
-export function showNotice({ title, body = null, okLabel = "OK", clickAnywhere = false }) {
+export function showNotice({ title, body = null, okLabel = "OK", clickAnywhere = false, className = "" }) {
   return new Promise((resolve) => {
     const dlg = document.createElement("dialog");
-    dlg.className = "modal modal-text";
-    const h = document.createElement("h3");
-    h.textContent = title;
-    dlg.appendChild(h);
+    dlg.className = `modal modal-text ${className}`.trim();
+    if (title != null) {
+      const h = document.createElement("h3");
+      h.textContent = title;
+      dlg.appendChild(h);
+    }
     if (body) {
       const p = document.createElement("p");
-      p.className = "dim";
+      // Under a heading the body is its gloss, dim; alone it is the message.
+      if (title != null) p.className = "dim";
       p.textContent = body;
       dlg.appendChild(p);
     }
@@ -228,4 +232,15 @@ export function showNotice({ title, body = null, okLabel = "OK", clickAnywhere =
     dlg.showModal();
     dismiss.focus();
   });
+}
+
+/**
+ * The app's `alert()`: `message` in a notice with one OK, resolved when it is
+ * dismissed. Never `window.alert()` — it stops the page (the audio's main
+ * thread with it) for something nobody has to answer, and after a few a
+ * browser offers to suppress the page's dialogs, which would silence every
+ * later message. Nothing waits for it unless it awaits the promise.
+ */
+export function showAlert(message) {
+  return showNotice({ title: null, body: String(message), okLabel: t("common.ok"), className: "modal-alert" });
 }

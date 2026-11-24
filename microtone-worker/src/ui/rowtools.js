@@ -15,7 +15,7 @@
 
 import { ICON } from "./icons.js";
 import { t } from "./i18n.js";
-import { showModal } from "./components/modal.js";
+import { showModal, showAlert } from "./components/modal.js";
 import {
   planInsertRows, planDeleteRows, planInsertCue, planSplitCue, planCutCue,
   planLengthenSong, planShortenSong, splitPointAt,
@@ -136,7 +136,7 @@ const planOpts = (store) => ({
 /** Apply a plan as one undo step. `null` means the planner refused; `changed:
  *  false` means it would have been a no-op. */
 function applyPlan(store, plan, failKey) {
-  if (!plan) { alert(t(failKey)); return false; }
+  if (!plan) { showAlert(t(failKey)); return false; }
   if (!plan.changed) return false;
   store.undo.apply(remapPatternsOp(
     store.songIndex, plan.patterns, plan.cues, encodeNameTable(plan.pNam)));

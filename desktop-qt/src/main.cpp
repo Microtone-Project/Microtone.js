@@ -273,6 +273,15 @@ int main(int argc, char **argv) {
   // setting). Plain `OverlayScrollbar` does nothing on either. Joined to an
   // --enable-features already in the variable: Chromium keeps only the last.
   flags = withFeatureEnabled(flags, "FluentOverlayScrollbar");
+  // …and the same scrollbar on EVERY scroller. Only a composited scroller
+  // gets the compositor's one (lingers, thickens under the pointer); one
+  // Chromium paints itself stays thin and fades at once. Chromium declines
+  // to composite a scroller whose ground is not opaque, or that it cannot
+  // prove opaque, to keep subpixel text — a textarea, a list in a dialog,
+  // the Motif editor (transparent over its highlighting) — so the Samples
+  // list had the one and the notation maker's degrees the other. This
+  // composites them all; their text is then greyscale-antialiased.
+  if (!flags.contains("--enable-prefer-compositing-to-lcd-text")) flags += " --enable-prefer-compositing-to-lcd-text";
   qputenv("QTWEBENGINE_CHROMIUM_FLAGS", flags.trimmed());
 
   // The native audio host: the engine on the device's own callback. Without

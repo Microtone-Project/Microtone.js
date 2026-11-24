@@ -33,7 +33,7 @@ import { FM_MAX_OPERATORS, fmProgramOf, fmBudget, fmCanAddOperator } from "../..
 import { escapeNonAscii, unescapeName } from "../../../core/format/names.js";
 import { t } from "../i18n.js";
 import { actionRow } from "../components/actions.js";
-import { showNotice } from "../components/modal.js";
+import { showNotice, showAlert } from "../components/modal.js";
 
 const hex3 = (n) => "$" + n.toString(16).toUpperCase().padStart(3, "0");
 
@@ -405,7 +405,7 @@ function createFormant(store, lyric = false) {
     if (chip === undefined) return null;
     const record = defaultFormantRecord(null, 0, lo, hi);
     const plan = planCreateFormant(doc, record, name, chip);
-    if (plan.error) { alert(plan.error); return null; }
+    if (plan.error) { showAlert(plan.error); return null; }
     store.undo.apply(withLyrics(plan, record, machine));
     return { firstSlot: plan.metaSlot, count: 1 };
   };
@@ -429,7 +429,7 @@ function createFormant(store, lyric = false) {
   if (top === null) return fromChip(lo, hi, machine) ?? refuse("newkind.noSource");
   const record = defaultFormantRecord(top.cand, top.c4Rate, lo, hi);
   const plan = planCreateOpl(doc, record, name);
-  if (plan.error) { alert(plan.error); return null; }
+  if (plan.error) { showAlert(plan.error); return null; }
   store.undo.apply(withLyrics(plan, record, machine));
   return { firstSlot: plan.metaSlot, count: 1 };
 }
@@ -440,7 +440,7 @@ function createFormant(store, lyric = false) {
  */
 function createOpl(store) {
   const plan = planCreateOpl(store.doc, defaultOplRecord(), "OPL");
-  if (plan.error) { alert(plan.error); return null; }
+  if (plan.error) { showAlert(plan.error); return null; }
   store.undo.apply(importBankOp(plan));
   return { firstSlot: plan.metaSlot, count: 1 };
 }
@@ -451,7 +451,7 @@ function createOpl(store) {
  */
 function createPsg(store) {
   const plan = planCreateOpl(store.doc, defaultPsgRecord(), "PSG");
-  if (plan.error) { alert(plan.error); return null; }
+  if (plan.error) { showAlert(plan.error); return null; }
   store.undo.apply(importBankOp(plan));
   return { firstSlot: plan.metaSlot, count: 1 };
 }
@@ -519,7 +519,7 @@ export function showNewMeta(store) {
   if (!doc) return Promise.resolve(null);
   const candidates = layerCandidates(doc);
   if (candidates.length === 0) {
-    alert(t("newmeta.noCandidates"));
+    showAlert(t("newmeta.noCandidates"));
     return Promise.resolve(null);
   }
   return pickerModal(store, {
@@ -544,12 +544,12 @@ export function showAddMetaLayers(store, metaSlot) {
   if (!meta?.isMeta) return Promise.resolve(null);
   const existing = metaLayers(meta).length;
   if (existing >= META_MAX_LAYERS) {
-    alert(t("meta.fullTable", { max: META_MAX_LAYERS }));
+    showAlert(t("meta.fullTable", { max: META_MAX_LAYERS }));
     return Promise.resolve(null);
   }
   const candidates = layerCandidates(doc);
   if (candidates.length === 0) {
-    alert(t("newmeta.noCandidates"));
+    showAlert(t("newmeta.noCandidates"));
     return Promise.resolve(null);
   }
   return pickerModal(store, {
@@ -694,12 +694,12 @@ export function showAddFmOperators(store, metaSlot) {
   const existing = metaLayers(meta).length;
   const words = fmProgramOf(meta).length;
   if (!fmCanAddOperator(new Array(existing), new Array(words))) {
-    alert(t("fm.fullRack", { max: FM_MAX_OPERATORS }));
+    showAlert(t("fm.fullRack", { max: FM_MAX_OPERATORS }));
     return Promise.resolve(null);
   }
   const candidates = operatorCandidates(doc);
   if (candidates.length === 0) {
-    alert(t("newfm.noCandidates"));
+    showAlert(t("newfm.noCandidates"));
     return Promise.resolve(null);
   }
   return pickerModal(store, {
