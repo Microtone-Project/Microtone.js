@@ -1178,37 +1178,42 @@ export class MasterStrip {
     if (!audio) return;
     const spatial = this.model() === SURROUND_SPATIAL;
     const n = Math.min(audio.channelCount(), 64);
+    // A dot per SOURCE (item 353): each layer of a layered note where it is,
+    // never the lane's loudness-weighted average of them.
+    const srcs = this._srcScratch ??= [];
     for (let ch = 0; ch < n; ch++) {
       if (!audio.getVoiceActive(ch)) continue;
-      const vol = audio.getVoiceEffectiveVolume(ch);
-      if (vol <= 0.002) continue;
-      const az = audio.getVoiceAzimuth(ch);
-      const el = audio.getVoiceElevation(ch);
-      // Orthographic projection of the source onto the dial's plane: the unit
-      // direction the engine has it at, with the axis we are looking ALONG
-      // dropped. +x front, +y left, +z up (spatial.js), and the screen mapping
-      // is the one the matching Goniometer view uses.
-      directionFromAngles(az, el, dirScratch);
-      let x, y;
-      if (view === "front") {        // left-right against height
-        x = cx - dirScratch[1] * r;
-        y = cy - dirScratch[2] * r;
-      } else if (view === "side") {  // front-back against height, front to the left
-        x = cx - dirScratch[0] * r;
-        y = cy - dirScratch[2] * r;
-      } else {                       // top: left-right against front-back
-        x = cx - dirScratch[1] * r;
-        y = cy - dirScratch[0] * r;
-      }
-      const dotR = 1.5 + 4 * Math.min(vol * 2, 1);
-      // The height cue belongs to the TOP view alone — that is the one that
-      // cannot tell up from down. On the other two, height IS the vertical axis.
-      if (spatial && view === "top") paintSpatialDot(ctx, x, y, el, r, dotR, C.accent2);
-      else {
-        ctx.fillStyle = C.accent2;
-        ctx.beginPath();
-        ctx.arc(x, y, dotR, 0, Math.PI * 2);
-        ctx.fill();
+      for (const src of audio.getLaneSources(ch, srcs)) {
+        const vol = src.loud;
+        if (vol <= 0.002) continue;
+        const az = src.az;
+        const el = src.el;
+        // Orthographic projection of the source onto the dial's plane: the unit
+        // direction the engine has it at, with the axis we are looking ALONG
+        // dropped. +x front, +y left, +z up (spatial.js), and the screen mapping
+        // is the one the matching Goniometer view uses.
+        directionFromAngles(az, el, dirScratch);
+        let x, y;
+        if (view === "front") {        // left-right against height
+          x = cx - dirScratch[1] * r;
+          y = cy - dirScratch[2] * r;
+        } else if (view === "side") {  // front-back against height, front to the left
+          x = cx - dirScratch[0] * r;
+          y = cy - dirScratch[2] * r;
+        } else {                       // top: left-right against front-back
+          x = cx - dirScratch[1] * r;
+          y = cy - dirScratch[0] * r;
+        }
+        const dotR = 1.5 + 4 * Math.min(vol * 2, 1);
+        // The height cue belongs to the TOP view alone — that is the one that
+        // cannot tell up from down. On the other two, height IS the vertical axis.
+        if (spatial && view === "top") paintSpatialDot(ctx, x, y, el, r, dotR, C.accent2);
+        else {
+          ctx.fillStyle = C.accent2;
+          ctx.beginPath();
+          ctx.arc(x, y, dotR, 0, Math.PI * 2);
+          ctx.fill();
+        }
       }
     }
   }

@@ -333,7 +333,20 @@ export const SNAP_EP_EFF_VOL = 10;
 export const SNAP_EP_SAMPLE_PTR = 11;
 export const SNAP_EP_SAMPLE_LEN = 12;
 export const SNAP_EP_SAMPLE_POS = 13;
-export const SNAP_EP_STRIDE = 14;
+// …and where it sounds, one source at a time: the lane it sounds for (a lane's
+// own voice and that lane's layer children; -1 for an NNA ghost or an FM
+// operator, which carries no place of its own), its pan byte, azimuth and
+// elevation, and how loud the mixer makes it (envelope × fadeout × note volume
+// × fader × the layer's mix gain × its zone's attenuation). The lane block's
+// SNAP_V_EFF_PAN / AZIMUTH are a loudness-weighted MEAN of a layered note's
+// sources; these are the sources themselves, so a view can draw each layer
+// where it is (getLaneSources).
+export const SNAP_EP_LANE = 14;
+export const SNAP_EP_PAN = 15;
+export const SNAP_EP_AZIMUTH = 16;
+export const SNAP_EP_ELEVATION = 17;
+export const SNAP_EP_LOUD = 18;
+export const SNAP_EP_STRIDE = 19;
 export const SNAP_EP_MAX = TOTAL_VOICES + MAX_BG_VOICES;
 
 export const SNAP_FLOATS = SNAP_EP_ENTRIES + SNAP_EP_MAX * SNAP_EP_STRIDE;

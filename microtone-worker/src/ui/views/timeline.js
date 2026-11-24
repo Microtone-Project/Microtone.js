@@ -428,36 +428,46 @@ export class TimelineView {
     ctx.fillRect(cx - 1, cy - 1, 2, 2);
     if (!audio || !audio.getVoiceActive(ch)) return;
 
-    const az = audio.getVoiceAzimuth(ch);
-    const el = audio.getVoiceElevation(ch);
-    const k = Math.cos((el * Math.PI) / (2 * ELEVATION_QUARTER));
-    const rad = ((az - 128) * 2 * Math.PI) / AZIMUTH_TURN;
-    const dx = Math.sin(rad) * k * r;
-    const dy = -Math.cos(rad) * k * r;
-    const vol = audio.getVoiceEffectiveVolume(ch);
-    ctx.strokeStyle = C.meterBg;
-    ctx.beginPath();
-    ctx.moveTo(cx, cy);
-    ctx.lineTo(cx + dx, cy + dy);
-    ctx.stroke();
-    const dotR = 2 + 2.5 * Math.min(vol * 2, 1);
-    if (spatialSong) {
-      // Height cue (#998.6): the dot grows as it rises and casts a shadow that
-      // slides away from the light — the dial alone cannot tell up from down.
-      paintSpatialDot(ctx, cx + dx, cy + dy, el, r, dotR, C.accent2);
-    } else {
-      ctx.fillStyle = C.accent2;
+    // One dot per SOURCE (item 353): the lane's voice and each layer of a
+    // layered note, where each one is, sized by how loud each one is. Never
+    // their average, which slides while layers attack at different speeds
+    // although none of them moves.
+    const srcs = audio.getLaneSources(ch, this._srcScratch ??= []);
+    for (const src of srcs) {
+      const k = Math.cos((src.el * Math.PI) / (2 * ELEVATION_QUARTER));
+      const rad = ((src.az - 128) * 2 * Math.PI) / AZIMUTH_TURN;
+      const dx = Math.sin(rad) * k * r;
+      const dy = -Math.cos(rad) * k * r;
+      ctx.strokeStyle = C.meterBg;
       ctx.beginPath();
-      ctx.arc(cx + dx, cy + dy, dotR, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(cx + dx, cy + dy);
+      ctx.stroke();
     }
-    // The dot's shadow on the left/right line — the same number the pan strip
-    // above is showing, so the two readings visibly belong together.
-    ctx.fillStyle = C.dim;
-    ctx.fillRect(cx + dx - 0.5, cy - 2, 1, 4);
+    for (const src of srcs) {
+      const k = Math.cos((src.el * Math.PI) / (2 * ELEVATION_QUARTER));
+      const rad = ((src.az - 128) * 2 * Math.PI) / AZIMUTH_TURN;
+      const dx = Math.sin(rad) * k * r;
+      const dy = -Math.cos(rad) * k * r;
+      const dotR = 2 + 2.5 * Math.min(src.loud * 2, 1);
+      if (spatialSong) {
+        // Height cue (#998.6): the dot grows as it rises and casts a shadow that
+        // slides away from the light — the dial alone cannot tell up from down.
+        paintSpatialDot(ctx, cx + dx, cy + dy, src.el, r, dotR, C.accent2);
+      } else {
+        ctx.fillStyle = C.accent2;
+        ctx.beginPath();
+        ctx.arc(cx + dx, cy + dy, dotR, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // The dot's shadow on the left/right line — the same number the pan strip
+      // above is showing, so the two readings visibly belong together.
+      ctx.fillStyle = C.dim;
+      ctx.fillRect(cx + dx - 0.5, cy - 2, 1, 4);
+    }
 
     if (spatialSong) {
-      // Height bar: centre line = ear level, up = above.
+      // Height bar: centre line = ear level, up = above. A tick per source.
       const bx = x + colW - 10;
       const half = r;
       ctx.strokeStyle = C.border;
@@ -467,9 +477,11 @@ export class TimelineView {
       ctx.moveTo(bx - 2, cy);
       ctx.lineTo(bx + 2, cy);
       ctx.stroke();
-      const ey = cy - (el / ELEVATION_QUARTER) * half;
       ctx.fillStyle = C.accent2;
-      ctx.fillRect(bx - 3, ey - 1, 6, 2);
+      for (const src of srcs) {
+        const ey = cy - (src.el / ELEVATION_QUARTER) * half;
+        ctx.fillRect(bx - 3, ey - 1, 6, 2);
+      }
     }
   }
 
@@ -1863,14 +1875,17 @@ export class TimelineView {
       // 60° up reads half-left and one directly behind reads centre.
       ctx.fillStyle = C.meterBg;
       ctx.fillRect(barX, PAN_Y + 2, barW, 3);
-      let pan = 0.5;
-      if (audio) {
-        pan = surroundSong
-          ? 0.5 + 0.5 * lateralProjection(audio.getVoiceAzimuth(ch), audio.getVoiceElevation(ch))
-          : audio.getVoiceEffectivePan(ch) / 255;
-      }
+      // A mark per source (the lane's voice and each layer of the note), as
+      // the radar below has a dot per source; nothing sounding, no mark.
       ctx.fillStyle = C.accent2;
-      ctx.fillRect(barX + pan * (barW - 3), PAN_Y, 3, 7);
+      if (audio && audio.getVoiceActive(ch)) {
+        for (const src of audio.getLaneSources(ch, this._srcScratch ??= [])) {
+          const pan = surroundSong ? 0.5 + 0.5 * lateralProjection(src.az, src.el) : src.pan / 255;
+          ctx.fillRect(barX + pan * (barW - 3), PAN_Y, 3, 7);
+        }
+      } else {
+        ctx.fillRect(barX + 0.5 * (barW - 3), PAN_Y, 3, 7);
+      }
 
       // ── the LANE axis (item 198.3) ──
       // Everything above is where the sounding NOTE ended up; these two are

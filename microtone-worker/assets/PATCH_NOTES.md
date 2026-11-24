@@ -10,6 +10,7 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 
 - Fixed: with a pan in the panning column, a note on a layered instrument started each of its layers at the layer's own position and then glided to the pattern's within a few milliseconds; the pan reached the layers a tick after it reached the lane. They now start where the pattern says, each keeping its distance from the others.
 - The same holds for `S $8xxx`, `X $eeaa` and `P $xy00` written on the note's own row.
+- The lane headers' pan strip and surround dial, the master strip's Blobs and the Panner now show a mark for each layer of a layered note, where that layer sits and sized by how loud it is. They used to show one mark at the layers' average, which slid across while the layers faded in at different speeds although none of them moved.
 
 **A button to switch an instrument's filter off**: the Instruments view's Filter group has Switch filter off, which sets the cutoff to off in one step and one undo, in either filter mode.
 

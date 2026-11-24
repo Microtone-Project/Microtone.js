@@ -29,8 +29,27 @@ static float voice_note(const TaudVoice *v)
     return (float)(js_toint32(v->renderPitch > 0 ? v->renderPitch : v->noteVal) & 0xffff);
 }
 
+/* The lane a voice sounds for, as a source of its own: a lane's own voice,
+ * or a layer child of one; -1 for an NNA ghost, and for an FM operator, which
+ * the rack mixes as one signal (engine spec §5.5.1). */
+static int source_lane(const TaudEngine *e, const TaudVoice *v)
+{
+    if (v >= e->voices && v < e->voices + TOTAL_VOICES) return (int)(v - e->voices);
+    if (v->isLayerChild && !v->fmOperator && v->sourceChannel >= 0 && v->sourceChannel < TOTAL_VOICES &&
+        e->voices[v->sourceChannel].active) return v->sourceChannel;
+    return -1;
+}
+
+/* How loud the mixer makes a voice before the song's own gains: the meter's
+ * reading times the layer's mix gain and its zone's attenuation. */
+static float voice_loudness(const TaudVoice *v)
+{
+    double l = (double)voice_eff_volume(v) * v->layerMixGain * v->activeAttenGain;
+    return (float)(l < 0 ? 0 : l > 1 ? 1 : l);
+}
+
 /* One voice's envelope-playhead entry at index n, if it is sounding. */
-static int put_env_playhead(float *f, int n, const TaudVoice *v)
+static int put_env_playhead(const TaudEngine *e, float *f, int n, const TaudVoice *v)
 {
     float *o;
     if (!v->active || n >= SNAP_EP_MAX) return n;
@@ -49,6 +68,12 @@ static int put_env_playhead(float *f, int n, const TaudVoice *v)
     o[SNAP_EP_SAMPLE_PTR] = (float)v->activeSamplePtr;
     o[SNAP_EP_SAMPLE_LEN] = (float)v->activeSampleLength;
     o[SNAP_EP_SAMPLE_POS] = (float)v->samplePos;
+    o[SNAP_EP_LANE] = (float)source_lane(e, v);
+    o[SNAP_EP_PAN] = (float)te_voice_pan_byte(v);
+    /* A stereo song reports its pan byte on the front arc, as the lane block. */
+    o[SNAP_EP_AZIMUTH] = (float)(e->ts_surroundModel == SURROUND_STEREO ? te_voice_pan_byte(v) : te_voice_azimuth(v));
+    o[SNAP_EP_ELEVATION] = (float)(e->ts_surroundModel == SURROUND_SPATIAL ? te_voice_elevation(v) : 0.0);
+    o[SNAP_EP_LOUD] = voice_loudness(v);
     return n + 1;
 }
 
@@ -129,8 +154,8 @@ void te_fill_snapshot(TaudEngine *e, float *f)
     /* Envelope playheads: lane voices first, then the background voices (FM
      * operators, layers, NNA ghosts), each tagged with the instrument it is
      * actually playing. */
-    for (vi = 0; vi < SNAP_MAX_VOICES; vi++) n = put_env_playhead(f, n, &e->voices[vi]);
-    for (i = 0; i < e->bgCount; i++) n = put_env_playhead(f, n, e->bg[i]);
+    for (vi = 0; vi < SNAP_MAX_VOICES; vi++) n = put_env_playhead(e, f, n, &e->voices[vi]);
+    for (i = 0; i < e->bgCount; i++) n = put_env_playhead(e, f, n, e->bg[i]);
     f[SNAP_EP_COUNT] = (float)n;
     /* The Mixing tab's meters, one block per seat. */
     te_fill_imix_meters(e, f);

@@ -473,6 +473,7 @@ export function showPanner(store, target) {
 
     /** Dots for every sounding lane, from the engine's own snapshot. `r` is
      *  the dial radius — the height cue's shadow is measured in those units. */
+    const srcScratch = [];
     function paintLiveVoices(ctx, cx, cy, r, place) {
       const audio = store.audio;
       if (!audio) return;
@@ -485,26 +486,35 @@ export function showPanner(store, target) {
       for (let ch = 0; ch < Math.min(chans, MAX_VOICES); ch++) {
         if (ownOnly && ch !== target.channel) continue;
         if (!audio.getVoiceActive(ch)) continue;
-        const vol = audio.getVoiceEffectiveVolume(ch);
-        if (vol <= 0.002) continue;
-        place(audio.getVoiceAzimuth(ch), audio.getVoiceElevation(ch), off);
-        const x = cx + off[0] * r;
-        const y = cy + off[1] * r;
-        const isCursor = target !== null && ch === target.channel;
-        const fill = isCursor ? c.accent2 : c.live;
-        const dotR = 4 + 5 * Math.min(vol * 2, 1);
-        ctx.globalAlpha = 0.35 + 0.65 * Math.min(vol * 2, 1);
-        if (spatial) {
-          paintSpatialDot(ctx, x, y, audio.getVoiceElevation(ch), r, dotR, fill);
-        } else {
-          ctx.fillStyle = fill;
-          ctx.beginPath();
-          ctx.arc(x, y, dotR, 0, Math.PI * 2);
-          ctx.fill();
+        // A dot per SOURCE (item 353): each layer of a layered note where it
+        // is, never the lane's loudness-weighted average; the lane number goes
+        // on the loudest.
+        const srcs = audio.getLaneSources(ch, srcScratch);
+        let label = null;
+        for (const src of srcs) {
+          const vol = src.loud;
+          if (vol <= 0.002) continue;
+          place(src.az, src.el, off);
+          const x = cx + off[0] * r;
+          const y = cy + off[1] * r;
+          const isCursor = target !== null && ch === target.channel;
+          const fill = isCursor ? c.accent2 : c.live;
+          const dotR = 4 + 5 * Math.min(vol * 2, 1);
+          ctx.globalAlpha = 0.35 + 0.65 * Math.min(vol * 2, 1);
+          if (spatial) {
+            paintSpatialDot(ctx, x, y, src.el, r, dotR, fill);
+          } else {
+            ctx.fillStyle = fill;
+            ctx.beginPath();
+            ctx.arc(x, y, dotR, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          ctx.globalAlpha = 1;
+          if (label === null || vol > label.vol) label = { x, y, vol };
         }
-        ctx.globalAlpha = 1;
+        if (label === null) continue;
         ctx.fillStyle = c.fg;
-        ctx.fillText(String(ch + 1), x, y - 15);
+        ctx.fillText(String(ch + 1), label.x, label.y - 15);
       }
     }
 

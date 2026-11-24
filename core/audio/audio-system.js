@@ -41,6 +41,7 @@ import {
   SNAP_EP_COUNT, SNAP_EP_ENTRIES, SNAP_EP_STRIDE, SNAP_EP_MAX, SNAP_EP_INST,
   SNAP_EP_VOL_IDX, SNAP_EP_PAN_IDX, SNAP_EP_PITCH_IDX, SNAP_EP_FILTER_IDX,
   SNAP_EP_NOTE, SNAP_EP_EFF_VOL, SNAP_EP_SAMPLE_PTR, SNAP_EP_SAMPLE_LEN, SNAP_EP_SAMPLE_POS,
+  SNAP_EP_LANE, SNAP_EP_PAN, SNAP_EP_AZIMUTH, SNAP_EP_ELEVATION, SNAP_EP_LOUD,
 } from "../worklet/protocol.js";
 import {
   NUM_VOICES, TOTAL_VOICES, JAM_VOICES, JAM_VOICE_BASE,
@@ -802,6 +803,28 @@ export class AudioSystem {
           return rel === undefined ? null : { idx: f[o + rel], t: f[o + rel + 1] };
         },
       });
+    }
+    return out;
+  }
+
+  /**
+   * Where lane `vi`'s note SOUNDS, one entry per source: the lane's own voice
+   * and each of its layers (a layered instrument's children; not an FM rack's
+   * operators, which it mixes as one signal, nor NNA ghosts). `{ pan, az, el,
+   * loud }`: the pan byte, the 512-unit azimuth (a stereo song: the pan byte),
+   * the elevation, and how loud the mixer makes it, 0…1. Unlike
+   * getVoiceEffectivePan / getVoiceAzimuth, which average a layered note's
+   * sources by loudness — and so slide while two layers attack at different
+   * speeds although neither moves — nothing here is averaged. Fills `out`.
+   */
+  getLaneSources(vi, out = []) {
+    out.length = 0;
+    const f = this.snapshot;
+    const n = Math.min(f[SNAP_EP_COUNT] | 0, SNAP_EP_MAX);
+    for (let k = 0; k < n; k++) {
+      const o = SNAP_EP_ENTRIES + k * SNAP_EP_STRIDE;
+      if (f[o + SNAP_EP_LANE] !== vi) continue;
+      out.push({ pan: f[o + SNAP_EP_PAN], az: f[o + SNAP_EP_AZIMUTH], el: f[o + SNAP_EP_ELEVATION], loud: f[o + SNAP_EP_LOUD] });
     }
     return out;
   }
