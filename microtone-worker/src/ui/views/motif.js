@@ -261,7 +261,7 @@ export class MotifView {
   }
 
   async openFile() {
-    const file = await pickFile(".tml,text/plain");
+    const file = await pickFile(".tml,text/plain", t("dialog.tml"));
     if (!file) return;
     await this.openSource(file.name, await file.text(), { build: false });
   }
@@ -818,7 +818,7 @@ export class MotifView {
     if (packs.has(key)) return packs.get(key);
     const ok = await showModal({ title: t("motif.packTitle"), body: t("motif.packAsk", { name }), okLabel: t("motif.sfPick") });
     if (!ok) return null;
-    const file = await pickFile(".tsii,.taud");
+    const file = await pickFile(".tsii,.taud", t("dialog.pack"));
     if (!file) return null;
     const bytes = new Uint8Array(await file.arrayBuffer());
     packs.set(key, bytes);

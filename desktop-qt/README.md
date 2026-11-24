@@ -1009,6 +1009,38 @@ whichever is there.
     without `WAYLAND_DISPLAY`: services it activates (the portal backends)
     take the bus's environment, and otherwise put their dialogs on the real
     desktop.
+  - **Every dialog has a title.** A portal dialog without one is titled with
+    the portal's program name ("xdg-desktop-portal-kde"). QtWebEngine's own
+    picker passes none and cannot know which button asked, so the page says
+    it first. `storage/import-export.js` `withDialogTitle(kind, title, open)`
+    POSTs `{kind, title, lang}` to `/api/desktop/dialog` (the shell's
+    `dialogs` service), then opens the picker. Awaiting that is safe: a
+    picker needs the click's user activation, which lasts five seconds. In a
+    browser it opens at once, inside the click. `AppPage::chooseFiles`
+    (shell.cpp) replaces Qt's picker with the same `QFileDialog` calls and
+    the same filters, plus that title. A download's Save dialog takes the
+    page's word too; by default it says "Save" in the page's language. A
+    word is good for ten seconds and for one dialog of its kind. The titles
+    are the `dialog.*` strings (en, ko, es), one per picker:
+    `pickFile(accept, title)` and `pickFiles(accept, title)`. A new picker
+    names its own.
+- **The window's icon** (`main.cpp`, `:/icons/microtone-{32,128,256}.png`,
+  Linux only). On X11 it is `_NET_WM_ICON`. On Wayland the compositor
+  otherwise looks up the app id's desktop entry (`cc.microtone.qt`). The
+  .deb and .rpm install that entry; an AppImage does not, so it showed
+  Wayland's generic icon. Qt's xdg-shell plugin sends the icon with the
+  window (`xdg-toplevel-icon-v1`, which KWin has had since 6.1). GNOME has
+  no such protocol, so there an AppImage still needs an integrator
+  (AppImageLauncher, Gear Lever) to install its entry.
+  - Tried on 2026-11-24 on Xvfb with the 6.11.3 tree and the working tree's
+    page:
+    - Open… went to the portal as "Open a project or module", Import MIDI…
+      as "Import a MIDI file", and a download as "Save".
+    - In Korean those were 프로젝트나 모듈 열기 and 저장, and the filter read
+      허용되는 형식.
+    - KDE's dialog showed the title and the app's icon.
+    - On a private headless KWin, `WAYLAND_DEBUG=client` shows
+      `xdg_toplevel_icon_manager_v1.set_icon` with three buffers.
 - **Chromium's sandbox needs unprivileged user namespaces.** Ubuntu 23.10 and
   later have AppArmor refuse them to a program without a profile of its own,
   and an AppImage can bring none; a page would then never render. The app

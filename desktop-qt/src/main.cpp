@@ -23,6 +23,8 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QIcon>
+#include <QJsonObject>
 #include <QLocalServer>
 #include <QLocalSocket>
 #include <QMessageBox>
@@ -194,6 +196,19 @@ int main(int argc, char **argv) {
   QApplication::setApplicationName(QStringLiteral("Microtone"));
   QApplication::setApplicationVersion(QStringLiteral(MICROTONE_VERSION));
   QGuiApplication::setDesktopFileName(QStringLiteral("cc.microtone.qt"));
+#ifdef Q_OS_LINUX
+  // The windows' icon. X11 reads it from the window; on Wayland the
+  // compositor looks up the app id's desktop entry, which an AppImage has
+  // not installed, so the icon goes with the window (xdg-toplevel-icon-v1:
+  // KWin 6.1 on, Qt's xdg-shell plugin). GNOME has no such protocol; there
+  // the entry an installed package (or an AppImage integrator) puts in
+  // place is the only way.
+  {
+    QIcon icon;
+    for (const char *size : {"32", "128", "256"}) icon.addFile(QStringLiteral(":/icons/microtone-%1.png").arg(QLatin1String(size)));
+    QApplication::setWindowIcon(icon);
+  }
+#endif
 
   QCommandLineParser cli;
   cli.setApplicationDescription(QStringLiteral("Microtone"));
@@ -280,9 +295,14 @@ int main(int argc, char **argv) {
               nativeEngine.isEmpty() ? QJsonObject() : native.status(),
               QJsonObject{{QStringLiteral("files"), files.describe()},
                           {QStringLiteral("online"), online.describe()},
-                          {QStringLiteral("updates"), updater.describe()}});
+                          {QStringLiteral("updates"), updater.describe()},
+                          // storage/import-export.js: a picker's title, said before it opens
+                          {QStringLiteral("dialogs"), QJsonObject{{QStringLiteral("base"), QStringLiteral("/api/desktop/dialog")}}}});
   QObject::connect(&online, &Online::authChanged, &shell, &Shell::onlineAuth);
   server.setUpdater(&updater, [&shell] { shell.quit(); });
+  server.setDialogs([&shell](const QString &kind, const QString &title, const QString &lang) {
+    shell.announceDialog(kind, title, lang);
+  });
 
   // Chromium is up now, and may have put its own crash filter first.
   reinstallCrashReporter();

@@ -278,8 +278,8 @@ note's own panning offsets it.
 Each cell is five columns:
 
 ```
-  C--4   01    FF   80  A0F00
-└─note┘└inst┘└vol┘└pan┘└─fx─┘
+ C--4   01   FF   80  A0F00
+└note┘└inst┘└vol┘└pan┘└─fx─┘
 ```
 
 - **Note** — the pitch in the song's notation (or a sentinel symbol: `===` key-off, `^^^` cut, `~~~` fade, `~^~` fast fade, `I·0`–`I·F` interrupt marker). Notes that don't sit on the current pitch table are shown snapped to the nearest degree and painted **yellow**. The narrow cell in front of the note is blank; with the toolbox **Raw** toggle on it holds the octave digit of the five-digit hex pitch, and the four cells after it the rest (`5` `0000` is C4). In raw mode you type all five digits.

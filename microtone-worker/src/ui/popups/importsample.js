@@ -17,7 +17,7 @@ const ACCEPT = ".wav,.mp3,.ogg,.oga,.flac,.aif,.aiff,.m4a,audio/*";
 /** Resolves with {firstSlot, count} after a successful import, else null. */
 export async function importSampleAsInstrument(store) {
   if (!store.doc) return null;
-  const file = await pickFile(ACCEPT);
+  const file = await pickFile(ACCEPT, t("dialog.sample"));
   if (!file) return null;
 
   let decoded;

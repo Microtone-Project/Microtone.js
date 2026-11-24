@@ -11,6 +11,7 @@
 #include <QJsonDocument>
 #include <QMenu>
 #include <QMessageBox>
+#include <QMimeDatabase>
 #include <QPushButton>
 #include <QScreen>
 #include <QSettings>
@@ -37,9 +38,13 @@ namespace {
 // <html lang> (which the app's i18n sets) — as the Tauri glue does.
 struct Words {
   const char *quitDirty, *discard, *cancel, *saveFailed;
+  // A dialog's title when the page named none; a file filter's names.
+  const char *open, *save, *acceptedTypes, *typeFile;
 };
-const Words kEnglish = {"Quit and discard unsaved changes?", "Discard", "Cancel", "%1 could not be saved: %2"};
-const Words kKorean = {"저장하지 않은 변경 사항을 버리고 끝낼까요?", "버리기", "취소", "%1을(를) 저장하지 못했습니다: %2"};
+const Words kEnglish = {"Quit and discard unsaved changes?", "Discard", "Cancel", "%1 could not be saved: %2",
+                        "Open", "Save", "Accepted types (%1)", "%1 file (%2)"};
+const Words kKorean = {"저장하지 않은 변경 사항을 버리고 끝낼까요?", "버리기", "취소", "%1을(를) 저장하지 못했습니다: %2",
+                       "열기", "저장", "허용되는 형식 (%1)", "%1 파일 (%2)"};
 Words wordsFor(const QString &lang) { return lang.startsWith(u"ko") ? kKorean : kEnglish; }
 
 // The app's own unsaved-changes test: its beforeunload handler cancels the
@@ -63,8 +68,44 @@ constexpr char kGlue[] = R"JS((() => {
 })();)JS";
 
 QString pageLanguage(QWebEnginePage *page) {
-  // Updated by the close question; good enough for the rarer dialogs.
+  // Updated by the close question and by every dialog the page announces.
   return page ? page->property("microtoneLang").toString() : QString();
+}
+
+/** An `<input accept>` as a file dialog's filters, the way QtWebEngine's
+ *  own picker builds them: every accepted pattern first (the filter the
+ *  dialog starts on), then one per entry — `.ext`, a MIME type, or a whole
+ *  family (`audio/*`). */
+QStringList nameFilters(const QStringList &accepted, const Words &w) {
+  QStringList filters, globs;
+  const QMimeDatabase mimes;
+  const auto addGlobs = [&globs](const QStringList &more) {
+    for (const QString &g : more)
+      if (!globs.contains(g)) globs.append(g);
+  };
+  for (const QString &type : accepted) {
+    if (type.startsWith(u'.')) {
+      const QString glob = u'*' + type;
+      addGlobs({glob});
+      filters.append(QString::fromUtf8(w.typeFile).arg(type.mid(1).toUpper(), glob));
+    } else if (type.endsWith(QStringLiteral("/*"))) {
+      const QString family = type.chopped(1);
+      QStringList familyGlobs;
+      for (const QMimeType &m : mimes.allMimeTypes())
+        if (m.name().startsWith(family)) familyGlobs.append(m.globPatterns());
+      familyGlobs.removeDuplicates();
+      if (familyGlobs.isEmpty()) continue;
+      addGlobs(familyGlobs);
+      filters.append(type + QStringLiteral(" (") + familyGlobs.join(u' ') + u')');
+    } else if (type.contains(u'/')) {
+      const QMimeType m = mimes.mimeTypeForName(type);
+      if (!m.isValid() || m.globPatterns().isEmpty()) continue;
+      addGlobs(m.globPatterns());
+      filters.append(m.comment() + QStringLiteral(" (") + m.globPatterns().join(u' ') + u')');
+    }
+  }
+  if (!globs.isEmpty()) filters.prepend(QString::fromUtf8(w.acceptedTypes).arg(globs.join(u' ')));
+  return filters;
 }
 
 }  // namespace
@@ -121,6 +162,22 @@ bool AppPage::acceptNavigationRequest(const QUrl &url, NavigationType, bool isMa
     case Destination::Nowhere: return false;
   }
   return false;
+}
+
+QStringList AppPage::chooseFiles(FileSelectionMode mode, const QStringList &oldFiles, const QStringList &acceptedMimeTypes) {
+  const QString title = shell_->takeDialogTitle(mode == FileSelectSave ? QStringLiteral("save") : QStringLiteral("open"));
+  QWidget *view = QWebEngineView::forPage(this);
+  QWidget *parent = view ? view->window() : nullptr;
+  const QString filter = nameFilters(acceptedMimeTypes, wordsFor(pageLanguage(this))).join(QStringLiteral(";;"));
+  const QString start = oldFiles.isEmpty() ? QString() : oldFiles.first();
+  const auto one = [](const QString &path) { return path.isEmpty() ? QStringList() : QStringList{path}; };
+  switch (mode) {
+    case FileSelectOpen: return one(QFileDialog::getOpenFileName(parent, title, start, filter));
+    case FileSelectOpenMultiple: return QFileDialog::getOpenFileNames(parent, title, start, filter);
+    case FileSelectUploadFolder: return one(QFileDialog::getExistingDirectory(parent, title, start));
+    case FileSelectSave: return one(QFileDialog::getSaveFileName(parent, title, start, filter));
+  }
+  return {};
 }
 
 // ── AppView ──
@@ -306,6 +363,25 @@ void Shell::onlineAuth(const QString &type) {
           .arg(quoted));
 }
 
+void Shell::announceDialog(const QString &kind, const QString &title, const QString &lang) {
+  dialogKind_ = kind;
+  dialogTitle_ = title;
+  dialogAge_.start();
+  if (main_ && !lang.isEmpty()) main_->page()->setProperty("microtoneLang", lang);
+}
+
+QString Shell::takeDialogTitle(const QString &kind) {
+  // The page opens the dialog the moment the shell has its word (a picker
+  // must, within its click's five seconds of user activation): ten seconds
+  // keeps a word whose dialog never came from naming a later one.
+  const bool announced = dialogAge_.isValid() && dialogAge_.elapsed() < 10000 && dialogKind_ == kind;
+  const QString title = announced ? dialogTitle_ : QString();
+  dialogAge_.invalidate();
+  if (!title.isEmpty()) return title;
+  const Words w = wordsFor(pageLanguage(main_ ? main_->page() : nullptr));
+  return QString::fromUtf8(kind == u"save" ? w.save : w.open);
+}
+
 void Shell::openOutside(const QUrl &url) {
   if (!QDesktopServices::openUrl(url)) qWarning("microtone: could not open %s", qUtf8Printable(url.toString()));
 }
@@ -324,7 +400,8 @@ void Shell::onDownload(QWebEngineDownloadRequest *request) {
   if (dir.isEmpty() || !QDir(dir).exists())
     dir = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
   QWidget *parent = main_ ? static_cast<QWidget *>(main_.data()) : nullptr;
-  const QString path = QFileDialog::getSaveFileName(parent, QString(), dir + u'/' + request->suggestedFileName());
+  const QString path = QFileDialog::getSaveFileName(parent, takeDialogTitle(QStringLiteral("save")),
+                                                    dir + u'/' + request->suggestedFileName());
   if (path.isEmpty()) {
     request->cancel();
     return;

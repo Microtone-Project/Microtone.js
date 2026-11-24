@@ -1261,7 +1261,7 @@ Defines notations beyond the registered set. Repetition of:
 | `U32` | Size of the remainder of this entry |
 | `U16` | Flags: bits 0…4 the **pitch resolution** `n` (below); bits 5…15 **RESERVED** |
 | `U16` | Interval size in note-word units — octave = `$1000`, tritave = `$195C`. **0** when the notation is not an interval system (and therefore names every note it can express explicitly) |
-| `U16` | **RESERVED** for a float32 interval size |
+| `U16` | **RESERVED** |
 | `U16` | Notes between intervals **minus one** — 12-TET stores 11 |
 | `U16` | Base note the frequency table is offset against, as an absolute note word (C4 = `$5000`); 0 = the default |
 | `Byte[6]` | **RESERVED** |

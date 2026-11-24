@@ -9,6 +9,7 @@
 // GeneralUser-GS.sf2 stays as a fallback for trees without the build.
 
 import { pickFile } from "../storage/import-export.js";
+import { t } from "./i18n.js";
 import { gunzipSync } from "../../core/vendor/fflate.esm.js";
 
 let bundled;        // undefined = not tried, null = unavailable, else {name, bytes}
@@ -44,7 +45,7 @@ export async function getBundledSoundfont() {
 
 /** Ask the user for an .sf2; null on cancel. The pick is cached for reuse. */
 export async function pickUserSoundfont() {
-  const file = await pickFile(".sf2");
+  const file = await pickFile(".sf2", t("dialog.soundfont"));
   if (!file) return null;
   userSf2 = { name: file.name, bytes: new Uint8Array(await file.arrayBuffer()) };
   return userSf2;

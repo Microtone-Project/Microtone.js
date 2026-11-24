@@ -193,6 +193,10 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   # JACK), through the libraries RtAudio links.
   target_sources(microtone PRIVATE src/linuxaudiowatch.cpp src/linuxaudiowatch.h)
   target_link_libraries(microtone PRIVATE Qt6::DBus)
+  # The window's icon (main.cpp): Windows and macOS take theirs from the
+  # program file and the bundle, a Linux window only from the app itself.
+  qt_add_resources(microtone "icons" PREFIX "/" FILES
+                   icons/microtone-32.png icons/microtone-128.png icons/microtone-256.png)
 endif()
 
 # The update channel this build asks for (src/updater.h, and the site's

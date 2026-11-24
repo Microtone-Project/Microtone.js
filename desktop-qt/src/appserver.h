@@ -69,6 +69,11 @@ class AppServer : public QObject {
     updater_ = updater;
     quitForUpdate_ = std::move(quit);
   }
+  /** The page's word before it opens a file dialog: POST /api/desktop/dialog
+   *  with {kind, title, lang}, from the page itself (Shell::announceDialog). */
+  void setDialogs(std::function<void(const QString &kind, const QString &title, const QString &lang)> sink) {
+    dialogs_ = std::move(sink);
+  }
 
  private:
   void handle(const QHttpServerRequest &request, QHttpServerResponder &responder) const;
@@ -82,6 +87,7 @@ class AppServer : public QObject {
   Online *online_ = nullptr;
   Updater *updater_ = nullptr;
   std::function<void()> quitForUpdate_;
+  std::function<void(const QString &, const QString &, const QString &)> dialogs_;
 };
 
 /** The origin the page is served from, as its requests' Origin header says it. */

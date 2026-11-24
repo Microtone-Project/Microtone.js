@@ -541,7 +541,7 @@ export function showNotationMaker(store) {
 
     // ── imports ──
     $("importScl").addEventListener("click", async () => {
-      const file = await pickFile(".scl");
+      const file = await pickFile(".scl", t("dialog.scl"));
       if (!file) return;
       let def;
       try {
@@ -559,7 +559,7 @@ export function showNotationMaker(store) {
       renderAll();
     });
     $("importNot").addEventListener("click", async () => {
-      const file = await pickFile(".taudnot");
+      const file = await pickFile(".taudnot", t("dialog.taudnot"));
       if (!file) return;
       const list = parseTaudnot(new Uint8Array(await file.arrayBuffer()));
       if (!list || list.length === 0) { alert(t("nota.taudnotError")); return; }

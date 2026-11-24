@@ -484,7 +484,7 @@ export class KeymapView {
   }
 
   async _import() {
-    const file = await pickFile(".taudkey,text/plain");
+    const file = await pickFile(".taudkey,text/plain", t("dialog.keymap"));
     if (!file) return;
     try {
       const spec = parseTaudkey(await file.text());

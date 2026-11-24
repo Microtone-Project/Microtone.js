@@ -190,6 +190,21 @@ void AppServer::handle(const QHttpServerRequest &request, QHttpServerResponder &
     responder.write(QJsonDocument(updater_->status()).toJson(QJsonDocument::Compact), h, Status::Ok);
     return;
   }
+  if (dialogs_ && request.url().path() == u"/api/desktop/dialog") {
+    if (request.method() != QHttpServerRequest::Method::Post || in.value(QHttpHeaders::WellKnownHeader::Origin) != kAppOrigin) {
+      responder.write(Status::Forbidden);
+      return;
+    }
+    const QJsonObject word = QJsonDocument::fromJson(request.body()).object();
+    const QString kind = word.value(QStringLiteral("kind")).toString();
+    if (kind != u"open" && kind != u"save") {
+      responder.write(Status::BadRequest);
+      return;
+    }
+    dialogs_(kind, word.value(QStringLiteral("title")).toString().left(200), word.value(QStringLiteral("lang")).toString().left(16));
+    responder.write(appHeaders(), Status::NoContent);
+    return;
+  }
   if (online_ != nullptr && request.url().path() == u"/api/desktop/online-sign-in") {
     if (request.method() != QHttpServerRequest::Method::Post || in.value(QHttpHeaders::WellKnownHeader::Origin) != kAppOrigin) {
       responder.write(Status::Forbidden);

@@ -670,7 +670,7 @@ export class FilesView {
   async import() {
     // no .mid here — MIDI import (with its soundfont choice) is its own button
     const file = await pickFile(".taud,.tsii,.tpif,.mtsk,.tml," +
-      CONVERT_ACCEPT.split(",").filter((e) => !e.startsWith(".mid")).join(","));
+      CONVERT_ACCEPT.split(",").filter((e) => !e.startsWith(".mid")).join(","), t("dialog.importProject"));
     if (!file) return;
     const bytes = new Uint8Array(await file.arrayBuffer());
     // Foreign formats are converted by openBytes → the user saves the RESULT;

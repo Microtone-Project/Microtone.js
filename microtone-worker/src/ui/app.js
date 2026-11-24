@@ -41,7 +41,7 @@ import * as opfs from "../storage/opfs.js";
 import { carryOverFromOpfs, oldAppCopy, oldAppTold } from "../storage/carry-over.js";
 import { startDesktopUpdates } from "./desktopupdates.js";
 import { showBanner } from "./components/banner.js";
-import { pickFile } from "../storage/import-export.js";
+import { pickFile, withDialogTitle } from "../storage/import-export.js";
 import { convertToTaud, converterFor, CONVERT_ACCEPT } from "../convert/convert.js";
 import { isImac, imacSongs } from "../convert/imac.js";
 import { isSketch, sketchFileToTaud } from "../../core/sketch/mtsk.js";
@@ -373,7 +373,7 @@ async function loadBytes(name, bytes, { sf2 = null, bank = null, saveToOpfs = fa
       bank = store.doc;
     } else {
       $("stFile").textContent = t("status.tpifNeedsBank", { name });
-      const bankFile = await pickFile(".tsii,.taud");
+      const bankFile = await pickFile(".tsii,.taud", t("dialog.tpifBank", { name }));
       if (!bankFile) return;
       try {
         bank = parseTaud(new Uint8Array(await bankFile.arrayBuffer()));
@@ -668,12 +668,14 @@ const OPEN_ACCEPT = ".taud,.tsii,.tpif,.bnk,.tml," +
   CONVERT_ACCEPT.split(",").filter((e) => !e.startsWith(".mid")).join(",");
 $("fileInput").accept = OPEN_ACCEPT;
 $("fileInput").multiple = true;
-$("openBtn").addEventListener("click", () => $("fileInput").click());
+/** The toolbar's Open… (and the welcome screen's): the page's own file input. */
+const openFilePicker = () => withDialogTitle("open", t("dialog.open"), () => $("fileInput").click());
+$("openBtn").addEventListener("click", openFilePicker);
 
 /** Pick a .mid + soundfont, convert, load. `toOpfs` (Files-tab button) also
  *  persists the conversion result into OPFS. */
 async function importMidiInteractive({ toOpfs = false, folder = "" } = {}) {
-  const file = await pickFile(".mid,.midi");
+  const file = await pickFile(".mid,.midi", t("dialog.importMidi"));
   if (!file) return;
   const bundledAvail = (await getBundledSoundfont()) !== null;
   // The File view's soundfont library (item 265) offers its fonts here too:
@@ -946,7 +948,7 @@ async function loadDemo(entry) {
  *  than re-implemented. */
 const WELCOME_HOOKS = {
   newProject: () => newProject(),
-  open: () => $("fileInput").click(),
+  open: openFilePicker,
   importMidi: () => importMidiInteractive(),
   openRecent: async (path) => loadPath(path, await opfs.read(path)),
   browseFiles: () => showView("files"),

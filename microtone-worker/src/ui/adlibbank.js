@@ -9,6 +9,7 @@
 // general one rather than merged with it.
 
 import { pickFile } from "../storage/import-export.js";
+import { t } from "./i18n.js";
 import { gunzipSync } from "../../core/vendor/fflate.esm.js";
 
 let bundled;        // undefined = not tried, null = unavailable, else {name, bytes}
@@ -47,7 +48,7 @@ export async function getBundledBank() {
 
 /** Ask the user for a .BNK; null on cancel. The pick is cached for reuse. */
 export async function pickUserBank() {
-  const file = await pickFile(".bnk");
+  const file = await pickFile(".bnk", t("dialog.adlibBank"));
   if (!file) return null;
   return rememberBank({ name: file.name, bytes: new Uint8Array(await file.arrayBuffer()) });
 }

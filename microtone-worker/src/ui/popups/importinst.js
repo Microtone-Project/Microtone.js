@@ -35,7 +35,7 @@ function fmtBytes(n) {
  */
 export async function showImportInstruments(store) {
   if (!store.doc) return null;
-  const file = await pickFile(".taud,.tsii,.sf2,.bnk");
+  const file = await pickFile(".taud,.tsii,.sf2,.bnk", t("dialog.instruments"));
   if (!file) return null;
   const fileBytes = new Uint8Array(await file.arrayBuffer());
   const lower = file.name.toLowerCase();

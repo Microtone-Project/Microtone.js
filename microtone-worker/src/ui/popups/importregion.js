@@ -41,7 +41,7 @@ function fmtBytes(n) {
 export async function importRegion(store) {
   const doc = store.doc;
   if (!doc) return null;
-  const file = await pickFile(ACCEPT);
+  const file = await pickFile(ACCEPT, t("dialog.recording"));
   if (!file) return null;
 
   let decoded;

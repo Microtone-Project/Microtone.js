@@ -5,6 +5,7 @@
 #pragma once
 
 #include <QByteArray>
+#include <QElapsedTimer>
 #include <QJsonObject>
 #include <QMainWindow>
 #include <QPointer>
@@ -39,6 +40,12 @@ class AppPage : public QWebEnginePage {
 
  protected:
   bool acceptNavigationRequest(const QUrl &url, NavigationType type, bool isMainFrame) override;
+  /** `<input type=file>`: the desktop's Open dialog (through the portal on
+   *  Linux, main.cpp), titled with what the page said it is for
+   *  (Shell::announceDialog). Qt's own would have no title, and the portal's
+   *  dialog then shows the portal's program name. */
+  QStringList chooseFiles(FileSelectionMode mode, const QStringList &oldFiles,
+                          const QStringList &acceptedMimeTypes) override;
 
  private:
   WindowRole role_;
@@ -104,8 +111,21 @@ class Shell : public QObject {
   /** The main window agreed to close: the app goes with it. */
   void quit();
 
+  /** The page is about to open a dialog (POST /api/desktop/dialog, from
+   *  storage/import-export.js `withDialogTitle`): `kind` "open" (a file picker) or
+   *  "save" (a download), its `title` ("" for the shell's own), and the
+   *  page's language. */
+  void announceDialog(const QString &kind, const QString &title, const QString &lang);
+  /** The title of a dialog of `kind` opening now: what the page announced
+   *  for it in the last ten seconds, taken once; otherwise Open or Save in
+   *  the page's language. */
+  QString takeDialogTitle(const QString &kind);
+
  private:
   void onDownload(QWebEngineDownloadRequest *request);
+
+  QString dialogKind_, dialogTitle_;
+  QElapsedTimer dialogAge_;
 
   QUrl origin_;
   QWebEngineProfile *profile_;

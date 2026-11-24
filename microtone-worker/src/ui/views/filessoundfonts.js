@@ -99,7 +99,7 @@ export class SoundfontSection {
   }
 
   async add() {
-    const files = await pickFiles(".sf2,.gz");
+    const files = await pickFiles(".sf2,.gz", t("dialog.addSoundfonts"));
     if (files.length === 0) return;
     await addSoundfontFiles(files, {
       confirmReplace: (title) => showModal({ title: t("sf.replaceAsk", { name: title }), okLabel: t("sf.replace") }),
