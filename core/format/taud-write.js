@@ -12,7 +12,7 @@ import {
   TAUD_KIND_SAMPLEINST, TAUD_KIND_PATTERN,
   TAUD_HEADER_SIZE, TAUD_SONG_ENTRY,
   PATTERN_SIZE, patternSizeFor, TAUD_VERSION_WIDE, NUM_VOICES, MAX_VOICES, CUE_SIZE, CUE_SIZE_64,
-  CAPTURE_SIGNATURE,
+  appSignature,
 } from "./taud-const.js";
 import { comp } from "./compress.js";
 
@@ -135,7 +135,7 @@ function planTaud(doc) {
     }
   }
 
-  const signature = doc.signature && doc.signature.length === 14 ? doc.signature : CAPTURE_SIGNATURE;
+  const signature = doc.signature && doc.signature.length === 14 ? doc.signature : appSignature();
   return { version, signature, hasImage, sections, songs, proj: concat(projParts) };
 }
 

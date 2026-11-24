@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import { parseTaud, v1CueToWords, cueInstructionWords } from "../../core/format/taud-parse.js";
 import { writeTaud } from "../../core/format/taud-write.js";
-import { SAMPLEINST_SIZE, CUE_EMPTY, TAUD_HEADER_SIZE } from "../../core/format/taud-const.js";
+import { SAMPLEINST_SIZE, CUE_EMPTY, TAUD_HEADER_SIZE, CAPTURE_SIGNATURE, appSignature } from "../../core/format/taud-const.js";
 import { BPM_MIN, BPM_MAX } from "../../core/engine/constants.js";
 
 const corpusDir = fileURLToPath(new URL("../corpus/", import.meta.url));
@@ -116,6 +116,24 @@ test("BPM bit 9 is byte 28's bit 7, beside the surround model", async () => {
   }
   doc.songs[0].bpm = 5000;
   assert.equal(parseTaud(writeTaud(doc)).songs[0].bpm, BPM_MAX, "the writer clamps to ten bits");
+});
+
+test("the app's signature: the Qt desktop build's when its shell names one, else Microtone.js", async () => {
+  assert.equal(appSignature(), CAPTURE_SIGNATURE, "Node has no shell");
+  assert.equal(appSignature({}), CAPTURE_SIGNATURE);
+  for (const sig of ["MicrotoneQtWin", "MicrotoneQtMac", "MicrotoneQtLnx"]) {
+    assert.equal(appSignature({ __MICROTONE_NATIVE__: { signature: sig } }), sig);
+  }
+  for (const bad of ["Microtone", "MicrotoneQtLinux", "MicrotoneQtL\u00f6x", 14, null]) {
+    assert.equal(appSignature({ __MICROTONE_NATIVE__: { signature: bad } }), CAPTURE_SIGNATURE, `${bad} is not fourteen bytes`);
+  }
+  // A file keeps the signature it has; only one without a valid one is stamped.
+  const path = fileURLToPath(new URL("../../assets/demo_projects/WHEN_AMBI.taud", import.meta.url));
+  const doc = parseTaud(await readFile(path));
+  const sigOf = (file) => String.fromCharCode(...file.subarray(18, 32));
+  assert.equal(sigOf(writeTaud(doc)), doc.signature);
+  doc.signature = "";
+  assert.equal(sigOf(writeTaud(doc)), CAPTURE_SIGNATURE);
 });
 
 test("v1 cue translation (synthetic)", () => {

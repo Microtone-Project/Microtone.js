@@ -56,6 +56,19 @@ using namespace microtone;
 
 namespace {
 
+/** The signature a file this build CREATES carries (TAUD_FILE_FORMAT.md §2.2:
+ *  fourteen bytes naming the producer). The page reads it as
+ *  __MICROTONE_NATIVE__.signature (core/format/taud-const.js appSignature);
+ *  the website and the Tauri build stamp "Microtone.js  ". */
+#if defined(Q_OS_WIN)
+constexpr char kFileSignature[] = "MicrotoneQtWin";
+#elif defined(Q_OS_MACOS)
+constexpr char kFileSignature[] = "MicrotoneQtMac";
+#else
+constexpr char kFileSignature[] = "MicrotoneQtLnx";
+#endif
+static_assert(sizeof(kFileSignature) == 15, "a file signature is fourteen bytes");
+
 /** The web app's root: --root, the staged copy beside the binary, or the
  *  working tree of a dev build. */
 QString findRoot(const QString &override) {
@@ -302,7 +315,8 @@ int main(int argc, char **argv) {
 
   Shell shell(QUrl(QStringLiteral("http://") + QLatin1String(kAppHost) + u'/'), token, dataDir, nativeEngine,
               nativeEngine.isEmpty() ? QJsonObject() : native.status(),
-              QJsonObject{{QStringLiteral("files"), files.describe()},
+              QJsonObject{{QStringLiteral("signature"), QLatin1String(kFileSignature)},
+                          {QStringLiteral("files"), files.describe()},
                           {QStringLiteral("online"), online.describe()},
                           {QStringLiteral("updates"), updater.describe()},
                           // storage/import-export.js: a picker's title, said before it opens

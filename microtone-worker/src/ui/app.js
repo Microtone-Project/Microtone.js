@@ -63,6 +63,7 @@ import {
 import { initI18n, applyDom, t, pickerLangs, changeLang, onLangChange, currentLang } from "./i18n.js";
 import { escapeNonAscii, unescapeName } from "../../core/format/names.js";
 import { ZSTD_LEVEL_SAVE, ZSTD_LEVEL_AUTOSAVE } from "../../core/format/zstd.js";
+import { appSignature } from "../../core/format/taud-const.js";
 import { withSaveProgress, saveInProgress } from "./saveprogress.js";
 import { loadCanvasFonts, refreshCanvasFont } from "./fonts.js";
 import { startControlEnhancer } from "./components/spinner.js";
@@ -598,7 +599,7 @@ async function newProject({ fromBank = null, bankName = null } = {}) {
     kind: "taud",
     fmtVer: wide ? 3 : 2,
     is64Channel: is64,
-    signature: "Microtone.js  ",
+    signature: appSignature(), // the Qt desktop build names its OS (TAUD_FILE_FORMAT.md §2.2)
     sampleInstImage: fromBank ? fromBank.sampleInstImage : new Uint8Array(8650752),
     songs: [{
       numVoices: chans,

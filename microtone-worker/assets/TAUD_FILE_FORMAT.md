@@ -99,7 +99,7 @@ Version numbers above 3 are unassigned; a decoder that does not recognise a vers
 
 ### 2.2 Signature
 
-Fourteen bytes naming the producer, used for diagnostics only and otherwise **IGNORED**. Known values include `mod2taud/TSVM `, `s3m2taud/TSVM `, `it2taud/TSVM  `, `xm2taud/TSVM  `, `mon2taud/TSVM `, `midi2taud/TSVM` and `Microtone.js  `. A writer that re-saves an existing file **MAY** preserve the original signature or stamp its own; neither choice affects playback.
+Fourteen bytes naming the producer, used for diagnostics only and otherwise **IGNORED**. Known values include `mod2taud/TSVM `, `s3m2taud/TSVM `, `it2taud/TSVM  `, `xm2taud/TSVM  `, `mon2taud/TSVM `, `midi2taud/TSVM`, `Microtone.js  ` (the web app), `MicrotoneTouch` (Microtone Touch) and `MicrotoneQtWin`, `MicrotoneQtMac`, `MicrotoneQtLnx` (the desktop app on Windows, macOS and Linux). A writer that re-saves an existing file **MAY** preserve the original signature or stamp its own; neither choice affects playback.
 
 ## 3. Sample and instrument image
 

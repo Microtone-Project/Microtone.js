@@ -43,6 +43,10 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 
 - It holds everywhere: the views, lists, text boxes, dropdown lists and the documentation, in Chrome, Edge and Firefox. Safari already followed the theme.
 
+**Projects made in the desktop app say where they were made**: a new project, or one built by Motif, now carries the desktop app's own signature — MicrotoneQtWin, MicrotoneQtMac or MicrotoneQtLnx, after the system it was made on — and the Project view shows it. The website's still say Microtone.js.
+
+- A project that already has a signature keeps it when it is saved again, wherever that is.
+
 ## Version 5.0.5 (2026-11-17)
 
 **MIDI import keeps drum kits in tune, uses up to 64 lanes, and can play through your own soundfonts**: a song that sends a pitch bend to its drum part no longer detunes the whole kit.

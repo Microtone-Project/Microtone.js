@@ -5,6 +5,7 @@
 
 import { buildSf2Bank } from "../convert/convert.js";
 import { MotifError } from "../motif/lexer.js";
+import { appSignature } from "../../core/format/taud-const.js";
 
 /**
  * What one call writes (captureCall), worked out off the page. Resolves with
@@ -43,7 +44,7 @@ export class MotifCancelled extends Error {
  * @param opts.onLog       (line) — print() output and the stages' own lines
  * @param opts.signature   the file's signature (default: the app's own)
  */
-export function startMotifBuild(source, { resolveSoundfont, resolvePack, onProgress = null, onLog = null, steps, signature } = {}) {
+export function startMotifBuild(source, { resolveSoundfont, resolvePack, onProgress = null, onLog = null, steps, signature = appSignature() } = {}) {
   const worker = new Worker(new URL("../motif/motif.worker.js", import.meta.url), { type: "module" });
   let settled = false;
   let fail;

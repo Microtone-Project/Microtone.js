@@ -142,13 +142,16 @@ if (!target) {
   const page = await ev(`(async () => {
     let opfs = false;
     try { await navigator.storage.getDirectory(); opfs = true; } catch { /* none */ }
+    const { appSignature } = await import("/core/format/taud-const.js");
     return { isolated: crossOriginIsolated, sab: typeof SharedArrayBuffer === "function", opfs,
-             shell: !!window.__MICROTONE_NATIVE__?.files, url: location.href };
+             shell: !!window.__MICROTONE_NATIVE__?.files, signature: appSignature(), url: location.href };
   })()`);
   report.page = page;
+  // A file the desktop app creates names it and its OS (TAUD_FILE_FORMAT.md §2.2).
+  const signature = `MicrotoneQt${{ win32: "Win", darwin: "Mac" }[process.platform] ?? "Lnx"}`;
   // The native audio host is the audio check's: a runner without a sound
   // device has none, and the page is no less right for it.
-  report.checks.page = page?.isolated && page.sab && page.opfs && page.shell ? "ok" : "the page is not what the shell should give it";
+  report.checks.page = page?.isolated && page.sab && page.opfs && page.shell && page.signature === signature ? "ok" : "the page is not what the shell should give it";
 
   // The file store: a project bigger than any default request limit, in and
   // out through the page's own storage module.

@@ -53,6 +53,19 @@ export const CUE_EMPTY_V1 = 0xfff;
 
 export const CAPTURE_SIGNATURE = "Microtone.js  "; // 14 bytes, space-padded
 
+/**
+ * The signature this copy of the app stamps on a file it CREATES (a new
+ * project, a Motif build; §2.2 of the file format). The Qt desktop build names
+ * itself and its OS — `MicrotoneQtWin`, `MicrotoneQtMac`, `MicrotoneQtLnx`,
+ * handed to the page as `window.__MICROTONE_NATIVE__.signature` by the shell
+ * (desktop-qt/src/main.cpp) — and everything else is CAPTURE_SIGNATURE. A
+ * file that already has a signature keeps it.
+ */
+export function appSignature(host = globalThis) {
+  const sig = host?.__MICROTONE_NATIVE__?.signature;
+  return typeof sig === "string" && /^[ -~]{14}$/.test(sig) ? sig : CAPTURE_SIGNATURE;
+}
+
 // Project-Data section holding the song's own keyboard layout (§9.13): one
 // .taudkey document, UTF-8, exactly as an export writes it. Project scope, so
 // it stays with the .taud and never splits out into a .tsii bank.

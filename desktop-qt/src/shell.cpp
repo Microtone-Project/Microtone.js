@@ -308,7 +308,8 @@ Shell::Shell(QUrl origin, const QByteArray &token, const QString &dataDir, const
 
   // What the shell gives the page, in the page's own world and before any of
   // its scripts run: always the file store (`files`: storage/opfs.js reads
-  // it) and online projects (`online`: views/filesonline.js), and the native
+  // it), online projects (`online`: views/filesonline.js) and the file
+  // signature (`signature`: core/format/taud-const.js), and the native
   // audio host where there is one (`engine`: core/audio/audio-system.js).
   {
     QJsonObject native = nativeEngine.isEmpty() ? QJsonObject() : nativeStatus;
