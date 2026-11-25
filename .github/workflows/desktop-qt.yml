@@ -125,6 +125,9 @@ jobs:
           if (-not $crt) { throw "no C runtime under '$env:VCToolsRedistDir'" }
           Copy-Item "$($crt.FullName)\*.dll" $out
           Copy-Item COPYING "$out/LICENSE.txt"
+          # The third-party notices (Qt, Chromium, RtAudio, the ASIO SDK,
+          # Monocypher, the C runtime) and the licence texts they point to.
+          node desktop-qt/tools/collect-notices.js --platform windows --out $out --qmake qmake
           # The web app, where the binary looks for it: www/ beside itself.
           node desktop-qt/tools/stage-frontend.js "$out/www"
           "version=$version" >> $env:GITHUB_ENV
@@ -264,6 +267,9 @@ jobs:
           # The web app where the binary looks for it, and the licence.
           node desktop-qt/tools/stage-frontend.js "$app/Contents/Resources/www"
           cp COPYING "$app/Contents/Resources/LICENSE.txt"
+          # The third-party notices (Qt, Chromium, RtAudio, Monocypher) and the
+          # licence texts they point to.
+          node desktop-qt/tools/collect-notices.js --platform macos --out "$app/Contents/Resources" --qmake qmake
           # Qt's frameworks, WebEngine's helper app and resources among them.
           macdeployqt "$app" -always-overwrite
           # An Apple-silicon Mac runs nothing unsigned: an ad hoc signature,

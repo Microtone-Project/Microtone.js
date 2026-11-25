@@ -17,7 +17,9 @@
 # share/microtone/package, which is how the app knows which update to fetch.
 #
 # Needs node, curl, dpkg-deb and rpmbuild; dpkg-shlibdeps (Debian, Ubuntu) to
-# work out the .deb's dependencies. The AppImage tools are fetched into
+# work out the .deb's dependencies. Runs on a Debian-based system: the third-
+# party notices (tools/collect-notices.js) credit each carried library from the
+# package that owns it there, and stop the build for one that none does. The AppImage tools are fetched into
 # <out dir>/tools (MICROTONE_LINUX_TOOLS=<dir> to keep them elsewhere), each
 # pinned to a release and its checksum.
 set -euo pipefail
@@ -115,6 +117,15 @@ done
 # Wayland against them, and every desktop that runs Wayland has them.
 rm -f "$appdir"/usr/lib/libwayland-client.so* "$appdir"/usr/lib/libwayland-cursor.so* \
       "$appdir"/usr/lib/libwayland-egl.so* "$appdir"/usr/lib/libwayland-server.so*
+
+# ── the third-party notices ──
+# Beside LICENSE.txt: the notices for Qt, Chromium, RtAudio, Monocypher and the
+# libraries the tree carries now (every library in lib/ that is not Qt's must
+# belong to a package of this system, whose copyright file is copied — the
+# script stops on one that does not). It must come after the removals above:
+# a library the packages do not carry is not credited either.
+node "$here/tools/collect-notices.js" --platform linux --out "$appdir/usr/share/doc/microtone" \
+  --qmake "$QMAKE" --tree "$appdir/usr"
 
 # ── the AppImage ──
 image=$out/Microtone-$version-linux-x86_64.AppImage

@@ -5,6 +5,10 @@ section, which carries two small patches recorded below (a driver filter; a
 non-null bufferSwitchTimeInfo). Update by copying a newer release over the
 files, re-applying those patches, and changing this record.
 
+Every library here is credited in `../licences/THIRD-PARTY-NOTICES.txt`: a
+`## Name version` heading below is where the notices take their version, and
+a test fails on a library that has no section there.
+
 ## RtAudio 6.0.1 — `rtaudio/`
 
 - Source: https://github.com/thestk/rtaudio, tag `6.0.1`

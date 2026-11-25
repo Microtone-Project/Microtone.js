@@ -1,0 +1,190 @@
+MICROTONE DESKTOP @VERSION@ — THIRD-PARTY NOTICES
+=================================================
+
+Microtone is free software under the GNU General Public License, version 3 or
+later: LICENSE.txt, beside this file. Its source code is at
+https://github.com/Microtone-Project/Microtone.js
+
+The app is made with the components below. They are not Microtone's: each
+comes under a licence of its own, named here and given in full in the
+"licences" folder beside this file. Where a licence asks for a copy of itself,
+for the copyright lines, or for the source, this is where they are.
+
+Contents
+
+  1. Qt @QT_VERSION@
+  2. Qt WebEngine and Chromium
+  3. What Qt carries inside itself
+  4. RtAudio @RTAUDIO_VERSION@
+{{#windows}}
+  5. Steinberg's ASIO SDK
+  6. Monocypher @MONOCYPHER_VERSION@
+  7. Microsoft's C runtime
+{{/windows}}
+{{#linux}}
+  5. Monocypher @MONOCYPHER_VERSION@
+  6. The libraries this package carries
+{{/linux}}
+{{#macos}}
+  5. Monocypher @MONOCYPHER_VERSION@
+{{/macos}}
+
+
+1. Qt @QT_VERSION@
+------------------
+
+Microtone's window, files, network, audio device handling and local server are
+written against Qt, © The Qt Company Ltd. and other contributors, and the Qt
+libraries come with it as The Qt Company builds them, unmodified.
+
+Licence: the GNU Lesser General Public License, version 3
+(licences/LGPL-3.0.txt), which builds on the GNU GPL version 3 (LICENSE.txt).
+One module is not offered under the LGPL: Qt HTTP Server, which Qt offers under
+the GNU GPL version 3 only (or commercially). Microtone's own licence is the
+GPL version 3 or later, so it may use it.
+
+Microtone uses Qt's libraries as they are: Qt Core, Gui, Widgets, Network and
+DBus, Qt WebEngine (below), Qt WebChannel, WebSockets, Positioning, HTTP
+Server, and the Qt Quick, Qml and Svg libraries that Qt WebEngine stands on.
+{{#linux}}
+On Linux the platform plugins for X11 and Wayland, and Qt Serial Port (which
+a position plugin of Qt WebEngine asks for), come with them.
+{{/linux}}
+
+The libraries are SEPARATE FILES, so that you may replace them with your own
+build of the same Qt version (the LGPL's right to relink):
+{{#windows}}
+  the Qt*.dll files and the plugin folders beside microtone.exe. Put your
+  build's files in their place.
+{{/windows}}
+{{#linux}}
+  the libQt6*.so files in lib/ and the plugins in plugins/ of the tree
+  (/opt/microtone for the .deb and .rpm; for the AppImage, unpack it first
+  with `Microtone-….AppImage --appimage-extract` and pack it again with
+  appimagetool). Put your build's files in their place.
+{{/linux}}
+{{#macos}}
+  the frameworks and plugins inside Microtone.app (Contents/Frameworks and
+  Contents/PlugIns). Put your build's files in their place and sign the app
+  again (`codesign --force --deep --sign - Microtone.app`), since macOS runs
+  nothing whose signature no longer matches.
+{{/macos}}
+
+Source: Qt's own, at https://download.qt.io/archive/qt/@QT_SERIES@/@QT_VERSION@/submodules/
+(one archive per module: qtbase, qtwebengine, qtdeclarative …). The Qt libraries
+here are the ones in the official binary installation of Qt @QT_VERSION@, built
+from that source without changes of ours. Qt's licensing:
+https://www.qt.io/licensing/
+
+
+2. Qt WebEngine and Chromium
+----------------------------
+
+Microtone's window shows its pages through Qt WebEngine, which is Google's
+Chromium inside Qt's interface to it. Qt WebEngine's own code is under the
+licences of Qt (above); the Chromium part is under the Chromium Authors'
+BSD-style licence and the licences of the components it is made of — ANGLE,
+WebRTC, FFmpeg, ICU, HarfBuzz, BoringSSL, Opus, libvpx, dav1d, SQLite and over
+a hundred more.
+
+licences/qtwebengine-third-party.txt gives every one of them as Qt WebEngine
+@QT_SERIES@ lists them: the component, its homepage, its licence and the
+copyright lines. Chromium's own licence is the entry "Chromium License".
+
+The licence that asks the most of a redistributor is the GNU LGPL version 2.1
+(FFmpeg, in Chromium's media code: licences/LGPL-2.1.txt). Any GPL named in
+that file is used only to reach Linux system resources, and Qt WebEngine
+neither links to nor distributes GPL binary code. Like the rest of Qt, Qt
+WebEngine is a library file you may replace (libQt6WebEngineCore, with its
+helper QtWebEngineProcess and its resources) with your own build of the same
+version, from the source:
+https://download.qt.io/archive/qt/@QT_SERIES@/@QT_VERSION@/submodules/ — the archive
+qtwebengine-everywhere-src-@QT_VERSION@.tar.xz holds Chromium's source as Qt
+WebEngine builds it.
+
+
+3. What Qt carries inside itself
+--------------------------------
+
+Qt's libraries hold a number of small libraries of other people's in their own
+code (an image library, a regular-expression engine, a text shaper, hash
+functions and the like). licences/qt-components.txt lists the ones in the Qt
+modules above, with their versions, licences and copyright lines, from the
+list of materials (SBOM) that Qt publishes with every module. It lists
+the modules' components whether or not a given feature is used here, so it
+may name more than the app loads. Each component's licence text is in Qt's
+source, in the folder src/3rdparty/<name> of its module's archive (above).
+
+
+4. RtAudio @RTAUDIO_VERSION@
+----------------------------
+
+Microtone plays through RtAudio, a cross-platform audio API,
+© 2001–2023 Gary P. Scavone, compiled into the app.
+
+Licence: the RtAudio licence, an MIT-style licence (licences/RtAudio-LICENSE.txt).
+Source: https://github.com/thestk/rtaudio, tag @RTAUDIO_VERSION@. The copy in
+Microtone's source (desktop-qt/vendor/rtaudio) carries two small patches to
+the ASIO backend, marked MICROTONE PATCH and recorded in
+desktop-qt/vendor/VENDOR-VERSIONS.md: a filter that keeps an ASIO driver that
+crashes out of the app, and a forwarding for a driver that calls ASIO's
+time-info callback.
+{{#windows}}
+
+
+5. Steinberg's ASIO SDK
+-----------------------
+
+The ASIO driver interface is Steinberg's: ASIO SDK 2.3, © Steinberg Media
+Technologies GmbH, with the small changes RtAudio's release makes to a few of
+its files (asiolist.cpp, asiodrivers.*). ASIO is a trademark and software of
+Steinberg Media Technologies GmbH.
+
+Licence: since 15 October 2025 Steinberg offers the ASIO SDK under the GNU
+General Public License, version 3 (beside its proprietary licence), and
+Microtone takes it under the GPL. That is why this Windows program, which
+contains the SDK's code, is distributed under the GPL version 3
+(LICENSE.txt, in full) and why its source is open: the SDK's files are in
+desktop-qt/vendor/rtaudio/include of Microtone's source (address above),
+unchanged from the RtAudio release.
+
+An organisation that wants to distribute a version of Microtone under other
+terms needs its own licence from Steinberg for ASIO.
+
+
+6. Monocypher @MONOCYPHER_VERSION@
+{{/windows}}
+{{#linux macos}}
+
+
+5. Monocypher @MONOCYPHER_VERSION@
+{{/linux macos}}
+----------------------------------
+
+The updater checks the signature of an update with Monocypher (Ed25519 and
+BLAKE2b), © 2017–2023 Loup Vaillant, Michael Savage and Fabio Scotoni, compiled
+into the app.
+
+Licence: CC0 1.0 (public-domain dedication), or the BSD 2-Clause licence at
+your choice (licences/Monocypher-LICENCE.md).
+Source: https://monocypher.org/ (version @MONOCYPHER_VERSION@).
+{{#windows}}
+
+
+7. Microsoft's C runtime
+------------------------
+
+The Visual C++ runtime DLLs (the MSVC and VCRUNTIME files) beside
+microtone.exe are Microsoft's, from the Visual Studio redistributable files
+that its licence allows an app to carry with it ("local deployment"), so that
+the app needs no installer of theirs. They are not under the GPL; they are
+under Microsoft's terms for those files.
+{{/windows}}
+{{#linux}}
+
+
+6. The libraries this package carries
+-------------------------------------
+
+@LINUX_LIBRARIES@
+{{/linux}}

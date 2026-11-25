@@ -86,7 +86,8 @@ was tested on Linux.)
 `.github/workflows/desktop-qt.yml` does all of this on `windows-latest`, on a
 push to `qt-native` or by hand, and keeps two artifacts:
 `Microtone-<version>-windows-x64` (the app, its Qt and C runtimes, the staged
-web app in `www\`, `LICENSE.txt`, `wasapi-probe.exe`, `asio-probe.exe`,
+web app in `www\`, `LICENSE.txt`, `THIRD-PARTY-NOTICES.txt` with `licences\`,
+`wasapi-probe.exe`, `asio-probe.exe`,
 `microtone.pdb` and `diagnostics.cmd`)
 and `Microtone-<version>-windows-x64-setup` (the installer). It releases
 nothing.
@@ -1078,6 +1079,20 @@ whichever is there.
   legs), 24.04 (the AppImage and the .deb, smoke-tested; the AppImage on a
   headless Weston, `--expect-platform wayland`), Fedora (the .rpm).
 
+## Third-party notices
+
+Every package carries `THIRD-PARTY-NOTICES.txt` and a `licences/` folder beside
+`LICENSE.txt` (Windows: the folder's root; macOS: `Contents/Resources`; Linux:
+`share/doc/microtone`, `/opt/microtone/share/doc/microtone` for the .deb and
+.rpm). They credit Qt (LGPL 3; Qt HTTP Server, GPL 3), Qt WebEngine and
+Chromium (the BSD licence and its 126 components, compiled from Qt's
+documentation), what Qt carries inside itself (from its SBOMs), RtAudio, the
+ASIO SDK (Windows; GPL 3), Monocypher, the Visual C++ runtime (Windows) and,
+on Linux, every library the tree carries. `licences/README.md` has the
+design, the sources and what to do when Qt or a vendored library changes;
+`tools/collect-notices.js` lays them in, and the Linux packaging stops on a
+carried library that no Debian package owns.
+
 ## Not yet done
 
 - The switch from the Tauri build (Updates, above): a release that serves
@@ -1090,8 +1105,7 @@ whichever is there.
   installed app Chromium's sandbox back; the AppImage would still need to go
   without.
 - Code signing (a Windows certificate; Apple's Developer ID and
-  notarisation), and the third-party notices a release must ship (Qt and
-  Chromium's licences, RtAudio's, the ASIO SDK's).
+  notarisation).
 - Moving projects over from the Tauri build is done from both sides: this
   build reads the Tauri build's storage itself ("The earlier desktop app's
   projects"), and a Tauri release carrying `desktop/src/handover.rs` copies
