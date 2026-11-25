@@ -92,6 +92,7 @@ export class KeymapBar {
     store.on("view", () => this.applyVisibility());
     store.on("keymap", () => this.invalidate());
     store.on("doc", () => this.invalidate());
+    store.on("notation", () => this.invalidate());
     store.on("octave", () => this.invalidate());
     onThemeChange(() => this.invalidate());
     // The strip is sized from its own width, which the repaint key cannot see —
@@ -164,7 +165,9 @@ export class KeymapBar {
   invalidate() { this._paintedFor = null; }
 
   get spec() { return this.store.keymap ?? DEFAULT_KEYMAP; }
-  get preset() { return this.store.pitchPreset ?? pitchTablePresets[120]; }
+  /** The notation the keys play in: the current instrument's, or the cursor
+   *  lane's, else the song's (item 374). */
+  get preset() { return this.jam.preset?.() ?? this.store.pitchPreset ?? pitchTablePresets[120]; }
 
   /**
    * Once a frame: repaint when something it draws has changed. Held keys come

@@ -101,6 +101,8 @@ import { SURROUND_STEREO, SURROUND_SPATIAL } from "../../../core/engine/spatial.
 import { t } from "../i18n.js";
 import { setIconLabel } from "../icons.js";
 import { uiDpr } from "../zoom.js";
+import { INTN_FOURCC } from "../../../core/format/inst-notation-section.js";
+import { instNotationOptions, instNotationValue, instNotationFromValue } from "../notationpick.js";
 import { EnvAxis, paintEnvGraph, attachEnvGraph, envClipButtons } from "../envgraph.js";
 
 const ENV_TABS = [
@@ -824,7 +826,11 @@ export class InstrumentsView {
     input.addEventListener("change", () => {
       const escaped = escapeNonAscii(input.value.trim());
       if (escaped === (doc.instrumentName(slot) ?? "")) return;
-      this.store.undo.apply(setSectionOp("INam", doc.buildInstrumentNames(slot, escaped)));
+      // The instrument's own notation is guarded by its name (INtn, §9.20):
+      // the rename carries it, in the same undo step.
+      const intn = doc.instNotationRenamed(slot, escaped);
+      const rename = setSectionOp("INam", doc.buildInstrumentNames(slot, escaped));
+      this.store.undo.apply(intn === undefined ? rename : compositeOp([rename, setSectionOp(INTN_FOURCC, intn)]));
       this.refreshListLabel(slot);
       this.store.emit("status"); // status bar / other views pick up the name
     });
@@ -1667,6 +1673,7 @@ export class InstrumentsView {
           { title: t("inst.percussionTitle") }),
       );
       this.group(t("inst.grpTuning"), this.detuneRow(inst));
+      this.notationGroup();
       return;
     }
 
@@ -1707,6 +1714,32 @@ export class InstrumentsView {
     );
 
     this.group(t("inst.grpTuning"), this.detuneRow(inst));
+    this.notationGroup();
+  }
+
+  /**
+   * The instrument's own notation (item 374): how its notes are spelled and
+   * typed wherever it plays, ahead of its lane's and the song's. A drum kit
+   * that says nothing is spelled with the General MIDI drum names. One undo
+   * step, carried by the `INtn` section.
+   */
+  notationGroup() {
+    const store = this.store;
+    const slot = this.selected;
+    const doc = store.doc;
+    const opts = instNotationOptions(store, slot);
+    // The fixed choices first, then every notation, the project's own last.
+    const head = opts.filter((o) => o.value === "auto" || o.value === "follow");
+    const all = opts.slice(head.length);
+    const customs = doc.customNotations().length;
+    const builtIn = all.slice(0, all.length - customs), own = all.slice(all.length - customs);
+    const pair = (o) => [o.value, o.label];
+    this.group(t("instNota.group"), this.pickRow(t("instNota.label"), instNotationValue(doc.instNotation(slot)),
+      head.map(pair), (v) => {
+        const payload = doc.instNotationPayloadWith(slot, instNotationFromValue(v));
+        store.undo.apply(setSectionOp(INTN_FOURCC, payload));
+        this.refresh();
+      }, [[t("instNota.builtIn"), builtIn.map(pair)], [t("nota.customGroup"), own.map(pair)]], t("instNota.title")));
   }
 
   /**
@@ -2620,6 +2653,7 @@ export class InstrumentsView {
       this.group(t("easy.optsHead"), this.checkRow(t("easy.mode"), flags.easy,
         (on) => this.setEasyMode(slot, on), { hint: t("easy.modeHint") }));
     }
+    this.notationGroup();
   }
 
   /**

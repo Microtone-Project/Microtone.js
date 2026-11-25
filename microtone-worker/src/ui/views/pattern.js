@@ -48,6 +48,7 @@ import {
 } from "../pitchplot.js";
 import { t } from "../i18n.js";
 import { lyricContinues } from "../../doc/lyrics.js";
+import { cellNotation, entryNotation, patternLane, transposeNotations } from "../notationat.js";
 import { setIconLabel } from "../icons.js";
 import { uiDpr, localPoint } from "../zoom.js";
 
@@ -256,6 +257,12 @@ class PatternPane {
   // shared empty pattern (editable — the first edit materialises it).
   pattern() {
     return this.store.song?.patterns[this.patIdx] ?? this.store.doc?.emptyPattern() ?? null;
+  }
+
+  /** The preset row `row` is spelled in (item 374): its instrument's
+   *  notation, else that of the lane the cue sheet plays this pattern on. */
+  rowNotation(row, pattern = this.pattern()) {
+    return cellNotation(this.store, patternLane(this.store, this.patIdx), pattern, row);
   }
 
   setPattern(idx) {
@@ -687,8 +694,9 @@ class PatternPane {
       this.invalidate();
       return;
     }
+    const own = transposeNotations(store, patIdx, v.raw ? preset : null); // item 374
     store.undo.apply(bulkNotesOp(store.songIndex,
-      (song) => transposePatternNotes(song, patIdx, preset, percSlots, fine, coarse, rowLo, rowHi)));
+      (song) => transposePatternNotes(song, patIdx, own.preset, percSlots, fine, coarse, rowLo, rowHi, null, own.presetFor)));
     this.invalidate();
   }
 
@@ -822,7 +830,7 @@ class PatternPane {
       case "End": e.shiftKey ? this.extendSelection(64) : this.moveCursor(64); return true;
     }
     return this.editKey(e, this.cursor.sub, this.cursor.nib,
-      rawNoteView(this.store.rawNoteView, this.store.pitchPreset));
+      rawNoteView(this.store.rawNoteView, this.rowNotation(this.cursor.row)));
   }
 
   /** A cap clicked on the keymap strip — Timeline.enterCapNote, for one
@@ -838,12 +846,15 @@ class PatternPane {
     if (!pattern || !this.store.record) return false;
     const c = this.cursor;
     const cell = pattern[c.row];
+    const continues = this.jam.currentInst > 0 && !!this.store.doc?.isLyricSlot(this.jam.currentInst) &&
+      lyricContinues(pattern, c.row, this.jam.currentInst);
     const action = interpretEditKey(
       { code: e.code, key: e.key, repeat: e.repeat, shiftKey: e.shiftKey }, sub, nib, cell,
-      { octave: this.jam.octave, transpose: this.jam.transpose, currentInst: this.jam.currentInst, preset: this.store.pitchPreset,
+      { octave: this.jam.octave, transpose: this.jam.transpose, currentInst: this.jam.currentInst,
+        preset: entryNotation(this.store, patternLane(this.store, this.patIdx), pattern, c.row,
+          this.jam.currentInst, !continues),
         rawHex,
-        lyricContinues: this.jam.currentInst > 0 && !!this.store.doc?.isLyricSlot(this.jam.currentInst) &&
-          lyricContinues(pattern, c.row, this.jam.currentInst),
+        lyricContinues: continues,
         keymap: this.store.keymap, quoteKey: this.store.quoteKey,
         wideCells: this.store.doc?.wideCells === true, surround: this.surround() });
     if (!action) return false;
@@ -865,19 +876,20 @@ class PatternPane {
     const store = this.store;
     const pattern = this.pattern();
     if (!pattern) return false;
-    const ctx = { preset: store.pitchPreset, wide: this.wide(), surround: this.surround() };
+    // Each row's notes step in their own notation (item 374).
+    const ctx = (r) => ({ preset: this.rowNotation(r, pattern), wide: this.wide(), surround: this.surround() });
     const b = this.selRowBounds();
     const writes = [];
     if (b) {
       const cols = this.fx2() ? this.selCols() : this.selCols().filter((c) => c !== COL_FX2);
       for (let r = b.r0; r <= b.r1; r++) {
-        const fields = nudgeColumns(cols, pattern[r], dir, coarse, ctx);
+        const fields = nudgeColumns(cols, pattern[r], dir, coarse, ctx(r));
         if (fields) writes.push({ pat: this.patIdx, row: r, fields });
       }
     } else {
       if (!store.record) return false;
       const c = this.cursor;
-      const fields = nudgeCursor(c.sub, c.nib, pattern[c.row], dir, coarse, ctx);
+      const fields = nudgeCursor(c.sub, c.nib, pattern[c.row], dir, coarse, ctx(c.row));
       if (fields) writes.push({ pat: this.patIdx, row: c.row, fields });
     }
     if (writes.length) {
@@ -918,7 +930,7 @@ class PatternPane {
     if (subIsEmpty(hit.sub, cell)) return false;
     let fields = null;
     switch (hit.sub) {
-      case SUB_NOTE: fields = { note: stepNoteCell(cell.note, this.store.pitchPreset, dir) }; break;
+      case SUB_NOTE: fields = { note: stepNoteCell(cell.note, this.rowNotation(this.cursor.row, pattern), dir) }; break;
       case SUB_INST: fields = { instrment: clampInt(cell.instrment + dir, 0, 255) }; break;
       // vol/pan: a fine slide steps its SIGNED delta (item 87), everything else
       // the plain value; neither ever steps into the no-op sentinel.
@@ -1091,6 +1103,7 @@ class PatternPane {
     const fxPal = { op: C.fxOp, a1: C.fxA1, a2: C.fxA2, a3: C.fxA3, dim: C.dim, ext: C.fxExt };
     const sb = this.selRowBounds(); // row-range selection (or null)
     const beats = store.beats(); // primary/secondary divisions from sMet
+    const paneLane = patternLane(store, this.patIdx); // whose notation (item 374)
     for (let r = 0; r < vis; r++) {
       const row = this.scrollRow + r;
       if (row > 63) break;
@@ -1147,11 +1160,12 @@ class PatternPane {
       // A ditto ghost is a repeat of a row that IS written down, so it speaks
       // first; a bend ghost only ever reports a value nothing wrote at all.
       const ghostNote = ghost?.note ?? bend?.note ?? null;
+      const notation = cellNotation(store, paneLane, pattern, row);
       if (ghostNote !== null) {
-        paintNoteCell(ctx, ghostNote, store.pitchPreset, x0, y, CHAR_W, ROW_H,
+        paintNoteCell(ctx, ghostNote, notation, x0, y, CHAR_W, ROW_H,
           dittoPal, store.rawNoteView, g.wide);
       } else {
-        paintNoteCell(ctx, cell.note, store.pitchPreset, x0, y, CHAR_W, ROW_H,
+        paintNoteCell(ctx, cell.note, notation, x0, y, CHAR_W, ROW_H,
           { note: C.fg, sentinel: C.fg2, dim: C.dim, offGrid: C.accent },
           store.rawNoteView, g.wide);
       }
@@ -1253,6 +1267,7 @@ export class PatternView {
       this.invalidate();
     });
     store.on("edit", () => this.invalidate());
+    store.on("notation", () => this.invalidate()); // a lane's own notation (item 374)
     // Exposing a second effect widens the cell, so the column COUNT has to be
     // recomputed — that is what stops a v3 pattern from being clipped by a pane
     // sized for a narrower one.

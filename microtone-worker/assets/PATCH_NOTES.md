@@ -19,6 +19,15 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 - It is not code-signed so Windows and macOS ask once before opening it. macOS 13 or later is needed.
 - Beside the licence, the app carries the notices and licence texts of everything it is made with, Qt and the browser engine among them.
 
+**Each lane and each instrument can have its own notation**: a song no longer has to be written in one tuning system throughout, and a drum kit's notes now read as the drums they play.
+
+- Right-click a lane's header in the Timeline and choose Notation… to write that lane in a notation of its own; an instrument has a Notation group at the bottom of its General tab (Options for a layered instrument or an FM rack), which goes with it onto any lane. A note follows its instrument's notation, else its lane's, else the song's.
+- Typing, Ctrl+←/→ and the mouse wheel use the note's own notation, and Transpose moves each note by its own notation's degrees. Retune… moves only the notes written in the song's notation.
+- A new notation, General MIDI drums, writes each drum key as its drum, five characters at most: `Kick1`, `Snar1`, `HHCls`, `Crsh1`. Every drum kit from a soundfont or a MIDI file uses it by itself, in projects you already have too; choose The lane's or the song's on the kit's Notation group to go back.
+- The Notation Maker can name the notes of a notation with no period outright: Spelled names gives each degree a field of up to five characters, and General MIDI drum names fills in the ones on drum keys, for a kit laid out your own way.
+- The Notation Maker's accidentals now include the sesquisharp and the sesquiflat (one and a half sharps or flats), and its list shows each accidental as the grids draw it.
+- Older versions open these projects as before, showing every note in the song's notation, and keep the settings when they save.
+
 **Mini Mode: the whole song at a glance**: the Timeline's Cells button has a fourth step, Cells: mini, which shrinks every row to a few pixels and draws each lane as the contour of its melody.
 
 - Each row also gets a mark for each column it writes — key-offs and the other markers, volume, panning, effects — in that column's colour, and each cue's number stands at its first row.

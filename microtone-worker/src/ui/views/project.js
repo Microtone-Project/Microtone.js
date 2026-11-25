@@ -32,6 +32,7 @@ import {
   decodeProjectString, encodeProjectString, escapeNonAscii, unescapeName,
 } from "../../../core/format/names.js";
 import { t } from "../i18n.js";
+import { transposeNotations, retuneExclusions } from "../notationat.js";
 
 /** Byte counts as a person reads them — the pool is measured in megabytes. */
 function fmtSize(n) {
@@ -525,7 +526,8 @@ export class ProjectView {
       applyHarmonicTranspose(store, preset, percSlots, () => true, v);
     } else {
       store.undo.apply(bulkNotesOp(store.songIndex,
-        (song) => transposeAllPatterns(song, preset, percSlots, fine, coarse)));
+        (song) => transposeAllPatterns(song, preset, percSlots, fine, coarse,
+          (pat) => transposeNotations(store, pat, v.raw ? preset : null))));
     }
     store.emit("doc"); // notes moved across many patterns — full redraw
     this.refresh();
@@ -868,13 +870,15 @@ export class ProjectView {
     for (const s of store.doc.usedInstrumentSlots()) {
       if (store.doc.instruments[s].isPercussion) percSlots[s] = 1;
     }
+    // …and what has a notation of its own is not the song's to move (item 374).
+    const skipPattern = retuneExclusions(store, percSlots);
 
     // Item 73 — an out-of-tune song (a .mod's period table lands notes a few
     // cents off every degree) needs a snap-to-grid pass before it can retune
     // sensibly. A same-table nearest-pitch retune IS that pass, so it only
     // no-ops when the notes really are all on the grid; anything else warns
     // first and points at the cleanup, rather than silently misplacing notes.
-    const survey = surveyTuning(store.song, currentPreset, percSlots);
+    const survey = surveyTuning(store.song, currentPreset, percSlots, skipPattern);
     const isCleanup = newPreset.index === currentPreset.index && method === "pitch";
     if (isCleanup) {
       if (survey.wouldChange === 0) {
@@ -897,7 +901,7 @@ export class ProjectView {
     }
 
     store.undo.apply(retuneOp(store.songIndex, newPreset, percSlots,
-      (song, np, ps) => retuneAllPatterns(song, np, currentPreset, ps, method)));
+      (song, np, ps) => retuneAllPatterns(song, np, currentPreset, ps, method, skipPattern)));
     // Record the new tuning in the song metadata (drives display + next retune).
     if (!store.doc.meta.songMeta[store.songIndex]) {
       store.doc.meta.songMeta[store.songIndex] =

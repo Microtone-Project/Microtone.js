@@ -1,0 +1,131 @@
+<!doctype html><meta charset="utf-8"><title>a lane's and an instrument's own notation (item 374)</title>
+<pre id="out">running…</pre>
+<img src="/hang" hidden>
+<iframe id="app" src="../../index.html" style="width:1400px;height:800px"></iframe>
+<script type="module">
+// Drives the REAL app over Huygens' Clock, whose drum part is a soundfont kit:
+// the kit's notes are spelled as General MIDI drums without anyone asking; a
+// lane takes a notation from its header's menu and the Timeline paints it;
+// note entry on that lane lands on its degrees; the kit's Options tab turns
+// the drum names off (one undo step) and back; the Notation Maker's spelled
+// mode writes names a cell shows.
+const out = document.getElementById("out");
+const log = (s) => { out.textContent += "\n" + s; };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let fails = 0;
+const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" : "FAIL"} ${name}${extra ? " — " + extra : ""}`); };
+
+(async () => {
+  try {
+    const app = document.getElementById("app");
+    await new Promise((r) => app.addEventListener("load", r));
+    const win = app.contentWindow;
+    for (let i = 0; i < 200 && !win.__microtone; i++) await sleep(50);
+    const M = win.__microtone;
+    if (!M) { log("no __microtone"); return; }
+    const doc = win.document;
+    const { store, jam } = M;
+    const E = await import("../../src/ui/edit.js");
+    const P = await import("../../core/tuning/pitchtables.js");
+    const { noteCellText } = await import("../../src/ui/cellpaint.js");
+    const { laneNotationItems } = await import("../../src/ui/notationpick.js");
+
+    const bytes = new Uint8Array(await (await fetch("../../assets/demo_projects/Huygens_clock.taud")).arrayBuffer());
+    await M.loadBytes("Huygens_clock.taud", bytes);
+    for (let i = 0; i < 100 && store.doc?.instrumentName(1) !== "Standard Kit"; i++) await sleep(50);
+    check(store.doc.instrumentName(1) === "Standard Kit", "Huygens' Clock is open");
+    doc.querySelector('[data-view="timeline"]').click();
+    await sleep(200);
+    const timeline = M.timeline;
+
+    // ── 1. the kit's notes read as drums, nothing set ─────────────────────
+    const song = store.song;
+    let hit = null;
+    for (let cue = 0; cue < song.cues.length && !hit; cue++) {
+      for (let ch = 0; ch < store.doc.channelCount && !hit; ch++) {
+        const pat = song.patterns[song.cues[cue][ch] & 0x7fff];
+        const r = pat?.findIndex((c) => c.instrment === 1 && c.note >= 0x20) ?? -1;
+        if (r >= 0) hit = { cue, ch, row: r, note: pat[r].note };
+      }
+    }
+    check(hit !== null, "a kit note is found", JSON.stringify(hit));
+    const kitPreset = store.notationFor(hit.ch, 1);
+    check(kitPreset.index === P.GM_DRUM_NOTATION, "the kit is spelled in General MIDI drums", String(kitPreset.index));
+    const txt = noteCellText(hit.note, kitPreset, false, true);
+    check(txt.spelled === true && /^[A-Za-z0-9]{2,5}$/.test(txt.text), "…its note reads as a drum's name", txt.text);
+
+    // ── 2. a lane's own notation, from its header's menu ──────────────────
+    const lane = 5;
+    const before = laneNotationItems(store, lane)[0];
+    check(before.id === "laneNotation" && !/:/.test(before.label), "the header menu offers Notation…", before.label);
+    store.setLaneNotation(lane, 190);
+    await sleep(100);
+    check(store.doc.laneNotation(store.songIndex, lane) === 190, "lane 6 is 19-TET");
+    check(/19-TET/.test(laneNotationItems(store, lane)[0].label), "…and its menu item says so", laneNotationItems(store, lane)[0].label);
+    check(store.doc.dirty === true, "…and the project is unsaved");
+
+    // ── 3. entry on that lane lands on 19-TET's degrees ───────────────────
+    const plain = store.doc.selectableInstrumentSlots().find((s) => !store.doc.isDrumKit(s));
+    jam.currentInst = plain;
+    store.record = true;
+    // an empty cell of lane 6
+    let row = -1;
+    for (let r = 0; r < 256 && row < 0; r++) {
+      const t = timeline.cellAt(r, lane);
+      if (t && t.cell.note === 0) row = r;
+    }
+    store.cursor = { row, ch: lane, sub: E.SUB_NOTE, nib: 0 };
+    timeline.editKey({ code: "KeyE", key: "e" }, jam, E.SUB_NOTE, 0, false);
+    const typed = timeline.cellAt(row, lane).cell.note;
+    const t19 = P.finePreset(P.pitchTablePresets[190]);
+    const r19 = P.resolveNoteSymbol(typed, t19);
+    check(r19 && !r19.offGrid, "a typed note sits on a 19-TET degree", typed.toString(16));
+    const t12 = P.finePreset(P.pitchTablePresets[120]);
+    check(P.resolveNoteSymbol(typed, t12).offGrid, "…which is not a 12-TET one", typed.toString(16));
+    store.undo.undo();
+    store.record = false;
+
+    // ── 4. the kit's Options tab: the drum names off, one undo step ───────
+    doc.querySelector('[data-view="instruments"]').click();
+    await sleep(200);
+    const inst = M.paneViews.map((m) => m.get("instruments")?.obj).find(Boolean) ?? null;
+    check(inst !== null, "the Instruments view is there");
+    inst.selected = 1;
+    inst.tab = "metaopts";
+    inst.refresh();
+    await sleep(100);
+    const sel = [...doc.querySelectorAll("select.sl-pick")].find((s) => [...s.options].some((o) => o.value === "follow"));
+    check(!!sel, "the kit's Options tab has a Notation choice with 'follow'");
+    check(sel?.value === "auto", "…set to Automatic", sel?.value);
+    sel.value = "follow";
+    sel.dispatchEvent(new win.Event("change"));
+    await sleep(50);
+    check(store.doc.instNotation(1) === "follow", "choosing follow writes INtn");
+    check(store.notationFor(hit.ch, 1).index !== P.GM_DRUM_NOTATION, "…and the kit is no longer spelled as drums");
+    store.undo.undo();
+    await sleep(50);
+    check(store.doc.instNotation(1) === null, "undo takes it back");
+
+    // ── 5. a spelled custom notation ──────────────────────────────────────
+    const N = await import("../../src/doc/notation.js");
+    const def = { slot: 0, flags: N.NOTA_SPELLED, interval: 0, base: 0x2000, name: "Kit names",
+      table: [0, 0x155, 0x2ab], syms: [], spells: ["Boom", "Tss", ""] };
+    def.syms = N.autoAssignSyms(def, "nearest");
+    const { setSectionOp } = await import("../../src/doc/ops.js");
+    store.undo.apply(setSectionOp("nota", N.buildNotaPayload([def])));
+    store.setLaneNotation(lane, 0xffff);
+    const custom = store.notationFor(lane, 0);
+    check(custom.name === "Kit names", "a lane can take a custom notation", custom.name);
+    check(noteCellText(0x2000, custom, false, true).text === "Boom", "…and a spelled degree reads as written");
+
+    doc.querySelector('[data-view="timeline"]').click();
+    store.cursor = { row: hit.cue === 0 ? hit.row : 0, ch: hit.ch, sub: 0, nib: 0 };
+    store.emit("cursor");
+    await sleep(300);
+  } catch (e) {
+    fails++;
+    log("EXCEPTION " + (e?.stack ?? e));
+  }
+  log(`FAILURES: ${fails}`);
+})();
+</script>

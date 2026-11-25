@@ -22,6 +22,11 @@
 //     (0 = default C4). This is how a hardware grid like ProTracker pitch is
 //     expressed — its base is 0x3000, two octaves below C4, because the
 //     offsets are unsigned. The "No interval" chip switches modes.
+//
+// An interval-less definition may also be SPELLED (item 374, nota flags bit
+// 5): each degree is named by up to five ASCII characters of its own — a drum
+// kit's "Kick1" — shown as written across the note column, with no octave
+// digit. A degree left blank shows the nearest 12-TET name.
 
 import { t } from "../i18n.js";
 import { actionRow } from "../components/actions.js";
@@ -32,36 +37,41 @@ import { setSectionOp } from "../../doc/ops.js";
 import { noteGlyph } from "../components/noteglyph.js";
 import { mapSpinner } from "../components/spinner.js";
 import { fineCentsMap } from "../spinmaps.js";
-import { MOTIF, MUSIC } from "../../../core/fonts/motifglyphs.js";
-import { ANCHOR_NOTE, presetForNotation, resolveNoteSymbol, quantiseNote, finePreset } from "../../../core/tuning/pitchtables.js";
+import { MOTIF, motifCells } from "../../../core/fonts/motifglyphs.js";
+import {
+  ANCHOR_NOTE, presetForNotation, resolveNoteSymbol, quantiseNote, finePreset, gmDrumName, SPELL_CHARS,
+} from "../../../core/tuning/pitchtables.js";
 import {
   NOTA_SLOTS, notationValueForSlot, buildNotaPayload, parseTaudnot, buildTaudnot,
   parseScl, sclToDef, autoAssignSyms, defToPreset,
-  validateDef, FALLBACK_SYM,
+  validateDef, FALLBACK_SYM, NOTA_SPELLED, isSpelledDef, cleanSpelling,
 } from "../../doc/notation.js";
 
 const TICKS = [" ", ".", "u", "d", "U", "D"];
-const ACCS = ["-", "#", "b", "t", "p", "x", "B", "3", "T", "4"];
+const ACCS = ["-", "#", "b", "t", "p", "s", "f", "x", "B", "3", "T", "4"];
 // The pickers' options: the sign as Motif Grid draws it, then its name. A
 // phone's own picker ignores the page's font (and has no glyph at all for the
-// Kite ticks), so there the name is what reads. The sign sits in a two-cell
-// field so the names line up — in no-break spaces, since an option's own
-// spaces collapse.
+// Kite ticks), so there the name is what reads. An accidental is its two-cell
+// glyph, as the grids draw it in a normal notation; the sign sits in a field
+// three cells wide so the names line up — padded with no-break spaces, since
+// an option's own spaces collapse.
 const TICK_SIGNS = {
   " ": "", ".": MOTIF.KITE_DOT, u: MOTIF.KITE_UP, d: MOTIF.KITE_DOWN, U: MOTIF.KITE_UP2, D: MOTIF.KITE_DOWN2,
 };
 const TICK_NAMES = { " ": "none", ".": "dot", u: "up", d: "down", U: "up2", D: "down2" };
 const ACC_SIGNS = {
-  "-": MUSIC.NATURAL, "#": MUSIC.SHARP, b: MUSIC.FLAT, t: MUSIC.HALF_SHARP, p: MUSIC.REVERSED_FLAT,
-  x: MUSIC.DOUBLE_SHARP, B: MUSIC.DOUBLE_FLAT, 3: MUSIC.SHARP + MUSIC.DOUBLE_SHARP,
-  T: MUSIC.TRIPLE_FLAT, 4: MUSIC.DOUBLE_SHARP + MUSIC.DOUBLE_SHARP,
+  "-": MOTIF.NATURAL2, "#": MOTIF.SHARP2, b: MOTIF.FLAT2, t: MOTIF.HALF_SHARP2, p: MOTIF.REVERSED_FLAT2,
+  s: MOTIF.SESQUI_SHARP2, f: MOTIF.SESQUI_FLAT2,
+  x: MOTIF.DOUBLE_SHARP2, B: MOTIF.DOUBLE_FLAT2, 3: MOTIF.TRIPLE_SHARP2,
+  T: MOTIF.TRIPLE_FLAT2, 4: MOTIF.QUADRUPLE_SHARP2,
 };
 const ACC_NAMES = {
-  "-": "natural", "#": "sharp", b: "flat", t: "demisharp", p: "demiflat", x: "doubleSharp",
-  B: "doubleFlat", 3: "tripleSharp", T: "tripleFlat", 4: "quadSharp",
+  "-": "natural", "#": "sharp", b: "flat", t: "demisharp", p: "demiflat", s: "sesquiSharp", f: "sesquiFlat",
+  x: "doubleSharp", B: "doubleFlat", 3: "tripleSharp", T: "tripleFlat", 4: "quadSharp",
 };
 const NBSP = "\u00A0";
-const signLabel = (sign, name) => sign + NBSP.repeat(3 - [...sign].length) + name;
+const cellsOf = (sign) => [...sign].reduce((n, ch) => n + motifCells(ch), 0);
+const signLabel = (sign, name) => sign + NBSP.repeat(Math.max(1, 3 - cellsOf(sign))) + name;
 const tickLabel = (o) => signLabel(TICK_SIGNS[o], t(`nota.tick.${TICK_NAMES[o]}`));
 const accLabel = (o) => signLabel(ACC_SIGNS[o], t(`nota.acc.${ACC_NAMES[o]}`));
 // Periods to the nearest 65536-TET step (4096·log2 r, in sixteenths of a
@@ -100,7 +110,14 @@ const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replac
 function deepCopyDef(d) {
   return { slot: d.slot, flags: d.flags ?? 0, interval: d.interval,
            base: d.base ?? 0, name: d.name,
-           table: d.table.slice(), syms: d.syms.slice() };
+           table: d.table.slice(), syms: d.syms.slice(), spells: (d.spells ?? []).slice() };
+}
+
+/** The MIDI key a pitch (4096-TET units) is, when it is one — MIDI key 60 is
+ *  C4, as the converters write it — else null. */
+function midiKeyOf(note) {
+  const k = 60 + ((note - ANCHOR_NOTE) * 12) / OCTAVE;
+  return Math.abs(k - Math.round(k)) < 1 / 64 ? Math.round(k) : null;
 }
 
 /** Note that degree 0 sits on — the declared base for an absolute def, C4
@@ -318,7 +335,20 @@ export function showNotationMaker(store) {
           : "";
         baseLb.appendChild(baseAnn);
         head.appendChild(baseLb);
+        // Spelled names (item 374): an absolute table only, where each degree
+        // is one note and can be named outright.
+        const spell = lampButton({
+          label: t("nota.spelled"), on: isSpelledDef(def),
+          onChange: (on) => {
+            def.flags = on ? (def.flags | NOTA_SPELLED) : (def.flags & ~NOTA_SPELLED);
+            renderAll();
+          },
+        });
+        spell.button.dataset.k = "spelled";
+        spell.button.title = t("nota.spelledTitle");
+        head.appendChild(spell.button);
       }
+      const spelled = isSpelledDef(def);
       // tool row
       const tools = document.createElement("div");
       tools.className = "nota-tools";
@@ -375,6 +405,15 @@ export function showNotationMaker(store) {
         def.syms = autoAssignSyms(def, "sequence");
         renderAll();
       }, "autoSeq");
+      if (spelled) {
+        mkBtn(t("nota.gmDrums"), t("nota.gmDrumsTitle"), () => {
+          def.spells = def.table.map((u, i) => {
+            const key = midiKeyOf(defBase(def) + u);
+            return (key !== null ? gmDrumName(key) : null) ?? def.spells?.[i] ?? "";
+          });
+          renderAll();
+        }, "gmDrums");
+      }
       mkBtn(t("nota.duplicate"), null, () => {
         const s = firstFreeSlot();
         if (s < 0) { showAlert(t("nota.noFreeSlot")); return; }
@@ -402,8 +441,10 @@ export function showNotationMaker(store) {
       wrap.className = "nota-degrees";
       const tbl = document.createElement("table");
       tbl.innerHTML = `<thead><tr><th>#</th><th>${esc(t("nota.colCents"))}</th>` +
-        `<th>${esc(t("nota.colUnits"))}</th><th>${esc(t("nota.colTick"))}</th>` +
-        `<th>${esc(t("nota.colLetter"))}</th><th>${esc(t("nota.colAcc"))}</th>` +
+        `<th>${esc(t("nota.colUnits"))}</th>` +
+        (spelled ? `<th colspan="3">${esc(t("nota.colSpelling"))}</th>`
+          : `<th>${esc(t("nota.colTick"))}</th>` +
+            `<th>${esc(t("nota.colLetter"))}</th><th>${esc(t("nota.colAcc"))}</th>`) +
         `<th>${esc(t("nota.colPreview"))}</th><th></th></tr></thead>`;
       const tbody = document.createElement("tbody");
       def.table.forEach((units, i) => {
@@ -467,9 +508,30 @@ export function showNotationMaker(store) {
           p[idx] = v;
           def.syms[i] = p.join("");
         };
-        tr.appendChild(mkSel(TICKS, tickLabel, parts[0], setPart(0), "tick"));
-        tr.appendChild(mkSel([..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"], null, parts[1], setPart(1), "letter"));
-        tr.appendChild(mkSel(ACCS, accLabel, parts[2], setPart(2), "acc"));
+        if (spelled) {
+          // Five printable ASCII characters, as the note column shows them.
+          const td = document.createElement("td");
+          td.colSpan = 3;
+          const sp = document.createElement("input");
+          sp.type = "text";
+          sp.className = "nota-spell";
+          sp.maxLength = SPELL_CHARS;
+          sp.size = SPELL_CHARS + 1;
+          sp.dataset.k = "spell" + i;
+          sp.value = def.spells?.[i] ?? "";
+          sp.placeholder = t("nota.spellingNone");
+          sp.addEventListener("change", () => {
+            def.spells ??= [];
+            def.spells[i] = cleanSpelling(sp.value);
+            renderAll();
+          });
+          td.appendChild(sp);
+          tr.appendChild(td);
+        } else {
+          tr.appendChild(mkSel(TICKS, tickLabel, parts[0], setPart(0), "tick"));
+          tr.appendChild(mkSel([..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"], null, parts[1], setPart(1), "letter"));
+          tr.appendChild(mkSel(ACCS, accLabel, parts[2], setPart(2), "acc"));
+        }
         // live glyph preview
         const tdP = document.createElement("td");
         tdP.appendChild(previewGlyph(def, i));
@@ -484,6 +546,7 @@ export function showNotationMaker(store) {
           x.addEventListener("click", () => {
             def.table.splice(i, 1);
             def.syms.splice(i, 1);
+            def.spells?.splice(i, 1);
             renderAll();
           });
           tdX.appendChild(x);
@@ -515,6 +578,10 @@ export function showNotationMaker(store) {
         def.table.push(units);
         const named = autoAssignSyms({ table: [units], interval: def.interval }, "nearest");
         def.syms.push(named[0]);
+        if (def.spells) {
+          def.spells.length = def.table.length - 1; // pad or trim to the old count…
+          def.spells.push("");                      // …then the new degree, unnamed
+        }
         renderAll();
       });
       ed.appendChild(add);

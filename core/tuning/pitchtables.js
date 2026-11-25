@@ -80,6 +80,37 @@ const PT_BASE = ANCHOR_NOTE - 2 * 0x1000; // 0x3000 ≡ period 1712
 const ptNoteFor = (period) =>
   Math.round(ANCHOR_NOTE + 4096 * Math.log2(PT_REFERENCE_PERIOD / period));
 
+// ── General MIDI drum names (notation index 10128, item 374) ──
+// A drum kit plays a different sound on every key, so its notes read best as
+// the sounds' names. This is 12-TET, absolute (one degree per MIDI key, C0 =
+// key 12 to G9 = key 127, MIDI key 60 = C4 as the converters write it), and
+// SPELLED: a degree with a `spell` entry is shown as those five characters
+// across the whole note column, no octave digit; one without (a key General
+// MIDI leaves unnamed) is spelled as 12-TET spells it. Keys 35…81 are General
+// MIDI's, 27…34 and 82…87 Roland GS's additions, which General MIDI 2 adopted.
+const GM_DRUM_FIRST_KEY = 12;
+const GM_DRUM_LAST_KEY = 127;
+const GM_DRUM_NAMES = {
+  27: "HighQ", 28: "Slap", 29: "ScrPs", 30: "ScrPl", 31: "Stcks", 32: "SqClk", 33: "MtClk", 34: "MtBel",
+  35: "Kick2", 36: "Kick1", 37: "SdStk", 38: "Snar1", 39: "Clap", 40: "Snar2", 41: "LFTom", 42: "HHCls",
+  43: "HFTom", 44: "HHPed", 45: "LoTom", 46: "HHOpn", 47: "LMTom", 48: "HMTom", 49: "Crsh1", 50: "HiTom",
+  51: "Ride1", 52: "China", 53: "RBell", 54: "Tamb", 55: "Splsh", 56: "CowBl", 57: "Crsh2", 58: "VSlap",
+  59: "Ride2", 60: "HBngo", 61: "LBngo", 62: "MHCng", 63: "OHCng", 64: "LCnga", 65: "HTimb", 66: "LTimb",
+  67: "HAgog", 68: "LAgog", 69: "Cabsa", 70: "Mrcas", 71: "SWhis", 72: "LWhis", 73: "SGuir", 74: "LGuir",
+  75: "Clavs", 76: "HWBlk", 77: "LWBlk", 78: "MCuic", 79: "OCuic", 80: "MTri", 81: "OTri", 82: "Shakr",
+  83: "JBell", 84: "BTree", 85: "Cstnt", 86: "MSurd", 87: "OSurd",
+};
+/** The notation index of the General MIDI drum names. */
+export const GM_DRUM_NOTATION = 10128;
+/** General MIDI's (and GS's) name for the drum on MIDI key `key`, or null. */
+export function gmDrumName(key) { return GM_DRUM_NAMES[key] ?? null; }
+const GM_DRUM_KEYS = GM_DRUM_LAST_KEY - GM_DRUM_FIRST_KEY + 1;
+const GM_DRUM_BASE = ANCHOR_NOTE + (GM_DRUM_FIRST_KEY - 60) * 0x1000 / 12; // C0, 0x1000
+
+/** The most characters a spelled degree shows: the wide note column holds five
+ *  in Motif Transport (its pitch prefix and four cells). */
+export const SPELL_CHARS = 5;
+
 export const pitchTablePresets = {
   0: { index: 0, name: "Raw format", table: [], interval: 0x1000, t: "" },
   1: {
@@ -123,6 +154,12 @@ export const pitchTablePresets = {
   960: { index: 960, name: "96-TET (Kite)", table: (() => { const t = []; for (let i = 0; i < 96; i++) t.push(Math.round((i * 0x1000) / 96)); return t; })(), interval: 0x1000, t: "m", sym: SYM_96 },
   10121: { index: 10121, name: "Pythagorean dim. 5th", table: [0x0, 0x134, 0x2b8, 0x3ec, 0x570, 0x6a4, 0x7d8, 0x95c, 0xa90, 0xc14, 0xd48, 0xecc], interval: 0x1000, t: "d", sym: SYM_12 },
   10122: { index: 10122, name: "Pythagorean aug. 4th", table: [0x0, 0x134, 0x2b8, 0x3ec, 0x570, 0x6a4, 0x828, 0x95c, 0xa90, 0xc14, 0xd48, 0xecc], interval: 0x1000, t: "d", sym: SYM_12 },
+  [GM_DRUM_NOTATION]: {
+    index: GM_DRUM_NOTATION, name: "General MIDI drums", interval: 0, base: GM_DRUM_BASE, t: "d",
+    table: Array.from({ length: GM_DRUM_KEYS }, (_, i) => Math.round((i * 0x1000) / 12)),
+    sym: Array.from({ length: GM_DRUM_KEYS }, (_, i) => SYM_12[(GM_DRUM_FIRST_KEY + i) % 12]),
+    spell: Array.from({ length: GM_DRUM_KEYS }, (_, i) => GM_DRUM_NAMES[GM_DRUM_FIRST_KEY + i] ?? null),
+  },
   10123: { index: 10123, name: "Shi'er lü", table: [0x0, 0x184, 0x2b8, 0x43c, 0x570, 0x6f4, 0x828, 0x95c, 0xae0, 0xc14, 0xd98, 0xecc], interval: 0x1000, t: "d", sym: ["\u9EC3", "\u5927", "\u592A", "\u593E", "\u59D1", "\u4EF2", "\u8564", "\u6797", "\u5937", "\u5357", "\u7121", "\u61C9"] },
   20351: { index: 20351, name: "Carlos Gamma", table: [0x0, 0x78, 0xf0, 0x167, 0x1df, 0x257, 0x2cf, 0x347, 0x3be, 0x436, 0x4ae, 0x526, 0x59e, 0x616, 0x68d, 0x705, 0x77d, 0x7f5, 0x86d, 0x8e4, 0x95c, 0x9d4, 0xa4c, 0xac4, 0xb3b, 0xbb3, 0xc2b, 0xca3, 0xd1b, 0xd92, 0xe0a, 0xe82, 0xefa, 0xf72, 0xfe9], interval: 0x1061, exactInterval: 0x10614 / 16, t: "m", sym: [".C-", "uC-", "dC#", ".C#", "uC#", "dD-", ".D-", "uD-", "dD#", ".D#", "dE-", ".E-", "uE-", "dF-", ".F-", "uF-", "dF#", ".F#", "uF#", "dG-", ".G-", "uG-", "dG#", ".G#", "uG#", "dA-", ".A-", "dA#", ".A#", "uA#", "dB-", ".B-", "uB-", "DC-", "dC-"] },
   20638: { index: 20638, name: "Carlos Beta", table: [0x0, 0xda, 0x1b4, 0x28d, 0x367, 0x441, 0x51b, 0x5f4, 0x6ce, 0x7a8, 0x882, 0x95b, 0xa35, 0xb0f, 0xbe9, 0xcc3, 0xd9c, 0xe76, 0xf50], interval: 0x102a, exactInterval: 0x1029a / 16, t: "m", sym: [" C-", " Ct", " Dp", " D-", " Dt", " D#", " E-", " Et", " F-", " Ft", " Gp", " G-", " Gt", " Ap", " A-", " At", " A#", " B-", " Bt"] },
@@ -220,6 +257,7 @@ function exactOffsets(preset) {
     case 10121: return PYTH_DIM5.map(ratioUnits);
     case 10122: return PYTH_AUG4.map(ratioUnits);
     case 10123: return LU_RATIOS.map(ratioUnits);
+    case GM_DRUM_NOTATION: return preset.table.map((_, i) => (i * 0x1000) / 12);
     default: break;
   }
   // Every other built-in is an equal division of its interval: the octave,
@@ -397,6 +435,8 @@ export const OFF_GRID_TOL = 2;
  * the grid carry offGrid: true — "out of tune", painted yellow by the painter.
  * Returns null only when the preset has no syms (Raw) or the period is out
  * of display range; else
+ *   {spelled, offGrid}                  for a spelled degree (`preset.spell`,
+ *                                       up to SPELL_CHARS characters, no octave),
  *   {cjk, octave, offGrid}              for Shi'er lü tokens, or
  *   {tick, letter, acc, octave, offGrid} decoded from the 3-char token DSL.
  */
@@ -424,8 +464,11 @@ export function resolveNoteSymbol(note, preset) {
     }
     octave = 4 + k;
   }
-  if (octave < 0 || octave > 9) return null;
   const offGrid = bestD > OFF_GRID_TOL;
+  // A spelled degree (item 374) is its own name, octave and all.
+  const spelled = preset.spell?.[best];
+  if (spelled) return { spelled, offGrid };
+  if (octave < 0 || octave > 9) return null;
   const token = preset.sym[best];
   if (token.length === 1) return { cjk: token, octave, offGrid };
   return { tick: token[0], letter: token[1], acc: token[2], octave, offGrid };
@@ -620,11 +663,13 @@ export function gridDelta(note, preset) {
  * two differ because a note ≤ OFF_GRID_TOL off still reads as in tune but is
  * not exactly on a degree.
  */
-export function surveyTuning(song, preset, percSlots) {
+export function surveyTuning(song, preset, percSlots, skipPattern = null) {
   const out = { total: 0, offGrid: 0, wouldChange: 0 };
   if (!preset || preset.table.length === 0) return out; // Raw: no grid to be off
-  for (const ptn of song.patterns) {
+  for (let p = 0; p < song.patterns.length; p++) {
+    const ptn = song.patterns[p];
     if (!ptn) continue; // null gap (item 48)
+    if (skipPattern !== null && skipPattern(p)) continue; // retuneAllPatterns's own skip
     let runningInst = 0;
     for (const cell of ptn) {
       if (cell.instrment !== 0) runningInst = cell.instrment;
@@ -693,8 +738,10 @@ function harmonicCost(p, tonic, interval) {
  *              pull toward JI attractors (long notes pull harder).
  * Percussion notes are skipped via percSlots (inst byte14 bit4 / meta byte0
  * bit1). Mutates cells; returns [{pat, row, prev}] for the inverse.
+ * `skipPattern(p)`, when given, leaves pattern p untouched (a pattern only
+ * lanes with a notation of their own play, item 374).
  */
-export function retuneAllPatterns(song, newPreset, srcPreset, percSlots, method = "pitch") {
+export function retuneAllPatterns(song, newPreset, srcPreset, percSlots, method = "pitch", skipPattern = null) {
   if (method !== "delta" && method !== "cadence" && method !== "harmonic") method = "pitch";
   const newTable = newPreset.table;
   if (newTable.length === 0) return [];
@@ -708,6 +755,9 @@ export function retuneAllPatterns(song, newPreset, srcPreset, percSlots, method 
   for (let p = 0; p < song.patterns.length; p++) {
     const ptn = song.patterns[p];
     if (!ptn) continue; // null gap: an arbitrary-numbered pattern (item 48)
+    // A pattern only lanes with a notation of their own play (item 374) is
+    // not in the song's notation, so moving the song leaves it be.
+    if (skipPattern !== null && skipPattern(p)) continue;
     let prevOrigAbs = -1, prevMappedAbs = 0, tonic = 0;
 
     // Tonic = the first non-percussion, non-sentinel note in the pattern.
@@ -795,14 +845,15 @@ export function retuneNearest(song, newPreset, percSlots) {
  *     (wrapping across periods) plus `coarse` whole periods;
  *   - Raw (empty table): `fine` raw 4096-TET note units plus `coarse` periods.
  * Sentinels/interrupts (< 0x20) and percussion instruments are skipped, with
- * the same running-instrument inheritance as retuneAllPatterns. Mutates the
- * cells; returns [{pat, row, prev}] for restoreNotesOp (via bulkNotesOp).
+ * the same running-instrument inheritance as retuneAllPatterns. `songPreset`
+ * is the pattern's notation; `presetFor(inst)`, when given, may answer an
+ * instrument's own (null: the pattern's), and that instrument's notes step in
+ * it. Mutates the cells; returns [{pat, row, prev}] for restoreNotesOp (via
+ * bulkNotesOp).
  */
-export function transposePatternNotes(song, patIdx, preset, percSlots, fine, coarse,
-                                      rowLo = 0, rowHi = Infinity, rowFilter = null) {
+export function transposePatternNotes(song, patIdx, songPreset, percSlots, fine, coarse,
+                                      rowLo = 0, rowHi = Infinity, rowFilter = null, presetFor = null) {
   const ptn = song.patterns[patIdx];
-  const useTable = preset && preset.table.length > 0;
-  const interval = preset?.interval || 0x1000;
   const changes = [];
   let runningInst = 0;
   for (let row = 0; row < ptn.length; row++) {
@@ -818,6 +869,10 @@ export function transposePatternNotes(song, patIdx, preset, percSlots, fine, coa
     // through several cues, so its rows need not be contiguous.
     if (row < rowLo || row > rowHi) continue;
     if (rowFilter !== null && !rowFilter(row)) continue;
+    // An instrument with a notation of its own moves by ITS degrees (item 374).
+    const preset = (presetFor !== null && eInst >= 1 ? presetFor(eInst) : null) ?? songPreset;
+    const useTable = preset && preset.table.length > 0;
+    const interval = preset?.interval || 0x1000;
 
     let out;
     if (!useTable) {
@@ -866,11 +921,13 @@ export function transposePatternNotes(song, patIdx, preset, percSlots, fine, coa
  * the project are never touched: `song` is the only thing this reads.
  * Returns the concatenated [{pat, row, prev}] list for restoreNotesOp.
  */
-export function transposeAllPatterns(song, preset, percSlots, fine, coarse) {
+export function transposeAllPatterns(song, preset, percSlots, fine, coarse, notationsOf = null) {
   const changes = [];
   for (let p = 0; p < song.patterns.length; p++) {
     if (!song.patterns[p]) continue;
-    for (const c of transposePatternNotes(song, p, preset, percSlots, fine, coarse)) {
+    // `notationsOf(p)`: the pattern's own {preset, presetFor} (item 374).
+    const own = notationsOf?.(p) ?? { preset, presetFor: null };
+    for (const c of transposePatternNotes(song, p, own.preset, percSlots, fine, coarse, 0, Infinity, null, own.presetFor)) {
       changes.push(c);
     }
   }

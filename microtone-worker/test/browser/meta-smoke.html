@@ -263,8 +263,9 @@
         const on = (b) => b.getAttribute("aria-pressed") === "true";
         check("the Options tab is showing", instrumentsView.tab === "metaopts");
         check("…with the two record flags", boxes().length === 2);
-        check("…named", [...panel().querySelectorAll(".sl-label")].map((e) => e.textContent)
-          .join("|") === "Percussion|Strict layering");
+        // …and under them the instrument's own notation (item 374).
+        check("…named, then the notation", [...panel().querySelectorAll(".sl-label")].map((e) => e.textContent)
+          .join("|") === "Percussion|Strict layering|Notation");
         check("…each explaining what it does",
           panel().querySelectorAll(".sl-hint").length === 2);
         check("…and the flag byte quoted for a bug report",

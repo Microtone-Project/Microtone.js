@@ -110,6 +110,11 @@ export const ICON = {
   fx2ShowAll: SVG(fxRow(3.5) + fxRow(10.5) + fxRow(17.5)),
   fx2HideAll: SVG(fxRow(3.5) + fxRow(10.5) + fxRow(17.5) +
     '<path d="M3 20.5 21 3.5"/>'),
+  /** The lane's own notation (item 374): the lane, and a sharp — how its
+   *  notes are spelled. */
+  laneNotation: SVG(bar(2) +
+    '<path d="M13 4.5v15M18.5 3.5v15"/>' +
+    '<path d="M9.5 10.25l12-2.5M9.5 16.25l12-2.5" stroke-width="2.4"/>'),
 
   // ── the row trough (item 136) ──
   // Song ROWS, turned ninety degrees from the lane bars above so the two

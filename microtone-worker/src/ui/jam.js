@@ -90,7 +90,7 @@ export class JamKeyboard {
     this.held.set(code, voice);
     const audio = this.store.audio;
     if (audio) {
-      const note = keymapNote(this.keymap, code, this.octave, this.store.pitchPreset, null, this.transpose);
+      const note = keymapNote(this.keymap, code, this.octave, this.preset(), null, this.transpose);
       // Pure audition on the DOM views (Instruments/Samples) may snap a strict
       // metainstrument to a note it can actually sound (item 51); note-entry
       // views keep the exact pitch.
@@ -173,6 +173,12 @@ export class JamKeyboard {
     this.octave = Math.min(Math.max(this.octave + d, OCTAVE_MIN), OCTAVE_MAX);
   }
 
+  /** The notation the keys play in: the current instrument's, or the cursor
+   *  lane's, else the song's (item 374; store.jamPreset). */
+  preset() {
+    return this.store.jamPreset?.(this.currentInst) ?? this.store.pitchPreset;
+  }
+
   /** Step the keyboard transposition, clamped to two digits either way —
    *  anything wider is what the octave keys are for. A whole period (12 on a
    *  semitone layout, the table's length on a degree one) is folded into the
@@ -180,7 +186,7 @@ export class JamKeyboard {
    *  Oct 4. At the octave's end of the range the transposition stays. */
   transposeDelta(d) {
     this.transpose = Math.min(Math.max(this.transpose + d, -TRANSPOSE_MAX), TRANSPOSE_MAX);
-    const period = keymapPeriod(this.keymap, this.store.pitchPreset);
+    const period = keymapPeriod(this.keymap, this.preset());
     if (period > 0) {
       const whole = Math.trunc(this.transpose / period);
       const octave = Math.min(Math.max(this.octave + whole, OCTAVE_MIN), OCTAVE_MAX);

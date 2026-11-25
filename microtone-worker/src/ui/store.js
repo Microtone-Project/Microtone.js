@@ -1,5 +1,6 @@
 // App state + tiny event emitter. Topics: "doc" (loaded/replaced),
 // "edit" (dirty tags), "view", "cursor", "transport", "mutes", "fx2",
+// "notation" (a lane's own notation),
 // "keymap" (the jam layout or its settings), "octave" (the jam octave).
 
 import {
@@ -8,6 +9,7 @@ import {
 import { DEFAULT_KEYMAP, QUOTE_DEFAULT } from "./keymap.js";
 import { envClipToJson, envClipFromJson } from "../doc/envedit.js";
 import { LANE_FLAG_FX2 } from "../../core/format/lane-section.js";
+import { presetForNotation, GM_DRUM_NOTATION } from "../../core/tuning/pitchtables.js";
 
 /** Panes the Patterns view can hold — the fx2 flags are kept per pane INDEX so
  *  they survive the pane churn a viewport resize causes (pattern.js MAX_PANES).
@@ -247,6 +249,94 @@ export class Store {
   }
 
   get song() { return this.doc?.songs[this.songIndex] ?? null; }
+
+  // ── notations of a lane and an instrument (item 374) ──
+  // The song has a notation (`pitchPreset`); a lane may have its own (sLan)
+  // and so may an instrument (INtn), and a drum kit that says nothing gets the
+  // General MIDI drum names. A note is spelled, and typed, in its
+  // instrument's notation, else its lane's, else the song's.
+
+  /** The preset for notation index `value` in the open document — the song's
+   *  own object when it is the song's, and one object per index otherwise
+   *  (a custom notation is rebuilt from `nota` each time it is asked for, so
+   *  this keeps the grids from rebuilding it per cell). */
+  presetOf(value) {
+    const doc = this.doc;
+    if (!doc) return this.pitchPreset;
+    if (value === (doc.meta.songMeta[this.songIndex]?.notation ?? 120) && this.pitchPreset) return this.pitchPreset;
+    const nota = doc.projSections.find((x) => x.fourcc === "nota")?.payload ?? null;
+    const c = this._presetCache;
+    if (!c || c.doc !== doc || c.nota !== nota || c.wide !== doc.wideCells) {
+      this._presetCache = { doc, nota, wide: doc.wideCells, map: new Map() };
+    }
+    const map = this._presetCache.map;
+    let p = map.get(value);
+    if (p === undefined) { p = presetForNotation(value, doc); map.set(value, p); }
+    return p;
+  }
+
+  /** The notation index instrument `inst` (1…1023) gives its notes, or null
+   *  when it leaves them to the lane and the song. */
+  instNotationIndex(inst) {
+    const doc = this.doc;
+    if (!doc || !(inst > 0)) return null;
+    const own = doc.instNotation(inst);
+    if (own === "follow") return null;
+    if (own !== null) return own;
+    return doc.isDrumKit(inst) ? GM_DRUM_NOTATION : null;
+  }
+
+  /** Lane `ch`'s own notation index, or null when it follows the song. */
+  laneNotationIndex(ch) {
+    return this.doc?.laneNotation(this.songIndex, ch) ?? null;
+  }
+
+  /** The preset a note on lane `ch`, played by instrument `inst` (0: none
+   *  known), is spelled and entered in. The instruments' answers are kept
+   *  until the next announcement (store.gen), since the grids ask per cell. */
+  notationFor(ch, inst = 0) {
+    if (!this.doc) return this.pitchPreset;
+    if (inst > 0) {
+      const c = this._instNotaCache;
+      if (!c || c.gen !== this.gen || c.doc !== this.doc) this._instNotaCache = { gen: this.gen, doc: this.doc, map: new Map() };
+      const map = this._instNotaCache.map;
+      let v = map.get(inst);
+      if (v === undefined) { v = this.instNotationIndex(inst); map.set(inst, v); }
+      if (v !== null) return this.presetOf(v);
+    }
+    const lane = ch >= 0 ? this.laneNotationIndex(ch) : null;
+    return lane !== null ? this.presetOf(lane) : this.pitchPreset;
+  }
+
+  /** The preset the jam keyboard plays instrument `inst` in: its own
+   *  notation, else — on the Timeline — the cursor lane's, else the song's. */
+  jamPreset(inst) {
+    return this.notationFor(this.view === "timeline" ? this.cursor.ch : -1, inst);
+  }
+
+  /** Does any instrument of the open project have a notation — its own or
+   *  a drum kit's? Lets a grid skip working out which instrument plays a note.
+   *  Kept until the next announcement. */
+  anyInstNotation() {
+    const doc = this.doc;
+    if (!doc) return false;
+    if (this._anyInstNota?.gen === this.gen && this._anyInstNota.doc === doc) return this._anyInstNota.v;
+    let v = false;
+    for (const s of doc.selectableInstrumentSlots()) {
+      if (this.instNotationIndex(s) !== null) { v = true; break; }
+    }
+    this._anyInstNota = { gen: this.gen, doc, v };
+    return v;
+  }
+
+  /** Give lane `ch` its own notation (null: back to the song's). Saved with
+   *  the song, no undo step — the song's notation has none either. */
+  setLaneNotation(ch, value) {
+    if (this.doc?.setLaneNotation(this.songIndex, ch, value)) {
+      this.doc.dirty = true;
+      this.emit("notation");
+    }
+  }
 
   /** Row-highlight divisions from the song's sMet (defaults 4/16). */
   beats() {

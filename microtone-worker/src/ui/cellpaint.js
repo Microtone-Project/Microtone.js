@@ -14,6 +14,9 @@
 //   [ sentinel, all 4 cells    ]              key-off / cut / fade / fast fade
 //   [ IntH ] / [ hex4 ]                       interrupts / raw mode & no-preset
 //   [%][ period, 3 hex digits ]               Amiga periods (notation 2)
+//   [ name, up to 5 chars ]                   a spelled degree (a drum kit's
+//                                             "Kick1"), in Motif Transport and
+//                                             over the prefix too when wide
 //
 // A format-3 (wide) cell opens with a PITCH PREFIX ¾ of a cell wide: blank,
 // except where the column shows raw hex — then it holds the octave digit of the
@@ -24,7 +27,7 @@
 //
 //   (tick)[letter][ accidental, 2 cells ][octave]   Kite notation, wide cell
 
-import { resolveNoteSymbol, isPeriodPreset, amigaPeriodOf, onAmigaPeriod } from "../../core/tuning/pitchtables.js";
+import { resolveNoteSymbol, isPeriodPreset, amigaPeriodOf, onAmigaPeriod, SPELL_CHARS } from "../../core/tuning/pitchtables.js";
 import { hex2, hex4, fxArgFields, fxOpChar } from "./notenames.js";
 import { volPanOp, volPanArg, NOTE_PREFIX_CHARS } from "./edit.js";
 import { canvasTransportFont } from "./fonts.js";
@@ -42,10 +45,12 @@ const ACC_WIDE = {
   "#": MOTIF.SHARP2, b: MOTIF.FLAT2, x: MOTIF.DOUBLE_SHARP2, B: MOTIF.DOUBLE_FLAT2,
   T: MOTIF.TRIPLE_FLAT2, t: MOTIF.HALF_SHARP2, p: MOTIF.REVERSED_FLAT2,
   3: MOTIF.TRIPLE_SHARP2, 4: MOTIF.QUADRUPLE_SHARP2, "-": MOTIF.NATURAL2,
+  s: MOTIF.SESQUI_SHARP2, f: MOTIF.SESQUI_FLAT2,
 };
 const ACC_ONE = {
   "#": MUSIC.SHARP, b: MUSIC.FLAT, x: MUSIC.DOUBLE_SHARP, B: MUSIC.DOUBLE_FLAT,
   T: MUSIC.TRIPLE_FLAT, t: MUSIC.HALF_SHARP, p: MUSIC.REVERSED_FLAT, "-": "-",
+  s: MUSIC.SESQUI_SHARP, f: MUSIC.SESQUI_FLAT,
 };
 const TICK = {
   u: MOTIF.KITE_UP, d: MOTIF.KITE_DOWN, U: MOTIF.KITE_UP2, D: MOTIF.KITE_DOWN2, ".": MOTIF.KITE_DOT,
@@ -123,6 +128,10 @@ export function noteCellText(note, preset, rawMode = false, wide = false) {
     return { text: hex4(p & 0xffff), octave: (p >>> 16).toString(16).toUpperCase(), ink };
   }
   const ink = symb.offGrid ? "offGrid" : "note";
+  // A spelled degree (item 374: a drum kit's "Kick1") is plain text across the
+  // whole note column, in Motif Transport — five of its cells fit the wide
+  // column's prefix and four cells.
+  if (symb.spelled !== undefined) return { text: symb.spelled.slice(0, SPELL_CHARS), ink, spelled: true };
   if (symb.cjk) return { text: symb.cjk + symb.octave, ink, glyphs: true };
   // A wide cell has the prefix to spare: the tick goes there (item 341) and
   // the accidental takes two cells, as it does in every other notation.
@@ -145,8 +154,12 @@ export function noteCellText(note, preset, rawMode = false, wide = false) {
  */
 export function paintNoteCell(ctx, note, preset, x, y, charW, rowH, palette, rawMode = false, wide = false) {
   const midY = y + rowH / 2;
-  const { text, ink, faint, glyphs, octave, tick } = noteCellText(note, preset, rawMode, wide);
+  const { text, ink, faint, glyphs, octave, tick, spelled } = noteCellText(note, preset, rawMode, wide);
   ctx.fillStyle = palette[ink];
+  if (spelled) {
+    paintSpelled(ctx, text, x, midY, charW, wide ? NOTE_PREFIX_CHARS + NOTE_CELL_CHARS : NOTE_CELL_CHARS);
+    return;
+  }
   if (wide) {
     // The prefix: the octave digit of a raw pitch, or a Kite note's tick
     // (a Motif Grid glyph, centred in the ¾ cell), else nothing at all — not
@@ -169,6 +182,17 @@ export function paintNoteCell(ctx, note, preset, x, y, charW, rowH, palette, raw
     ctx.fillText(text, x, midY);
   }
   if (faint) ctx.globalAlpha = 1;
+}
+
+/** A spelled note in Motif Transport from x, left-aligned in `cells` caller
+ *  cells, squeezed only when it would not fit (a narrow cell's four). */
+function paintSpelled(ctx, text, x, midY, charW, cells) {
+  const font = ctx.font;
+  ctx.font = canvasTransportFont(parseFloat(font) || 13);
+  const room = cells * charW;
+  if (ctx.measureText(text).width <= room) ctx.fillText(text, x, midY);
+  else ctx.fillText(text, x, midY, room);
+  ctx.font = font;
 }
 
 /** One character in Motif Transport, centred in the ¾-cell pitch prefix at x:

@@ -1708,6 +1708,9 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   display: inline-flex; justify-content: center; width: 0.75ch; vertical-align: baseline;
 }
 .note-glyph .ng-prefix.ng-octave { font-family: var(--transport-font); }
+/* A spelled note (a drum kit's "Kick1"): five characters of Motif Transport,
+   0.9ch each, over the prefix and the four cells. */
+.note-glyph .ng-note.ng-spelled { font-family: var(--transport-font); white-space: pre; }
 .note-glyph .ng-offGrid { color: var(--accent); }
 .note-glyph .ng-sentinel { color: var(--fg2); }
 .note-glyph .ng-dim, .note-glyph .ng-sep { color: var(--dim); }
@@ -2271,7 +2274,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 .nota-field { display: flex; align-items: center; gap: 0.45rem; color: var(--dim); font-size: 0.88rem; flex-wrap: wrap; }
 .nota-field input[type="text"] { flex: 1 1 auto; min-width: 8rem; }
 .nota-field input[type="number"] { width: 6.5rem; }
-.nota-field input, .nota-editor select {
+.nota-field input, .nota-editor select, .nota-degrees input.nota-spell {
   background: var(--panel-2); color: var(--fg); border: 1px solid var(--border);
   border-radius: var(--radius-sm); padding: 0.15rem 0.3rem; font: inherit;
 }
@@ -2301,6 +2304,8 @@ body.dragsorting { cursor: grabbing; user-select: none; }
 /* Cents, 4096-TET units, the base note and the slot values are numbers to
    read down a column: Motif Mono (the spinner's own field included). */
 .nota-modal .nota-num, .nota-modal .mt-spin > input.nota-num { font-family: var(--mono-font); }
+/* A spelled degree's name (item 374): typed, so Motif Mono, five characters. */
+.nota-modal .nota-degrees input.nota-spell { font-family: var(--mono-font); width: 7ch; }
 .nota-add { align-self: flex-start; font-size: 0.82rem; }
 .nota-btns { gap: 0.6rem; }
 button.nota-assign { font-size: 0.85rem; }

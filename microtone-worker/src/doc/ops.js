@@ -18,6 +18,7 @@ import { TaudPlayData } from "../../core/engine/state.js";
 import { pitchTableOf, pitchPatchesOf } from "../../core/format/pitch-ext-section.js";
 import { imixCarryFolds } from "../../core/format/imix-section.js";
 import { swapLyricsSection } from "./lyricedit.js";
+import { INTN_FOURCC } from "../../core/format/inst-notation-section.js";
 import { CUE_EMPTY, MAX_VOICES, NUM_VOICES, NUM_CUES, NUM_CUES_64 } from "../../core/format/taud-const.js";
 
 /**
@@ -433,6 +434,15 @@ function swapPitchExtSection(doc, plan, old) {
   if (!("ipit" in plan) || plan.ipit === undefined) return;
   old.ipit = doc.pitchExt();
   doc.setPitchExtPayload(plan.ipit);
+}
+
+/** Apply a plan's `intn` field (the whole `INtn` payload after the plan's slot
+ *  moves, item 374) inside a swap-style op, recording the previous payload in
+ *  `old` so the inverse restores it. A plan without the field leaves it alone. */
+function swapInstNotationSection(doc, plan, old) {
+  if (!("intn" in plan) || plan.intn === undefined) return;
+  old.intn = doc.projSections.find((s) => s.fourcc === INTN_FOURCC)?.payload ?? null;
+  doc.setSection(INTN_FOURCC, plan.intn);
 }
 
 /** Instrument-scope field (TaudInst property, e.g. instGlobalVolume, defaultPan,
@@ -1355,6 +1365,7 @@ export function renumberInstrumentOp(plan, gestureId = null) {
         : (plan.ixmp.length > 0 ? buildIxmpSection(plan.ixmp) : null));
       swapLyricsSection(doc, plan, old); // the lyrics follow (item 280)
       swapPitchExtSection(doc, plan, old); // …and the pitch extensions (§9.18)
+      swapInstNotationSection(doc, plan, old); // …and their own notations (§9.20)
       doc._resetInstrumentCache();
       for (const w of plan.cells) {
         const cell = doc.songs[w.song].patterns[w.pat]?.[w.row];
@@ -1423,6 +1434,7 @@ export function deleteInstrumentOp(plan, gestureId = null) {
         : (plan.ixmp.length > 0 ? buildIxmpSection(plan.ixmp) : null));
       swapLyricsSection(doc, plan, old); // the lyrics follow (item 280)
       swapPitchExtSection(doc, plan, old); // …and the pitch extensions (§9.18)
+      swapInstNotationSection(doc, plan, old); // …and their own notations (§9.20)
       doc._resetInstrumentCache();
       for (const w of plan.cells) {
         const cell = doc.songs[w.song].patterns[w.pat]?.[w.row];
@@ -1559,6 +1571,7 @@ export function cleanupBankOp(plan, gestureId = null) {
         : (plan.ixmp.length > 0 ? buildIxmpSection(plan.ixmp) : null));
       swapLyricsSection(doc, plan, old); // the lyrics follow (item 280)
       swapPitchExtSection(doc, plan, old); // …and the pitch extensions (§9.18)
+      swapInstNotationSection(doc, plan, old); // …and their own notations (§9.20)
       doc._resetInstrumentCache();
       doc.dirty = true;
       return cleanupBankOp(old, gestureId);

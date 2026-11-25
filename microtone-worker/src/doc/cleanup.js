@@ -827,7 +827,9 @@ export function planRenumberInstruments(doc, moves, { remapPatterns = false } = 
   const ilyr = lyricsWithSlots(doc, newSlot);
   // …and so do their pitch extensions (§9.18).
   const ipit = doc.pitchExtWithSlots(newSlot);
-  return { image, inam: encodeNameTable(inamArr), ixmp, cells, moves: [...map], ilyr, ipit };
+  // …and their own notations (§9.20, item 374).
+  const intn = doc.instNotationWithSlots(newSlot);
+  return { image, inam: encodeNameTable(inamArr), ixmp, cells, moves: [...map], ilyr, ipit, intn };
 }
 
 // ── Ixmp patch cleanup (item 74) ──

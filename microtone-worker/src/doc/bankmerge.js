@@ -46,6 +46,9 @@ import { FM_WORD_OSC, FmOp } from "../../core/engine/inst.js";
 import { OPL_RATE, OPL_C4_RATE } from "../../core/engine/opl.js";
 import { oplRackSpec, oplWavePcm, OPL_WAVE_FRAMES } from "./opltofm.js";
 import { releaseFadeout } from "./timbredesign.js";
+import {
+  INTN_FOURCC, INTN_FOLLOW, buildInstNotationSection, instNotationGuard,
+} from "../../core/format/inst-notation-section.js";
 
 const sampleKey = (ptr, len) => `${ptr}:${len}`;
 
@@ -458,6 +461,10 @@ export function planImport(destDoc, srcDoc, selectedSlots) {
     return e ? [it.destSlot, e, (ptr, len) => sampleMap.get(sampleKey(ptr, len))] : null;
   }));
 
+  // ── own notations (item 374): each imported instrument brings its own ──
+  const intnPayload = notationsFor(destDoc, inamPayload,
+    insts.map((it) => [it.destSlot, srcDoc.instNotation(it.srcSlot)]));
+
   return {
     insts,
     samples: newSamples,
@@ -465,6 +472,7 @@ export function planImport(destDoc, srcDoc, selectedSlots) {
     imixPayload,
     imcnPayload,
     ilyrPayload,
+    intnPayload,
     snamNames,
     writeSnam,
     slotMap,
@@ -1164,6 +1172,31 @@ function copyEntry(doc, src, dest, topLevel = false) {
  * [[destSlot, entry, mapPtr(ptr, len) → new ptr | undefined] | null, …].
  * undefined when nothing is added.
  */
+/**
+ * The `INtn` payload once instruments land in `destDoc` (item 374): `adds` is
+ * [[destSlot, notation], …], `notation` as Document.instNotation answers
+ * (null: none — an entry the slot had goes). A custom notation names a `nota`
+ * slot of the project it came from, so it does not travel. Guarded against
+ * the names the plan gives them (`inamPayload`). undefined = no change.
+ */
+function notationsFor(destDoc, inamPayload, adds) {
+  const names = splitNameTable(inamPayload ?? sectionPayload(destDoc, "INam"));
+  const map = new Map(destDoc.instNotationMap());
+  let changed = false;
+  for (const [dest, v] of adds) {
+    if (v === null || (typeof v === "number" && v >= 0xfff0)) {
+      if (map.delete(dest)) changed = true;
+      continue;
+    }
+    map.set(dest, {
+      flags: v === "follow" ? INTN_FOLLOW : 0, notation: v === "follow" ? 0 : v,
+      guard: instNotationGuard(new TextDecoder().decode(names[dest] ?? new Uint8Array(0))),
+    });
+    changed = true;
+  }
+  return changed ? buildInstNotationSection(map) : undefined;
+}
+
 function lyricsFor(destDoc, adds) {
   const list = adds.filter(Boolean);
   if (list.length === 0) return undefined;
@@ -2291,6 +2324,9 @@ export function planDuplicateInstruments(destDoc, slots) {
       const e = destDoc.lyricEntry(it.srcSlot);
       return e ? [it.destSlot, e, () => undefined] : null;
     })),
+    // …and its own notation (item 374), under the copy's name.
+    intnPayload: notationsFor(destDoc, hadInam || inamPayload.length > 0 ? inamPayload : null,
+      insts.map((it) => [it.destSlot, destDoc.instNotation(it.srcSlot)])),
     duplicates,
     childSlots: insts.filter((it) => !it.topLevel).map((it) => it.destSlot),
   });
@@ -2378,6 +2414,8 @@ export function applyPlan(doc, plan) {
   // Lyrics (item 280): an import or a copy brings a lyric instrument's, a
   // defrag moves their recipes. `undefined` leaves the section alone.
   if (plan.ilyrPayload !== undefined) doc.setSection("ILyr", plan.ilyrPayload);
+  // Own notations (item 374): an import or a copy brings an instrument's.
+  if (plan.intnPayload !== undefined) doc.setSection(INTN_FOURCC, plan.intnPayload);
   if (plan.writeSnam) {
     const names = doc.sampleList().map((e) =>
       plan.snamNames.get(sampleKey(e.ptr, e.len)) ?? new Uint8Array(0));

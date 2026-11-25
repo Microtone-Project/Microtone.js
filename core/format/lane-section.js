@@ -9,9 +9,14 @@
 // count reads as all zero, and bytes this version does not know are kept
 // verbatim through an edit of the ones it does.
 //
-// Record layout (byte 0 is the only one defined so far):
-//   byte 0  flags — bit 0: the second effect column is shown on this lane
-//   bytes 1…stride−1  RESERVED, 0
+// Record layout:
+//   byte 0     flags — bit 0: the second effect column is shown on this lane
+//                      bit 1: the lane has a notation of its own (item 374)
+//   byte 1     RESERVED, 0
+//   bytes 2…3  U16 the lane's notation index (sMet's, §9.6), read only while
+//              bit 1 is set — 0 is a notation (raw numbers), so the bit is
+//              what says there is one
+//   bytes 4…stride−1  RESERVED, 0
 
 export const LANE_FOURCC = "sLan";
 /** Lanes a song can describe — the format's ceiling, not today's 32/64. */
@@ -21,6 +26,10 @@ export const LANE_STRIDE = 16;
 
 /** Byte 0, bit 0: show the second effect column on this lane. */
 export const LANE_FLAG_FX2 = 0x01;
+/** Byte 0, bit 1: the lane has its own notation, the U16 at LANE_NOTATION. */
+export const LANE_FLAG_NOTATION = 0x02;
+/** Offset of the lane's notation index (U16, little-endian) in its record. */
+export const LANE_NOTATION = 2;
 
 /**
  * Decode the section into Map<songIndex, {count, stride, bytes}>, `bytes`
@@ -78,6 +87,11 @@ export function laneEntryEmpty(e) {
 export function laneByte(e, lane, field = 0) {
   if (!e || lane < 0 || lane >= e.count || field >= e.stride) return 0;
   return e.bytes[lane * e.stride + field];
+}
+
+/** A record's U16 at `field` (little-endian; 0 past the stride or the count). */
+export function laneWord(e, lane, field) {
+  return laneByte(e, lane, field) | (laneByte(e, lane, field + 1) << 8);
 }
 
 /**

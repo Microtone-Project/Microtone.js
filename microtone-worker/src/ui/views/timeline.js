@@ -52,6 +52,8 @@ import {
 } from "../narrowcell.js";
 import { t } from "../i18n.js";
 import { lyricContinues } from "../../doc/lyrics.js";
+import { laneNotationItems, pickLaneNotation } from "../notationpick.js";
+import { cellNotation, entryNotation } from "../notationat.js";
 import { uiDpr, localPoint } from "../zoom.js";
 
 /** Below this a source is silent (a muted lane's): no mark (master strip, Panner: 0.002). */
@@ -131,6 +133,7 @@ export class TimelineView {
     store.on("edit", () => { this.map = null; this.dropBends(); this.invalidate(); });
     store.on("cursor", () => this.invalidate());
     store.on("mutes", () => this.invalidate());
+    store.on("notation", () => this.invalidate()); // a lane's own notation (item 374)
     // Showing/hiding a second effect changes a strip's WIDTH and its cursor
     // walk, so the cursor may be standing on a sub-column that just vanished.
     store.on("fx2", () => { this.clampCursorSub(); this.invalidate(); });
@@ -864,7 +867,7 @@ export class TimelineView {
     const cells = onHeader ? [] : this.toolCells(hit, ch);
     const cols = onHeader ? [] : this.toolCols(hit);
     const second = onHeader
-      ? [...muteItems(store, ch), ...fx2Items(store, ch)]
+      ? [...muteItems(store, ch), ...fx2Items(store, ch), ...laneNotationItems(store, ch)]
       : (cells.length > 0
           ? blockToolItems(cols, { wide: store.doc.wideCells === true,
               block: this.hasSelection(), render: this.hasSelection() })
@@ -883,6 +886,7 @@ export class TimelineView {
     if (isPatternSlotItem(pick)) { this.runSlotItem(pick, slots); return; }
     if (runMuteItem(store, pick, ch)) return;
     if (runFx2Item(store, pick, ch)) return;
+    if (pick === "laneNotation") { await pickLaneNotation(store, ch); return; }
     switch (pick) {
       case "copy": this.copySelection(); break;
       case "cut": this.cutSelection(); break;
@@ -1406,7 +1410,7 @@ export class TimelineView {
 
     let fields = null;
     switch (hit.sub) {
-      case SUB_NOTE: fields = { note: stepNoteCell(cell.note, store.pitchPreset, dir) }; break;
+      case SUB_NOTE: fields = { note: stepNoteCell(cell.note, this.notationAt(target, c.ch), dir) }; break;
       case SUB_INST: fields = { instrment: clampInt(cell.instrment + dir, 0, 255) }; break;
       // vol/pan: a fine slide steps its SIGNED delta (item 87), everything else
       // the plain value; neither ever steps into the no-op sentinel.
@@ -1655,6 +1659,29 @@ export class TimelineView {
   /** The pattern cell under the cursor, or null (empty cue slot / off-map). */
   cursorCell() { return this.cellAt(this.store.cursor.row, this.store.cursor.ch); }
 
+  /** The instrument lane `ch` comes into cue `cue` with (instcontext.js),
+   *  kept until the next announcement — the grid asks for every lane it
+   *  paints, and only where a note has no instrument above it in its pattern. */
+  leadInst(ch, cue) {
+    const store = this.store;
+    // Kept while the song is unedited — a cursor move announces too, and the
+    // walk back through the cues is not worth redoing for one.
+    const stamp = `${store.songIndex}:${store.doc.editSerial}`;
+    if (this._leadInsts?.stamp !== stamp || this._leadInsts.doc !== store.doc) {
+      this._leadInsts = { stamp, doc: store.doc, map: new Map() };
+    }
+    const key = cue * 256 + ch;
+    let v = this._leadInsts.map.get(key);
+    if (v === undefined) { v = instrumentBefore(store.song, ch, cue, 0); this._leadInsts.map.set(key, v); }
+    return v;
+  }
+
+  /** The preset the note of `target` (a cellAt answer) on lane `ch` is
+   *  spelled in — its instrument's, else the lane's, else the song's (item 374). */
+  notationAt(target, ch) {
+    return target ? cellNotation(this.store, ch, this.patternFor(target.pat), target.rowInCue) : this.store.pitchPreset;
+  }
+
   /**
    * Record-mode key dispatch. Returns true when consumed. `jam` provides
    * octave/currentInst context and auditions entered notes.
@@ -1664,7 +1691,7 @@ export class TimelineView {
     if (this.mini()) return false;
     const c = this.store.cursor;
     this.seatCursor(); // narrow: the key goes to the column the slot shows
-    return this.editKey(e, jam, c.sub, c.nib, rawNoteView(this.store.rawNoteView, this.store.pitchPreset));
+    return this.editKey(e, jam, c.sub, c.nib, rawNoteView(this.store.rawNoteView, this.notationAt(this.cursorCell(), c.ch)));
   }
 
   /**
@@ -1687,12 +1714,15 @@ export class TimelineView {
     const target = this.cursorCell();
     if (!target) return false;
     const c = store.cursor;
+    const continues = jam.currentInst > 0 && !!store.doc?.isLyricSlot(jam.currentInst) &&
+      lyricContinues(store.doc.songs[store.songIndex].patterns[target.pat] ?? [], target.rowInCue, jam.currentInst);
     const action = interpretEditKey(
       { code: e.code, key: e.key, repeat: e.repeat, shiftKey: e.shiftKey }, sub, nib, target.cell,
-      { octave: jam.octave, transpose: jam.transpose, currentInst: jam.currentInst, preset: store.pitchPreset,
+      { octave: jam.octave, transpose: jam.transpose, currentInst: jam.currentInst,
+        // The note goes in, in its instrument's or its lane's notation (item 374).
+        preset: entryNotation(store, c.ch, this.patternFor(target.pat), target.rowInCue, jam.currentInst, !continues),
         rawHex,
-        lyricContinues: jam.currentInst > 0 && !!store.doc?.isLyricSlot(jam.currentInst) &&
-          lyricContinues(store.doc.songs[store.songIndex].patterns[target.pat] ?? [], target.rowInCue, jam.currentInst),
+        lyricContinues: continues,
         keymap: store.keymap, quoteKey: store.quoteKey,
         wideCells: store.doc?.wideCells === true, surround: this.surround() });
     if (!action) return false;
@@ -1722,7 +1752,8 @@ export class TimelineView {
    */
   nudge(dir, coarse) {
     const store = this.store;
-    const ctx = { preset: store.pitchPreset, wide: this.wide(), surround: this.surround() };
+    // Each note steps in its own notation (item 374).
+    const ctx = (t, ch) => ({ preset: this.notationAt(t, ch), wide: this.wide(), surround: this.surround() });
     const b = this.selBounds();
     let writes;
     if (b) {
@@ -1736,7 +1767,7 @@ export class TimelineView {
           if (byCell.has(key)) continue;
           // A hidden second effect stays out of it, as it does of the block.
           const laneCols = this.fx2On(ch) ? cols : cols.filter((c) => c !== COL_FX2);
-          const fields = nudgeColumns(laneCols, t.cell, dir, coarse, ctx);
+          const fields = nudgeColumns(laneCols, t.cell, dir, coarse, ctx(t, ch));
           if (fields) byCell.set(key, { pat: t.pat, row: t.rowInCue, fields });
         }
       }
@@ -1747,7 +1778,7 @@ export class TimelineView {
       if (!target) return false;
       this.seatCursor();
       const c = store.cursor;
-      const fields = nudgeCursor(c.sub, c.nib, target.cell, dir, coarse, ctx);
+      const fields = nudgeCursor(c.sub, c.nib, target.cell, dir, coarse, ctx(target, c.ch));
       writes = fields ? [{ pat: target.pat, row: target.rowInCue, fields }] : [];
     }
     if (writes.length) {
@@ -1961,7 +1992,7 @@ export class TimelineView {
       if (audio && audio.getVoiceActive(ch) && !mini) {
         const groupX = x + Math.round((colW - 7 * CHAR_W) / 2);
         const noteY = narrow ? NAME_Y - NOTE_H / 2 : UP_Y;
-        paintNoteCell(ctx, audio.getVoiceNote(ch), store.pitchPreset, groupX, noteY,
+        paintNoteCell(ctx, audio.getVoiceNote(ch), store.notationFor(ch, audio.getVoiceInstrument(ch)), groupX, noteY,
           CHAR_W, NOTE_H, headPal, store.rawNoteView);
         ctx.fillStyle = C.dim;
         ctx.fillText(hex2(audio.getVoiceInstrument(ch)), groupX + 5 * CHAR_W, noteY + NOTE_H / 2);
@@ -2223,11 +2254,17 @@ export class TimelineView {
           // there, so its four cells start after it.
           const nx = x + 2 + (at.note + (narrow && !g.wide ? NOTE_PREFIX_CHARS : 0)) * CHAR_W;
           const ghostNote = ghost?.note ?? bend?.note ?? null;
+          // Spelled in its instrument's notation, else its lane's (item 374);
+          // above the pattern's first instrument, the one the lane came in with.
+          const shown = ghostNote ?? cell.note;
+          const notation = shown >= 0x20
+            ? cellNotation(store, ch, this.patternFor(patNum), rowInCue, () => this.leadInst(ch, entry.cue))
+            : store.pitchPreset; // a sentinel or nothing: no notation to choose
           if (ghostNote !== null) {
-            paintNoteCell(ctx, ghostNote, store.pitchPreset, nx, y, CHAR_W, RH,
+            paintNoteCell(ctx, ghostNote, notation, nx, y, CHAR_W, RH,
               dittoPal, store.rawNoteView, g.wide);
           } else {
-            paintNoteCell(ctx, cell.note, store.pitchPreset, nx, y, CHAR_W, RH,
+            paintNoteCell(ctx, cell.note, notation, nx, y, CHAR_W, RH,
               { note: C.fg, sentinel: C.fg2, dim: C.dim, offGrid: C.accent },
               store.rawNoteView, g.wide);
           }

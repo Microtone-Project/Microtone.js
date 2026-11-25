@@ -30,10 +30,12 @@ export function noteRun(items, preset, { wide = false } = {}) {
   for (const item of items) {
     const part = document.createElement("span");
     if (typeof item === "number") {
-      const { text, ink, faint, tick, octave } = noteCellText(item, preset, false, wide);
-      part.className = "ng-note" + (wide ? " ng-wide" : "") + (ink === "note" ? "" : ` ng-${ink}`) +
-        (faint ? " ng-faint" : "");
-      if (wide) {
+      const { text, ink, faint, tick, octave, spelled } = noteCellText(item, preset, false, wide);
+      part.className = "ng-note" + (wide ? " ng-wide" : "") + (spelled ? " ng-spelled" : "") +
+        (ink === "note" ? "" : ` ng-${ink}`) + (faint ? " ng-faint" : "");
+      // A spelled note is its name across the whole cell, prefix and all.
+      if (spelled) part.textContent = text;
+      else if (wide) {
         const pre = document.createElement("span");
         // A raw pitch's octave digit is in Motif Transport, as the grids paint it.
         pre.className = "ng-prefix" + (octave !== undefined ? " ng-octave" : "");

@@ -1248,6 +1248,7 @@ The beat divisions drive a tracker's row banding and are purely cosmetic. The **
 | 10121 | Pythagorean diminished fifth (12 tones) |
 | 10122 | Pythagorean augmented fourth (12 tones) |
 | 10123 | Shi'er lü — East Asian traditional tuning (12 tones) |
+| 10128 | General MIDI drum names: 12-tone equal temperament with no interval system, one degree per MIDI key from C0 (key 12) to G9 (key 127), MIDI key 60 at C4; a key General MIDI or Roland GS names a drum on (27…87) is shown as that drum's name in up to five characters (`Kick1`, `HHCls`, `Snar2`), every other key as its 12-tone name |
 | 20351, 20638, 20780 | Carlos gamma, beta and alpha: 35, 19 and 16 equal steps of 35.1, 63.8 and 78.0 cents, repeating at the stretched octave those steps make (2 followed by the step in tenths of a cent) |
 | 35130 | Bohlen–Pierce, equal-tempered variant (13 equal divisions of the tritave) |
 | 65520…65535 | Custom notations defined by the `nota` section, index 0 = 65535 downwards |
@@ -1262,7 +1263,7 @@ Defines notations beyond the registered set. Repetition of:
 |---|---|
 | `U8` | Notation index, counting from 0 (internally mapped to 65535 − index) |
 | `U32` | Size of the remainder of this entry |
-| `U16` | Flags: bits 0…4 the **pitch resolution** `n` (below); bits 5…15 **RESERVED** |
+| `U16` | Flags: bits 0…4 the **pitch resolution** `n` (below); bit 5 **spelled** (below); bits 6…15 **RESERVED** |
 | `U16` | Interval size in note-word units — octave = `$1000`, tritave = `$195C`. **0** when the notation is not an interval system (and therefore names every note it can express explicitly) |
 | `U16` | **RESERVED** |
 | `U16` | Notes between intervals **minus one** — 12-TET stores 11 |
@@ -1286,6 +1287,8 @@ That is a **version-'a'** definition, `n` = 0. A definition with `n` from 16 to 
 A reader that knows only version 'a' **MUST** skip an entry whose `n` is not 0 (its size field says how far). A writer **SHOULD** write version 'a' whenever every pitch of the definition is a whole number of note-word units (a multiple of sixteen steps), and version 'b' with `n` = 20 otherwise.
 
 Frequency-table offsets are unsigned, so an interval-less notation that must name notes below C4 declares its lowest note in the base-note field. For an interval system the base note is the root of the root interval and the field **MUST** be 0.
+
+**A spelled definition** (flags bit 5) names its notes outright rather than with letters and accidentals. Each string of its notation table is that degree's **spelling**: zero to five printable ASCII characters (`$20`…`$7E`), shown as written in place of the whole note — no octave digit follows it. An empty string leaves its degree to be named as the reader would name it without the definition (Microtone: its nearest 12-tone name). A definition can only be spelled when it is not an interval system, where every degree is one note: on an interval system a reader **MUST** ignore the bit, and a writer **MUST NOT** set it. A reader that does not know the bit reads the spellings as ordinary notation strings, which it will mostly fail to decode — the definition still plays, since a notation only ever changes how notes are shown.
 
 Note tuning proceeds in five steps:
 
@@ -1316,7 +1319,7 @@ Nothing in Project Data is required to play a song correctly, with six exception
 - `ILyr`, because it is which syllable a lyric instrument's note sings ([§9.17](#9-17-ilyr-lyric-instruments)).
 - `IPit`, because it is the rest of an instrument's pitches ([§9.18](#9-18-ipit-pitch-extensions)): a reader without it plays an extended field at its sixteen bits — at most fifteen steps out where only the fraction is extended, and **sixteen octaves or more away** where the octave is.
 
-Everything else is naming, display and editor state — including `PKey` ([§9.13](#9-13-pkey-project-keymap)), which decides which key on a typing keyboard sounds which degree and so cannot reach playback at all, and `PMtf` ([§9.14](#9-14-pmtf-motif-source)), the program a project was built from.
+Everything else is naming, display and editor state — including `INtn` ([§9.20](#9-20-intn-instrument-notations)) and `sLan` ([§9.19](#9-19-slan-lane-settings)), which only change how notes are shown and typed, `PKey` ([§9.13](#9-13-pkey-project-keymap)), which decides which key on a typing keyboard sounds which degree and so cannot reach playback at all, and `PMtf` ([§9.14](#9-14-pmtf-motif-source)), the program a project was built from.
 
 ### 9.9 `SRgn` — sample-pool regions
 
@@ -1852,10 +1855,35 @@ A record:
 
 | Offset | Type | Field |
 |---|---|---|
-| 0 | `U8` | Flags: bit 0 = the second effect column is shown on this lane; bits 1…7 **RESERVED** |
-| 1 | `Byte[s − 1]` | **RESERVED** |
+| 0 | `U8` | Flags: bit 0 = the second effect column is shown on this lane; bit 1 = the lane has a **notation of its own**, at offset 2; bits 2…7 **RESERVED** |
+| 1 | `U8` | **RESERVED** |
+| 2 | `U16` | The lane's notation index ([§9.6](#9-6-smet-song-metadata-table)), read only while flags bit 1 is set — index 0 is a notation (raw numbers), so the bit is what says there is one |
+| 4 | `Byte[s − 4]` | **RESERVED** |
+
+A lane's notation is how its notes are shown and typed in place of the song's, as the song's is — it never changes what they play. An instrument with a notation of its own ([§9.20](#9-20-intn-instrument-notations)) keeps it on every lane. A record shorter than four bytes has no notation field: its lane follows the song.
 
 The count and the record size are the room to grow: a later version gives every lane more fields by writing a larger *s*, and a song more lanes by writing a larger *n*. A reader **MUST** read a field beyond *s*, and a lane beyond *n*, as zero, and **MUST** skip an entry whose *n* × *s* does not fit in its size. An editor that rewrites a record **SHOULD** keep the bytes it does not know. A writer **SHOULD** write *s* = 16 and *n* = the song's lane count, and **SHOULD** omit an entry whose records are all zero, and the section when every entry is.
+
+### 9.20 `INtn` — instrument notations
+
+An instrument's own notation: how its notes are shown and typed wherever it plays, ahead of its lane's ([§9.19](#9-19-slan-lane-settings)) and the song's ([§9.6](#9-6-smet-song-metadata-table)). Like those it never changes what a note plays, and a player **MUST** ignore it. Instrument-scoped, so a `.tsii` bank carries it with its instruments. A repetition of eight-byte entries, one per instrument that says anything:
+
+| Type | Field |
+|---|---|
+| `U16` | Instrument ID: bits 0…9; bits 10…15 **RESERVED** (0) |
+| `U16` | Flags: bit 0 = **follows** — the instrument has no notation of its own, and an editor **MUST NOT** give it one of its own choosing; bits 1…15 **RESERVED** (0) |
+| `U16` | Notation index, as [§9.6](#9-6-smet-song-metadata-table)'s; 0 when the instrument follows |
+| `U16` | **Guard** (below) |
+
+A note is shown in its instrument's notation when the instrument has one, else in its lane's when the lane has one, else in the song's. The instrument of a note that names none is the last one named above it on its lane.
+
+An editor **MAY** give an instrument without an entry a notation of its own choosing. Microtone gives a **drum kit** — a percussion instrument ([§7.1](#byte-14-instrument-sample-flags), [§7.4](#7-4-metainstrument-records)) whose sound is split over at least eight `Ixmp` zones, its own and its layers' — the General MIDI drum names (index 10128). The follows bit is how an instrument declines that.
+
+A custom notation (65520…65535) names a slot of the file's own `nota` section ([§9.7](#9-7-nota-custom-notation-definitions)), so an editor that moves an instrument into another file **SHOULD** drop an entry naming one.
+
+**The guard** is what makes it safe for an editor that does not know this section to carry it along: such an editor renumbers, deletes, imports over and renames instruments without moving the entries. It is a CRC-16 — the [§9.18](#9-18-ipit-pitch-extensions) guard's CRC-16/CCITT-FALSE — over the instrument's `INam` entry ([§9.3](#9-3-inam-instrument-name-table)) as its bytes stand in the file, no terminator; an instrument with no entry there has the empty name. A reader **MUST** ignore an entry whose guard differs from its instrument's name's, or that names an instrument the file does not have: the instrument then shows in its lane's or the song's notation. An editor that renames an instrument rewrites the guard; one that moves an instrument moves its entry.
+
+An entry with a reserved bit set has a meaning a reader cannot know: it **MUST** stop reading the section there, keeping the entries before it. Two entries naming one instrument are **INVALID**.
 
 ## 10. Validity checklist
 
@@ -1880,6 +1908,8 @@ A writer producing a file that any conforming reader will accept must satisfy al
 - Envelopes carrying nodes have `P = 1` in their LOOP word.
 - The two pitch/filter slots of one record do not claim the same role.
 - Every `IPit` entry names a distinct instrument, has no reserved flag bit set and no all-zero group, carries only the groups its instrument's kind has, counts its instrument's entries and patches exactly, and carries the guard of the fields it extends ([§9.18](#9-18-ipit-pitch-extensions)).
+- Every `INtn` entry names a distinct instrument and has no reserved bit set ([§9.20](#9-20-intn-instrument-notations)).
+- No `nota` definition with an interval system sets the spelled bit ([§9.7](#9-7-nota-custom-notation-definitions)).
 
 ## 11. Version history
 
@@ -1926,3 +1956,4 @@ A writer producing a file that any conforming reader will accept must satisfy al
 | 2026-11-14 | Reorganised, no byte changing meaning: pitch is described as 65536-TET throughout — a note word is a pitch's top sixteen bits, and a sixteen-bit pitch field or effect argument counts in note-word units, sixteen steps each; the 16-byte cell is [§5.1](#5-1-the-pattern-cell), "The pattern cell" (it was "Format version 3 — the wide cell"), and the 8-byte cell of versions 1 and 2 is [§5.2](#5-2-legacy-format-the-8-byte-cell), the legacy format |
 | 2026-11-17 | `sLan` — lane settings ([§9.19](#9-19-slan-lane-settings)): per-song, per-lane editor settings in self-sized records (a lane count up to 256 and a record size), the first field whether a lane shows its second effect column. A player ignores it |
 | 2026-11-20 | `ILyr`: the editor's part's bit 1 and its **seed**, from which an editor draws the parts of the lyrics written to be drawn (`*`, `(`, `)`); players are unaffected |
+| 2026-11-25 | Notations of a lane and an instrument: `sLan`'s flags bit 1 and the notation index at offset 2 ([§9.19](#9-19-slan-lane-settings)); `INtn` — instrument notations ([§9.20](#9-20-intn-instrument-notations)), guarded by the instrument's name; notation 10128, the General MIDI drum names; `nota`'s **spelled** bit, each degree of an interval-less definition named in up to five ASCII characters. Players are unaffected |

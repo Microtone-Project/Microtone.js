@@ -16,6 +16,7 @@
 
 import { ICON, fxGlyph } from "./icons.js";
 import { t } from "./i18n.js";
+import { transposeNotations } from "./notationat.js";
 import { showModal, showAlert, showConfirm } from "./components/modal.js";
 import { stepsMap, stepsCentsText } from "./spinmaps.js";
 import { COL_NOTE, COL_INST, COL_VOL, COL_PAN, COL_FX, COL_FX2, SUB_PAN } from "./edit.js";
@@ -696,8 +697,10 @@ async function transposeTool(ctx) {
   store.undo.apply(bulkNotesOp(store.songIndex, (song) => {
     const changes = [];
     for (const [pat, rows] of byPattern) {
-      changes.push(...transposePatternNotes(song, pat, preset, perc,
-        v.fine, v.coarse, 0, Infinity, (row) => rows.has(row)));
+      // Each lane and instrument moves by its own notation's degrees (item 374).
+      const own = transposeNotations(store, pat, v.raw ? preset : null);
+      changes.push(...transposePatternNotes(song, pat, own.preset, perc,
+        v.fine, v.coarse, 0, Infinity, (row) => rows.has(row), own.presetFor));
     }
     return changes;
   }));

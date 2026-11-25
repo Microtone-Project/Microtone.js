@@ -32,8 +32,12 @@ import {
 } from "../../core/format/lyric-section.js";
 import { cueInstructionWords } from "../../core/format/taud-parse.js";
 import {
-  LANE_FOURCC, parseLaneSection, buildLaneSection, laneByte, laneEntryFor,
+  LANE_FOURCC, LANE_FLAG_NOTATION, LANE_NOTATION, parseLaneSection, buildLaneSection, laneByte, laneWord,
+  laneEntryFor,
 } from "../../core/format/lane-section.js";
+import {
+  INTN_FOURCC, INTN_FOLLOW, parseInstNotationSection, buildInstNotationSection, instNotationGuard,
+} from "../../core/format/inst-notation-section.js";
 import { writeTaud, writeTaudWith } from "../../core/format/taud-write.js";
 import { comp } from "../../core/format/compress.js";
 import { zstdCompressAll } from "../../core/format/zstd.js";
@@ -230,7 +234,12 @@ export function combineTpif(bank, tpif) {
  * instrument's byte 255 means nothing without the block it names; `IPit` is
  * another (§9.18): the extensions are the instruments' pitches.
  */
-export const BANK_SECTIONS = Object.freeze(["INam", "SNam", "Ixmp", "SRgn", IMIX_FOURCC, IMCN_FOURCC, ILYR_FOURCC, "IPit"]);
+export const BANK_SECTIONS = Object.freeze(["INam", "SNam", "Ixmp", "SRgn", IMIX_FOURCC, IMCN_FOURCC, ILYR_FOURCC, "IPit", INTN_FOURCC]);
+
+/** Key zones from which a percussion instrument counts as a drum KIT (item
+ *  374): every kit a soundfont or a MIDI file brings has dozens, a single drum
+ *  none. */
+export const DRUM_KIT_ZONES = 8;
 
 export class Document {
   /** Build from the structure parseTaud returns. */
@@ -603,6 +612,153 @@ export class Document {
     next.set(song, e);
     this._setLaneMap(next);
     return left.some((b) => b !== 0) ? left : null;
+  }
+
+  /** Lane `lane`'s own notation in song `song` (sLan bit 1 + bytes 2…3,
+   *  item 374), or null when it follows the song's. */
+  laneNotation(song, lane) {
+    const e = this._laneMap().get(song);
+    return (laneByte(e, lane, 0) & LANE_FLAG_NOTATION) !== 0 ? laneWord(e, lane, LANE_NOTATION) : null;
+  }
+
+  /** Give lane `lane` notation `value`, or null to follow the song's. A view
+   *  setting saved with the song, like the second effect column's: no undo
+   *  step. True when the document changed. */
+  setLaneNotation(song, lane, value) {
+    if (this.laneNotation(song, lane) === value) return false;
+    const map = new Map(this._laneMap());
+    const e = laneEntryFor(map.get(song), lane, this.channelCount);
+    const o = lane * e.stride;
+    if (value === null) {
+      e.bytes[o] &= ~LANE_FLAG_NOTATION;
+      e.bytes[o + LANE_NOTATION] = 0;
+      e.bytes[o + LANE_NOTATION + 1] = 0;
+    } else {
+      e.bytes[o] |= LANE_FLAG_NOTATION;
+      e.bytes[o + LANE_NOTATION] = value & 0xff;
+      e.bytes[o + LANE_NOTATION + 1] = (value >>> 8) & 0xff;
+    }
+    map.set(song, e);
+    this._setLaneMap(map);
+    return true;
+  }
+
+  // ── per-instrument notations: `INtn` (file format §9.20, item 374) ──
+  // An entry is read only while its guard matches the name at its slot, so an
+  // instrument deleted, imported over or renamed by anything that did not
+  // carry the entry along sheds it; a rename here carries it
+  // (instNotationRenamed), a renumber moves it (instNotationWithSlots).
+
+  /** The `INtn` section decoded: Map(slot → {flags, notation, guard}), cached
+   *  by payload identity. Guards are NOT checked here. */
+  instNotationMap() {
+    const payload = this.projSections.find((s) => s.fourcc === INTN_FOURCC)?.payload ?? null;
+    if (this._intnCache?.payload !== payload) {
+      this._intnCache = { payload, map: parseInstNotationSection(payload) };
+    }
+    return this._intnCache.map;
+  }
+
+  /** Slot `slot`'s entry when it still belongs to the instrument there, else
+   *  null. The answers are cached against both the section and the name
+   *  table, as the grids ask for every note they paint. */
+  instNotationEntry(slot) {
+    const map = this.instNotationMap();
+    if (map.size === 0) return null;
+    const names = this._namesOf("INam");
+    if (this._intnValid?.map !== map || this._intnValid.names !== names) {
+      this._intnValid = { map, names, slots: new Map() };
+    }
+    const s = slot & 0x3ff;
+    let e = this._intnValid.slots.get(s);
+    if (e === undefined) {
+      const raw = map.get(s);
+      e = raw && raw.guard === instNotationGuard(names[s] ?? "") ? raw : null;
+      this._intnValid.slots.set(s, e);
+    }
+    return e;
+  }
+
+  /**
+   * What instrument `slot` says about its notation: a notation index, "follow"
+   * (it has none of its own, and wants no default either), or null (it says
+   * nothing — Microtone gives a drum kit the drum names, others follow).
+   */
+  instNotation(slot) {
+    const e = this.instNotationEntry(slot);
+    if (!e) return null;
+    return (e.flags & INTN_FOLLOW) !== 0 ? "follow" : e.notation;
+  }
+
+  /** The `INtn` payload with slot `slot` set to `value` (as instNotation
+   *  returns it; null removes the entry), guarded against its current name. */
+  instNotationPayloadWith(slot, value) {
+    const map = new Map(this.instNotationMap());
+    const s = slot & 0x3ff;
+    if (value === null || value === undefined) map.delete(s);
+    else {
+      map.set(s, {
+        flags: value === "follow" ? INTN_FOLLOW : 0,
+        notation: value === "follow" ? 0 : value,
+        guard: instNotationGuard(this.instrumentName(s)),
+      });
+    }
+    return buildInstNotationSection(map);
+  }
+
+  /** The `INtn` payload once slot `slot` is renamed to the stored (escaped)
+   *  name `name`: its entry re-guarded, so it stays. undefined = no change. */
+  instNotationRenamed(slot, name) {
+    const s = slot & 0x3ff;
+    const e = this.instNotationEntry(s);
+    if (!e) return undefined;
+    const map = new Map(this.instNotationMap());
+    map.set(s, { ...e, guard: instNotationGuard(name) });
+    return buildInstNotationSection(map);
+  }
+
+  /** The `INtn` payload with every entry moved to `fn(slot)` (null drops it):
+   *  a renumber's or a compaction's. undefined when nothing moves. */
+  instNotationWithSlots(fn) {
+    const map = this.instNotationMap();
+    if (map.size === 0) return undefined;
+    const out = new Map();
+    let changed = false;
+    for (const [id, e] of map) {
+      const to = fn(id);
+      if (to === null || to === undefined) { changed = true; continue; }
+      if (to !== id) changed = true;
+      out.set(to & 0x3ff, e);
+    }
+    return changed ? buildInstNotationSection(out) : undefined;
+  }
+
+  /** The `INtn` section as a save writes it: an entry that no longer belongs
+   *  to its instrument (renamed or replaced under it, or its slot emptied) is
+   *  retired. undefined = as it is; null = drop. */
+  _instNotationsForSave() {
+    const map = this.instNotationMap();
+    if (map.size === 0) return undefined;
+    const keep = new Map();
+    for (const [id, e] of map) {
+      if (this._usedSlots.has(id) && this.instNotationEntry(id) === e) keep.set(id, e);
+    }
+    return keep.size === map.size ? undefined : buildInstNotationSection(keep);
+  }
+
+  /**
+   * Is instrument `slot` a drum KIT — a percussion instrument whose sound is
+   * split over the keyboard (at least DRUM_KIT_ZONES Ixmp zones, its own and
+   * its layers')? What a soundfont's or a MIDI file's drum kit always is, and a
+   * single drum (an OPL rhythm voice, an FM kick, a tracker's snare) never.
+   */
+  isDrumKit(slot) {
+    const insts = this.instruments;
+    const inst = insts[slot & 0x3ff];
+    if (!inst || !inst.isPercussion) return false;
+    let zones = inst.extraPatches?.length ?? 0;
+    for (const k of inst.sourceSlots ?? []) zones += insts[k]?.extraPatches?.length ?? 0;
+    return zones >= DRUM_KIT_ZONES;
   }
 
   /** Song `idx` was removed: its lane records go, and later songs' move down. */
@@ -1183,12 +1339,14 @@ export class Document {
     const imcn = this._imixNamesForSave();
     const ilyr = this._lyricsForSave();
     const ipit = this._pitchExtForSave();
+    const intn = this._instNotationsForSave();
     const swap = (s, fourcc, payload) => (payload === undefined || s.fourcc !== fourcc ? null
       : payload === null ? [] : [{ fourcc, payload }]);
     const projSections = imix === undefined && imcn === undefined && ilyr === undefined && ipit === undefined
+      && intn === undefined
       ? this.projSections
       : this.projSections.flatMap((s) => swap(s, IMIX_FOURCC, imix) ?? swap(s, IMCN_FOURCC, imcn)
-        ?? swap(s, ILYR_FOURCC, ilyr) ?? swap(s, IPIT_FOURCC, ipit) ?? [s]);
+        ?? swap(s, ILYR_FOURCC, ilyr) ?? swap(s, IPIT_FOURCC, ipit) ?? swap(s, INTN_FOURCC, intn) ?? [s]);
     return {
       kind: this.kind,
       // The cell layout the patterns below are encoded in — without it the

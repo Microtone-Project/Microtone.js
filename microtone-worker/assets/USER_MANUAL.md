@@ -3444,6 +3444,7 @@ grid):
 | 72-, 96-TET (Kite) | 72 / 96 | octave |
 | Pythagorean dim. 5th / aug. 4th | 12, just fifths | octave |
 | Shi'er lü | 12, 十二律 CJK names | octave |
+| General MIDI drums | 12, drums by name (`Kick1`, `HHCls`, `Snar2`) | **none** — every MIDI key listed (see below) |
 | Carlos Alpha / Beta / Gamma (stretched-octave) | 16 / 19 / 35, steps of 78.0 / 63.8 / 35.1 cents | **stretched octave** (1248 / 1212.2 / 1228.5 cents) |
 | Equal-Tempered Bohlen-Pierce | 13 | **tritave** (3:1) |
 
@@ -3460,6 +3461,8 @@ semitones as usual, but stepping stops at the ends of the table, because that
 is the whole range the tuning can express.
 
 **Amiga periods** shows every note as the Amiga timer period that plays it — `%1AC` is period 428, C4 — rather than as a name: the numbers a ProTracker module actually stores, for writing the Amiga's pitches directly. Type the period in hex in the note column (three digits, each one moving in from the right; the `%` is written for you), and Ctrl+←/→ or the mouse wheel step it one period at a time. A pitch that falls between two whole periods — the end of a slide, an octave above an odd period — shows yellow, as an off-grid note does. Exporting a song in this notation to `.mod` writes its periods exactly as written, not snapped to ProTracker's table.
+
+**General MIDI drums** is 12-TET in which the keys General MIDI puts a drum on are written as that drum's name, five characters at most across the whole note column: `Kick1` for Bass Drum 1 (MIDI key 36, C2), `Snar1`, `HHCls`, `HHPed`, `HHOpn`, `Crsh1`, `Ride1`, `HiTom`, the Latin percussion up to `OTri` (Open Triangle), and Roland GS's extra keys from `HighQ` to `OSurd`. The other keys keep their 12-TET names. Typing, stepping and transposing work as in 12-TET. A drum kit gets this notation by itself (next section), so it is rarely chosen by hand.
 
 `.mod` files imported before this notation existed still carry 12-TET and will
 look out of tune. To fix one, open the Project view and **Retune…** it to
@@ -3485,6 +3488,20 @@ methods:
 For non-destructive experiments remember **Ctrl+Z** restores the previous
 tuning exactly.
 
+### A lane's or an instrument's own notation
+
+The song's notation is for the whole song, but a lane or an instrument can have one of its own, so a song can have each part in a different tuning system, or keep one 12-TET part in a 31-TET song.
+
+- **A lane**: right-click its header in the Timeline and choose **Notation…**. The menu then shows the lane's notation by name; choose *The song's* to go back.
+- **An instrument**: the **Notation** group at the bottom of its General tab (a layered instrument or an FM rack: its Options tab). An instrument's notation goes wherever it plays, ahead of its lane's.
+- **Drum kits** need nothing: a percussion instrument split over many key zones, as every kit from a soundfont or a MIDI file is, is written in **General MIDI drums**. This works on projects you already have, as soon as you open them. Choose *The lane's or the song's* on the kit's Notation group to turn it off.
+
+A note is written in its instrument's notation, else its lane's, else the song's. The instrument is the one the note names, or the last one named above it on its lane. The same notation is used to type the note, so the keyboard plays that lane's or that instrument's degrees, and Ctrl+←/→ steps them. **Transpose** moves each note by the degrees of its own notation, so +2 is a whole tone on a 12-TET part in a 31-TET song. **Retune…** moves only the notes written in the song's notation: lanes and instruments with a notation of their own keep their notes. As with the song's notation, none of this changes the sound.
+
+The Patterns view shows a pattern in the notation of the first lane the cue sheet plays it on.
+
+Older versions of Microtone open these projects and show every note in the song's notation. They keep the settings when they save. If an older version renames an instrument or moves it to another slot, that instrument goes back to its lane's or the song's notation when the project is opened here again.
+
 ### The Notation Maker (custom notations)
 
 When no preset fits — a Scala scale, a temperament of your own, a non-octave
@@ -3503,7 +3520,7 @@ Three ways to fill a slot:
 
 The editor shows one row per degree: its pitch in **cents** (and the exact
 65536-TET step in hex), plus a symbol built from three parts — a **tick** (Kite-style
-dot/arrows), a **letter** A–Z and an **accidental** (♮ ♯ ♭ demi, double,
+dot/arrows), a **letter** A–Z and an **accidental** (♮ ♯ ♭ demi, sesqui (1½), double,
 triple, quadruple) — with a live preview drawn by the same glyph engine as the
 grids. **Equal divisions…** refills the table with N equal steps of the
 period; the two **Auto-name** tools assign symbols by nearest quarter-tone or
@@ -3532,6 +3549,8 @@ ProTracker's shape would use `$3000`). And **Equal divisions…** asks for
 *steps per octave* × *octaves spanned*, since there is no period to divide.
 Stepping and transposing in such a notation clamps at the ends of the table —
 the table **is** the tuning's whole range.
+
+**Spelled names.** A notation with no period can also name its notes outright. Light **Spelled names** and the letter, accidental and tick pickers are replaced by a text field per degree: up to five characters (ASCII), shown as typed across the whole note column, with no octave number — `Kick`, `Rim`, `Gong`. Leave a field empty and that note gets its nearest 12-TET name. **General MIDI drum names** fills in every degree that sits on a General MIDI drum key, which is a quick start for a kit of your own whose notes are mostly where General MIDI puts them. To use the result for a kit, choose it on the kit's Notation group.
 
 **Save** stores the definitions as one undo step; with **Use for this song**
 lit the current song's notation switches to the edited slot immediately.

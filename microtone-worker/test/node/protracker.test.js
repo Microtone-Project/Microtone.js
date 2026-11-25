@@ -177,9 +177,10 @@ test("interval presets are unaffected by the absolute branch", () => {
   assert.equal(stepNoteInTable(ANCHOR_NOTE + bp.table[12], bp, 1), ANCHOR_NOTE + 0x195c);
 
   // Raw and every shipped interval preset still declare a non-zero interval —
-  // only ProTracker opts into the absolute mode.
+  // only ProTracker and the General MIDI drum names (one degree per MIDI key,
+  // item 374) opt into the absolute mode.
   for (const [k, p] of Object.entries(pitchTablePresets)) {
-    if (Number(k) === 1) continue;
+    if (Number(k) === 1 || Number(k) === 10128) continue;
     assert.ok(p.interval > 0, `preset ${k} (${p.name}) must keep an interval`);
     assert.equal(p.base, undefined, `preset ${k} must not carry a base`);
   }

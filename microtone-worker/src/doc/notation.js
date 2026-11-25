@@ -35,7 +35,7 @@
 // ([tick][letter][accidental], single-char = CJK), converted to/from the Taud
 // charset here. The byte values are transcribed from taut.js `sym` (taut.js:45).
 
-import { ANCHOR_NOTE } from "../../core/tuning/pitchtables.js";
+import { ANCHOR_NOTE, SPELL_CHARS } from "../../core/tuning/pitchtables.js";
 
 // ── notation-value ↔ slot mapping ──
 
@@ -58,13 +58,17 @@ const TAUD_TO_TICK = Object.fromEntries(
   Object.entries(TICK_TO_TAUD).map(([k, v]) => [v, k]));
 
 // Two-cell accidentals (normal presets): taut sym.accnull/demisharp/… pairs.
+// The sesquisharp's left half sits at $84, the byte TSVM's string reader takes
+// for its arbitrary-unicode escape, so taut writes it AS that escape — $84,
+// "132" (its own code point in decimal), "u" — before its right half.
 const ACC2_TO_TAUD = {
   "-": [0xa2, 0xa3], t: [0x80, 0x81], "#": [0x82, 0x83], x: [0x86, 0x87],
   3: [0x88, 0x89], 4: [0x8a, 0x8b], p: [0x8c, 0x8d], b: [0x8e, 0x8f],
   B: [0x92, 0x93], T: [0x94, 0x95],
+  s: [0x84, 0x31, 0x33, 0x32, 0x75, 0x85], f: [0x90, 0x91],
 };
 const TAUD_TO_ACC2 = Object.fromEntries(
-  Object.entries(ACC2_TO_TAUD).map(([k, [a, b]]) => [(a << 8) | b, k]));
+  Object.entries(ACC2_TO_TAUD).map(([k, bytes]) => [bytes.join(","), k]));
 
 // Compact one-cell accidentals (Kite-style tokens): taut sym.csharp/….
 const ACC1_TO_TAUD = { "-": 0x2d, "#": 0x98, t: 0xa7, p: 0xa8 };
@@ -129,8 +133,7 @@ export function taudToSymToken(bytes) {
   const readAcc = (accBytes) => {
     if (accBytes.length === 0) return "-";
     if (accBytes.length === 1) return TAUD_TO_ACC1[accBytes[0]] ?? null;
-    if (accBytes.length === 2) return TAUD_TO_ACC2[(accBytes[0] << 8) | accBytes[1]] ?? null;
-    return null;
+    return TAUD_TO_ACC2[accBytes.join(",")] ?? null;
   };
   const isLetter = (b) => b >= 0x41 && b <= 0x5a;
   if (b0 in TAUD_TO_TICK) {
@@ -157,6 +160,21 @@ const td = new TextDecoder();
  *  format-3 cell's own resolution) whenever a definition needs it. */
 export const NOTA_BITS_MASK = 0x1f;
 export const NOTA_FINE_BITS = 20;
+/** Flags bit 5 (item 374): a SPELLED definition — interval-less only — whose
+ *  notation table holds each degree's spelling as up to five printable ASCII
+ *  characters ($20…$7E), shown as written across the note column with no
+ *  octave digit; an empty one leaves its degree to the nearest 12-TET name. */
+export const NOTA_SPELLED = 0x20;
+
+/** A spelling as a definition may hold it: printable ASCII, at most five. */
+export function cleanSpelling(text) {
+  return [...String(text ?? "")].map((c) => (c >= " " && c <= "~" ? c : "?")).join("").slice(0, SPELL_CHARS);
+}
+
+/** Is `def` spelled? Only an interval-less definition can be. */
+export function isSpelledDef(def) {
+  return def.interval === 0 && (def.flags & NOTA_SPELLED) !== 0;
+}
 
 /** True when any pitch of `def` (4096-TET units) has a fractional part. */
 function needsFine(def) {
@@ -168,9 +186,11 @@ function encodeDef(def) {
   const name = te.encode(def.name ?? "");
   const symBytes = [];
   const syms = def.syms ?? [];
+  const spelled = isSpelledDef(def);
   for (let i = 0; i < def.table.length; i++) {
     if (i > 0) symBytes.push(0xff);
-    symBytes.push(...symTokenToTaud(syms[i] ?? FALLBACK_SYM));
+    if (spelled) for (const c of cleanSpelling(def.spells?.[i])) symBytes.push(c.charCodeAt(0));
+    else symBytes.push(...symTokenToTaud(syms[i] ?? FALLBACK_SYM));
   }
   symBytes.push(0x00);
   // Version 'a' whenever the definition fits it, so a whole-unit notation
@@ -184,7 +204,8 @@ function encodeDef(def) {
   let o = 0;
   out[o++] = def.slot & 0xff;
   dv.setUint32(o, size, true); o += 4;
-  const flags = ((def.flags ?? 0) & ~NOTA_BITS_MASK) | bits;
+  // The spelled bit is written only where it means something.
+  const flags = ((def.flags ?? 0) & ~NOTA_BITS_MASK & ~NOTA_SPELLED) | bits | (spelled ? NOTA_SPELLED : 0);
   dv.setUint16(o, flags, true); o += 2;
   const unit = (v) => Math.round(v * scale);
   const nm1 = def.table.length - 1;
@@ -223,7 +244,9 @@ export function buildNotaPayload(defs) {
 }
 
 /**
- * Parse a nota section payload → [{slot, flags, interval, base, name, table, syms}].
+ * Parse a nota section payload → [{slot, flags, interval, base, name, table, syms,
+ * spells?}] — `spells` for a spelled definition (NOTA_SPELLED), whose `syms`
+ * are then the nearest names its empty spellings show.
  * Unknown/undecodable symbol strings become null entries in `syms` (the preset
  * builder substitutes FALLBACK_SYM); malformed trailing records are dropped.
  */
@@ -251,23 +274,30 @@ export function parseNotaPayload(u8) {
     const name = td.decode(body.subarray(p, nameEnd));
     p = nameEnd + 1;
     // notation table: count strings, 0xFF-separated, the whole table NUL-terminated
-    const syms = [];
+    const strings = [];
     let start = p;
-    while (p < body.length && syms.length < count) {
+    while (p < body.length && strings.length < count) {
       if (body[p] === 0xff || body[p] === 0x00) {
-        syms.push(taudToSymToken(Array.from(body.subarray(start, p))));
+        strings.push(Array.from(body.subarray(start, p)));
         if (body[p] === 0x00) { p++; break; }
         start = ++p;
       } else p++;
     }
-    while (syms.length < count) syms.push(null);
+    while (strings.length < count) strings.push([]);
     const table = [];
     const w = bits ? 4 : 2;
     for (let i = 0; i < count && p + w <= body.length; i++, p += w) {
       table.push(bits ? dv.getUint32(p, true) * scale : dv.getUint16(p, true));
     }
     while (table.length < count) table.push(0);
-    defs.push({ slot, flags: flags & ~NOTA_BITS_MASK, interval, base, name, table, syms });
+    const def = { slot, flags: flags & ~NOTA_BITS_MASK, interval, base, name, table, syms: [] };
+    if (isSpelledDef(def)) {
+      def.spells = strings.map((b) => cleanSpelling(String.fromCharCode(...b)));
+      def.syms = autoAssignSyms(def, "nearest"); // what an empty spelling shows
+    } else {
+      def.syms = strings.map((b) => taudToSymToken(b));
+    }
+    defs.push(def);
   }
   return defs;
 }
@@ -589,6 +619,8 @@ export function defToPreset(def) {
     sym: def.syms.map((s) => s ?? FALLBACK_SYM),
     custom: true, slot: def.slot,
   };
+  // A spelled definition (item 374): its names, the rest by `sym`.
+  if (isSpelledDef(def)) p.spell = def.table.map((_, i) => cleanSpelling(def.spells?.[i]) || null);
   // Only carry a base when the definition declares one — 0 means "default C4",
   // which presetBase already supplies, and interval presets never use it.
   if (absolute && def.base) p.base = def.base;
