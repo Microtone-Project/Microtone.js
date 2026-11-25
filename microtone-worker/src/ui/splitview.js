@@ -199,6 +199,10 @@ export class SplitView {
       subBtn: el.querySelector(".pane-sub-btn"),
       stage: el.querySelector(".view-canvases"),
       view,
+      // Follow is the pane's own (item 381): two Timelines, one scrolling
+      // with the playhead and one held. The top bar's lamp shows the focused
+      // pane's; a new pane starts on.
+      follow: true,
     };
     pane.tabs.addEventListener("click", (e) => {
       const btn = e.target.closest("button");
@@ -223,6 +227,11 @@ export class SplitView {
   get view() { return this.panes[this.focus].view; }
   /** What pane `i` is showing (null when it is closed). */
   paneView(i) { return this.panes[i].view; }
+  /** Whether pane `i` scrolls with the playhead (item 381). */
+  paneFollows(i) { return this.panes[i].follow; }
+  /** …and the focused pane's, which the top bar's Follow lamp shows and sets. */
+  get follow() { return this.panes[this.focus].follow; }
+  set follow(on) { this.panes[this.focus].follow = !!on; }
   /** The FIRST pane showing `name`, or -1. */
   paneOf(name) { return this.panes.findIndex((p) => p.view === name); }
   /** Pane `i`'s stage element — where the shell builds that pane's views. */
@@ -317,6 +326,7 @@ export class SplitView {
     const cur = this.panes[i].view;
     this.panes[j].view = NEW_PANE_VIEWS.find((v) => !open.includes(v) && this.enabled(v)) ??
       NEW_PANE_VIEWS.find((v) => v !== cur && this.enabled(v)) ?? cur;
+    this.panes[j].follow = true;
     if (j === 1) this.ratio = 0.5;
     else this.subRatio[groupOf(j)] = 0.5;
     this.focus = j;
@@ -337,12 +347,14 @@ export class SplitView {
     const sibling = this.panes[partnerOf(i)].view !== null ? partnerOf(i) : -1;
     const follow = this.focus === i ? sibling : this.focus;
     const views = this.panes.map((p) => p.view);
+    const follows = this.panes.map((p) => p.follow); // Follow goes with its pane
     const reshaped = moves.some(([from, to]) => groupOf(from) !== groupOf(to));
     for (const p of this.panes) p.view = null;
     let focus = 0;
     for (const [from, to] of moves) {
       if (from !== to) this.onAdopt?.(from, to, views[from]);
       this.panes[to].view = views[from];
+      this.panes[to].follow = follows[from];
       if (from === follow) focus = to;
     }
     // A half that took the other half's place, or became one, is a new seam.

@@ -100,6 +100,14 @@ export class TimelineView {
     this._wheelRem = 0;   // leftover row-units between wheel notches (see wheel listener below)
     this.scrollCh = 0;    // leftmost visible lane
     this._wheelChRem = 0; // leftover lane-units between horizontal wheel events
+    // Whether Follow moves THIS copy (item 381): its pane's own Follow, which
+    // the shell (app.js) hands every shown view before its frame.
+    this.followsPlayback = true;
+    // The cell width this copy shows (item 254, per copy since item 381): two
+    // Timelines can be one in full cells, one in mini. A new copy starts on
+    // the width chosen last (store.timelineCells, which the browser keeps);
+    // the Cells button reads and steps the active copy's.
+    this.cells = store.timelineCells | 0;
     this.map = null;      // songMap cache
     this.needsRedraw = true;
     this.lastPlayRow = -1; // remembered so resize() can repaint synchronously
@@ -288,7 +296,7 @@ export class TimelineView {
   }
 
   /** The cell width in force (item 254): CELLS_FULL, CELLS_TWO, CELLS_ONE or CELLS_MINI. */
-  cellMode() { return this.store.timelineCells | 0; }
+  cellMode() { return this.cells | 0; }
   /** Is the grid showing narrow cells? */
   narrow() { return this.cellMode() !== CELLS_FULL; }
 
@@ -1813,7 +1821,7 @@ export class TimelineView {
       const entry = map?.entries[cue];
       if (entry) {
         playRow = entry.startRow + Math.min(audio.getTrackerRow(), entry.rowLimit - 1);
-        if (store.follow) {
+        if (this.followsPlayback) {
           const centred = playRow - this.visibleRows() / 2;
           const target = Math.max(0, Math.min(centred, map.totalRows - 4));
           if (Math.abs(target - this.scrollRow) > 0.01) {
@@ -1856,7 +1864,7 @@ export class TimelineView {
     return `${s.gen}|${Math.floor(this.scrollRow)}|${this.scrollCh}|${this.canvas.width}x${this.canvas.height}@${this.dpr}` +
       `|${this.headerH()}|${playRow}|${c.row},${c.ch},${c.sub},${c.nib}|${s.record}` +
       `|${sel ? `${sel.aRow},${sel.aCh},${sel.row},${sel.ch}` : "-"}` +
-      `|${s.pitchPreset}|${s.rawNoteView}|${s.pitchPlot}|${s.ghosts}|${s.follow}|${s.timelineCells}`;
+      `|${s.pitchPreset}|${s.rawNoteView}|${s.pitchPlot}|${s.ghosts}|${this.followsPlayback}|${this.cells}`;
   }
 
   /** Pattern number assigned to lane `ch` at the current play/cursor cue. */

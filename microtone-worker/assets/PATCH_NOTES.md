@@ -4,6 +4,14 @@ Every entry below is one version of Microtone, newest first, with the date it wa
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone-project/Microtone.js).
 
+## Version 5.2.0 (2026-11-26)
+
+**Split screens: Follow and Cells for each pane**: two Timelines side by side can now be set apart, one following the music and one held still, one in full cells and one in mini.
+
+- Each pane has its own Follow. The follow lamp in the top bar shows and switches the Follow of the pane you are working in, so one Timeline can scroll with the music while the other stays on the part of the song you put it on.
+- Each Timeline has its own Cells width. The Cells button shows and steps the width of the Timeline you are working in, and a new Timeline starts on the width you chose last.
+- Go to (Ctrl+G) takes only the Timeline you are working in to the cue and row you ask for, and the other stays where it was.
+
 ## Version 5.1.0 (2026-11-26)
 
 **A new desktop app, with the sound engine inside it**: Microtone for Windows, macOS and Linux is now a native app that plays through your computer's own audio system, in place of the website running in a window.

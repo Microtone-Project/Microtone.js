@@ -82,6 +82,7 @@ function encodeInstWord(kind, arg) {
 export class CuesView {
   constructor(store, canvas) {
     this.store = store;
+    this.followsPlayback = true; // its pane's own Follow (item 381), set by the shell
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d");
     this.scrollCue = 0;
@@ -906,7 +907,7 @@ export class CuesView {
    * centres at once; a pattern preview's scratch cue is no cue of the list.
    */
   followPlayhead(playing) {
-    if (!playing || !this.store.follow || !this.dpr) { this._followCue = -1; return; }
+    if (!playing || !this.followsPlayback || !this.dpr) { this._followCue = -1; return; }
     const cue = this.store.audio.getCuePosition();
     if (cue === this._followCue) return;
     this._followCue = cue;

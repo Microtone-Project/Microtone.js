@@ -118,7 +118,7 @@ The app warns before discarding unsaved changes, and autosaves your work — see
 | **Shift+Enter** | Play from the start |
 | **▶ Song** button | Play from the start |
 | **▶ Cue** button | Play from the cue under the cursor |
-| **follow** button | Keep the playhead in the middle of the view (its lamp is lit while it does): the Timeline row by row, the Cues view each time a new cue starts, and every Patterns column showing a pattern the playing cue uses |
+| **follow** button | Keep the playhead in the middle of the view (its lamp is lit while it does; each pane of a split screen has its own, and the lamp shows the focused pane's): the Timeline row by row, the Cues view each time a new cue starts, and every Patterns column showing a pattern the playing cue uses |
 
 Playing from the middle picks the song up as it stands there. Before the first row sounds, Microtone runs silently through everything that comes before it — in the song's own order, jumps and loops included — so every lane starts with the volume, panning, bitcrusher and overdrive settings, instrument and effect memory it would have had if you had played from the start, and the tempo, speed and global volume are the song's at that point too. Notes still ringing from earlier rows are not restarted: each lane is silent until its next note. A row the song never reaches when played from the start — after a halt, past a pattern break, or beyond a loop that never ends — is picked up by going through the cues in order instead.
 
@@ -235,6 +235,9 @@ for three panes or four.
 - **Drag a seam** between panes to give one more room; double-click it to even them up again. The seam inside a half moves only that half's two panes.
 - The pane you last clicked in has the keyboard — its active tab is the one in the accent colour. **Shift+F8** moves to the next pane, going through one half and then the other.
 - **Any number of panes can show the same view**: two Timelines scrolled to different bars of the song, two Patterns views, two of anything. Each is a copy of its own, with its own scroll position and its own selection, and all of them edit the one document — a change in one shows up in the others at once. (**F1**–**F7** and **F9** never open a second copy of something already on screen: they take you to the pane that has it. Clicking the tab is how you ask for a second one.)
+- **Each pane has its own Follow.** The **follow** lamp in the top bar shows and switches the Follow of the pane that has the keyboard, so with two Timelines on screen you can switch it off in one and leave it on in the other: one scrolls with the music, the other stays on the place you put it, whichever one you are working in. A new pane starts with Follow on.
+- **Each Timeline has its own Cells width**: one can show full cells while another shows the whole song in mini. The **Cells** button shows and steps the width of the Timeline you are working in (while the keyboard is in another view, the Timeline you used last); a new Timeline starts on the width you chose last.
+- **Ctrl+G** (Go to) moves only the Timeline you are working in; another Timeline stays where it was.
 - **F8** again, or the pane's **✕**, closes the pane the keyboard is in; the others close up to fill the gap, each keeping its view — including which bar it was scrolled to, so closing the pane you are working in leaves the others where they were. When a half loses its last pane, the other half's two panes become the two halves.
 - The master strip (see [Timeline](#timeline-f1)) stays where it is down the right-hand edge, beside every pane, and is on screen whenever *any* pane shows the Timeline.
 - The Instruments view's **Mixing** tab can meter two chains at once; with the tab open in more panes than that, the extra ones show their meters at rest until one of the others closes the tab.
@@ -332,7 +335,8 @@ a fine slide's argument to zero empties the cell, since "shift by nothing" and
 A full cell is twenty-odd characters wide, so a screen shows a handful of
 lanes. To **watch** a song on 32 or 64 lanes whole, press **Cells** in the
 toolbox: it steps through four widths (right-click it to step back), and this
-browser remembers the one you left it on.
+browser remembers the one you left it on. With two Timelines on screen, each
+has its own width, and the button steps the one you are working in.
 
 - **Cells: full** — every column, as above.
 - **Cells: 2 slots** — the first slot shows the note and instrument, or, on a row without them, the effect (then the second effect, when the lane shows one); the second slot shows the volume, or, without one, the panning.

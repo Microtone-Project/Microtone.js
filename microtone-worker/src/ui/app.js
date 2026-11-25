@@ -1170,6 +1170,27 @@ function viewNamed(name) {
   for (const map of paneViews) { const e = map.get(name); if (e) return e.obj; }
   return null;
 }
+/** The Timeline copy you are working in (item 381): the focused pane's, else
+ *  the one focused last while it is still on screen, else the first shown.
+ *  Goto (Ctrl+G) moves this copy alone; Find still centres every copy. Kept
+ *  as the VIEW, not a pane number: closing a pane moves views between panes.
+ *  Called every frame, so "focused last" is caught as the keyboard moves. */
+let activeTimelineView = null;
+function activeTimeline() {
+  const shown = (v) => {
+    for (let i = 0; i < paneViews.length; i++) {
+      if (split.paneView(i) === "timeline" && paneViews[i].get("timeline")?.obj === v) return true;
+    }
+    return false;
+  };
+  if (split.paneView(split.focus) === "timeline") {
+    activeTimelineView = paneViews[split.focus].get("timeline")?.obj ?? null;
+  } else if (!activeTimelineView || !shown(activeTimelineView)) {
+    const i = split.paneOf("timeline");
+    activeTimelineView = i >= 0 ? paneViews[i].get("timeline")?.obj ?? null : null;
+  }
+  return activeTimelineView;
+}
 /** Every copy of `name` that exists, shown or not — invalidations, rebuilds. */
 function eachView(name, fn) {
   for (const map of paneViews) { const e = map.get(name); if (e) fn(e.obj, e); }
@@ -1272,6 +1293,14 @@ function applyViews({ focusOnly = false } = {}) {
 
   $("toolbox").hidden = !(has("timeline") || has("pattern")) || noDoc;
   refreshToolbox();
+  // The cursor is shared, but a narrow cell shows only some of its columns
+  // (item 254) and each Timeline has its own width (item 381): the one taking
+  // the keyboard seats the cursor on a column it shows.
+  if (store.view === "timeline" && store.doc) {
+    const c = store.cursor, was = `${c.sub},${c.nib}`;
+    paneViews[split.focus].get("timeline")?.obj.seatCursor();
+    if (`${c.sub},${c.nib}` !== was) store.emit("cursor");
+  }
   $("placeholder").hidden = true;
   store.emit("view");
 }
@@ -1311,14 +1340,21 @@ function playCursor() {
 $("playSong").addEventListener("click", () => playFrom(0, 0));
 $("playCue").addEventListener("click", () => playFrom(playCursor().cue, 0));
 $("stopBtn").addEventListener("click", () => store.audio?.stop(0));
-{
-  // Follow: a lamp pushbutton in the transport, lit while the grids scroll
-  // with the playhead. Its label is static text, relabelled by applyDom.
-  const follow = lampButton({ label: t("topbar.follow"), on: store.follow, onChange: (on) => { store.follow = on; } });
-  follow.button.id = "follow";
-  follow.button.querySelector(".lamp-text").dataset.i18n = "topbar.follow";
-  $("follow").replaceWith(follow.button);
-}
+// Follow: a lamp pushbutton in the transport, lit while the grids scroll
+// with the playhead. Its label is static text, relabelled by applyDom. Each
+// pane has a Follow of its own (item 381) — two Timelines, one scrolling and
+// one held — and the lamp shows and sets the FOCUSED pane's; the frame loop
+// relights it as the keyboard moves. `store.follow` reads and writes the same.
+const followLamp = lampButton({ label: t("topbar.follow"), on: split.follow, onChange: (on) => { split.follow = on; } });
+followLamp.button.id = "follow";
+followLamp.button.querySelector(".lamp-text").dataset.i18n = "topbar.follow";
+$("follow").replaceWith(followLamp.button);
+Object.defineProperty(store, "follow", {
+  get: () => split.follow,
+  set: (on) => { split.follow = on; followLamp.setOn(split.follow); },
+  configurable: true,
+  enumerable: true,
+});
 
 /** A keymap strip cap, clicked in record mode (item 207): note entry into the
  *  grid the strip is docked under, which the click has already handed the
@@ -1492,30 +1528,42 @@ $("tbPitchPlot").addEventListener("click", () => {
 });
 // Narrow Timeline cells (item 254): full, two slots, one — for watching a
 // 32- or 64-lane song whole rather than a handful of its lanes. Remembered
-// per browser like the pitch plot, and like it never part of a song.
+// per browser like the pitch plot, and like it never part of a song. Each
+// Timeline copy has its own (item 381): the button shows and steps the active
+// one's, and the width chosen last is what the browser keeps and what a new
+// copy starts on.
 const CELLS_KEY = "microtone-timelinecells";
 try {
   const m = Number(localStorage.getItem(CELLS_KEY));
   store.timelineCells = m >= 0 && m < CELL_MODES ? m | 0 : 0;
 } catch { /* private mode — full cells, as anyway */ }
-eachView("timeline", (v) => { v.cellsChanged(); v.resize(); }); // any built before this ran
+// any built before this ran
+eachView("timeline", (v) => { v.cells = store.timelineCells; v.cellsChanged(); v.resize(); });
+/** The Timeline copy the Cells button is for: the active one. */
+const cellsTimeline = () => activeTimeline() ?? viewNamed("timeline");
 function refreshCellsBtn() {
   const btn = $("tbCells");
   btn.hidden = !store.viewOpen("timeline");
-  btn.textContent = t(["toolbox.cellsFull", "toolbox.cellsTwo", "toolbox.cellsOne", "toolbox.cellsMini"][store.timelineCells]);
-  btn.classList.toggle("active", store.timelineCells !== 0);
+  const mode = cellsTimeline()?.cells ?? store.timelineCells;
+  btn.textContent = t(["toolbox.cellsFull", "toolbox.cellsTwo", "toolbox.cellsOne", "toolbox.cellsMini"][mode]);
+  btn.classList.toggle("active", mode !== 0);
 }
-/** Step the Cells width by `dir`: a click goes on to the next, a right-click
- *  back to the one before (item 377), round the ends either way. */
+/** Step the active Timeline's Cells width by `dir`: a click goes on to the
+ *  next, a right-click back to the one before (item 377), round the ends
+ *  either way. Another Timeline on screen keeps its own. */
 function stepCells(dir) {
-  store.timelineCells = (store.timelineCells + dir + CELL_MODES) % CELL_MODES;
+  const v = cellsTimeline();
+  if (!v) return;
+  v.cells = (v.cells + dir + CELL_MODES) % CELL_MODES;
+  store.timelineCells = v.cells;
   try {
     if (store.timelineCells !== 0) localStorage.setItem(CELLS_KEY, String(store.timelineCells));
     else localStorage.removeItem(CELLS_KEY);
   } catch { /* private mode */ }
   refreshCellsBtn();
   // Every column has moved and the header may be shorter: re-measure.
-  eachView("timeline", (v) => { v.cellsChanged(); v.resize(); });
+  v.cellsChanged();
+  v.resize();
   store.emit("cursor"); // the cursor may now stand on another column
 }
 $("tbCells").addEventListener("click", () => stepCells(1));
@@ -1816,7 +1864,8 @@ for (const topic of ["cursor", "edit", "view", "doc", "keymap"]) {
 // business, because only they know what "there" means — an absolute song row
 // and lane on the Timeline, a pattern and a row in Patterns. Every copy of
 // the view follows (a split shows the same music twice, and "take me there"
-// means both panes), exactly as Goto does.
+// means both panes). Goto did too until item 381; it now moves the active
+// Timeline alone.
 const findBar = new FindBar($("findBar"), store, {
   view: () => store.view,
   goSong: (m) => {
@@ -2292,11 +2341,14 @@ async function openGoto() {
   const entry = map.entries[Math.min(cue, map.entries.length - 1)];
   if (!entry) return;
   store.cursor.row = entry.startRow + Math.min(row, entry.rowLimit - 1);
-  // "Take me there" means every pane looking at it, not just the focused one.
-  eachView("timeline", (v) => v.centreRow(store.cursor.row));
+  // Only the Timeline you are working in goes there (item 381); a second one
+  // stays on the place it was holding.
+  (activeTimeline() ?? viewNamed("timeline"))?.centreRow(store.cursor.row);
   store.emit("cursor");
   if (store.view === "cues") {
-    eachView("cues", (v) => { v.cursor.cue = entry.cue; v.invalidate(); });
+    const cues = viewNamed("cues"); // the focused pane's copy
+    cues.cursor.cue = entry.cue;
+    cues.invalidate();
   }
 }
 
@@ -2443,11 +2495,17 @@ function frame() {
     showText("posSpd", String(audio.getTickRate() || "–"));
   }
   linkCues();
+  activeTimeline(); // keeps "the Timeline focused last" current for Goto
+  if (followLamp.isOn() !== split.follow) followLamp.setOn(split.follow); // the focused pane's
   // Every view a pane is showing gets a frame, not just the focused one — and
-  // two panes on the same view are two copies, each with its own scroll.
+  // two panes on the same view are two copies, each with its own scroll, and
+  // each pane its own Follow (item 381).
   for (let i = 0; i < paneViews.length; i++) {
     const name = split.paneView(i);
-    if (name) paneViews[i].get(name)?.obj.frame?.();
+    const obj = name ? paneViews[i].get(name)?.obj : null;
+    if (!obj) continue;
+    obj.followsPlayback = split.paneFollows(i);
+    obj.frame?.();
   }
   if (store.viewOpen("timeline")) masterStrip.frame();
   instLookup.frame(); // play-indicator lamps (item 169); no-ops while hidden

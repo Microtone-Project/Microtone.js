@@ -986,7 +986,7 @@ class PatternPane {
     if (playRow !== this._playRow) {
       this._playRow = playRow;
       this.needsRedraw = true;
-      if (playRow >= 0 && this.store.follow) this.centreRow(playRow);
+      if (playRow >= 0 && this.container.followsPlayback) this.centreRow(playRow);
     }
     if (this.hold.active) this.needsRedraw = true; // the gauge travels every frame
     let changed = false;
@@ -1246,6 +1246,7 @@ export class PatternView {
     this.store = store;
     this.jam = jam;
     this.fx2Base = fx2Base;
+    this.followsPlayback = true; // its pane's own Follow (item 381), set by the shell
     this.visible = false;
     this.panes = [];
     this.activeIdx = 0;

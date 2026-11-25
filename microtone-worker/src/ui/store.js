@@ -40,6 +40,8 @@ export class Store {
      *  loading anything else retires it without every load path having to
      *  remember. Only a local Save As (same document, new home) clears it. */
     this.online = null;
+    /** Follow: the FOCUSED pane's (item 381) — app.js replaces this field
+     *  with an accessor onto the split view's panes once it has them. */
     this.follow = true;
     /** #998.3: monitor surround songs through the binaural head model. Default
      *  on — the stereo fold cannot render height at all. Stereo songs ignore it. */

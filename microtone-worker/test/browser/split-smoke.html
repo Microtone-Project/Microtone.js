@@ -133,6 +133,94 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
   // The keyboard talks to the focused copy — pane 1's, which was clicked last.
   check(M.timeline === copies[1], "the exposed handle follows the keyboard");
 
+  // ── 5a. each Timeline has its own Cells width (item 381) ────────────────
+  const cellsBtn = $("tbCells");
+  const fullText = cellsBtn.textContent;
+  const fullW = copies[0].colWFor(0);
+  cellsBtn.click(); // pane 1 has the keyboard
+  await sleep(150);
+  check(copies[1].cells === 1 && copies[0].cells === 0 && store.timelineCells === 1,
+    "Cells steps the focused Timeline's width alone", `${copies[0].cells} / ${copies[1].cells}`);
+  check(copies[1].colWFor(0) < fullW && copies[0].colWFor(0) === fullW && cellsBtn.textContent !== fullText,
+    "…so the two grids are drawn at different widths", `${copies[0].colWFor(0)} / ${copies[1].colWFor(0)}`);
+  split.setFocus(0);
+  await sleep(80);
+  check(cellsBtn.textContent === fullText, "the button shows the newly focused Timeline's width",
+    cellsBtn.textContent);
+  split.setFocus(1);
+  await sleep(80);
+  check(cellsBtn.textContent !== fullText, "…and the other's again on the way back", cellsBtn.textContent);
+  cellsBtn.dispatchEvent(new win.MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+  await sleep(150);
+  check(copies[1].cells === 0 && store.timelineCells === 0 && copies[1].colWFor(0) === fullW,
+    "a right-click steps it back to full");
+
+  // ── 5b. each pane has its own Follow (item 381) ──────────────────────────
+  // A transport faked onto the audio object: the frame loop is what is under
+  // test, not the engine. The lamp in the top bar is the FOCUSED pane's.
+  const audio = store.audio;
+  const faked = ["isPlaying", "getCuePosition", "getTrackerRow"];
+  const own = Object.fromEntries(faked.map((k) => [k, Object.hasOwn(audio, k) ? audio[k] : undefined]));
+  const map = copies[0].getMap();
+  const cue = Math.floor(map.entries.length / 2);
+  const playRow = map.entries[cue].startRow;
+  const followTarget = (v) => Math.max(0, Math.min(playRow - v.visibleRows() / 2, map.totalRows - 4));
+  const atTarget = (v) => Math.abs(v.scrollRow - followTarget(v)) < 0.01;
+  const lamp = $("follow");
+  const lampOn = () => lamp.getAttribute("aria-pressed") === "true";
+  copies[0].scrollRow = 0;
+  copies[1].scrollRow = 0;
+  audio.isPlaying = () => true;
+  audio.getCuePosition = () => cue;
+  audio.getTrackerRow = () => 0;
+  try {
+    await sleep(120);
+    check(atTarget(copies[0]) && atTarget(copies[1]) && lampOn(),
+      "Follow on in both panes: both Timelines follow, the focused one too",
+      `${copies[0].scrollRow} / ${copies[1].scrollRow} (want ${followTarget(copies[0])})`);
+    lamp.click(); // the focused pane (1) only
+    copies[0].scrollRow = 0;
+    copies[1].scrollRow = 0;
+    await sleep(120);
+    check(!lampOn() && !split.paneFollows(1) && split.paneFollows(0) && store.follow === false,
+      "the lamp switches the focused pane's Follow alone");
+    check(atTarget(copies[0]) && copies[1].scrollRow === 0,
+      "…so the held Timeline stays and the other keeps following, unfocused",
+      `${copies[0].scrollRow} / ${copies[1].scrollRow}`);
+    split.setFocus(0);
+    await sleep(60);
+    check(lampOn(), "the lamp shows the newly focused pane's Follow");
+    split.setFocus(1);
+    await sleep(60);
+    check(!lampOn() && copies[1].scrollRow === 0, "…and the held pane's again on the way back");
+    store.follow = true; // what the smokes and the lamp share
+    await sleep(120);
+    check(lampOn() && atTarget(copies[1]), "store.follow sets the focused pane's, and lights the lamp");
+  } finally {
+    for (const k of faked) { if (own[k]) audio[k] = own[k]; else delete audio[k]; }
+  }
+  split.setFocus(1);
+  await sleep(50);
+  // Ctrl+G moves the focused Timeline alone (item 381).
+  copies[0].scrollRow = 5;
+  copies[1].scrollRow = 0;
+  win.dispatchEvent(new win.KeyboardEvent("keydown", { key: "g", code: "KeyG", ctrlKey: true, bubbles: true }));
+  let gotoDlg = null;
+  for (let i = 0; i < 100 && !gotoDlg; i++) {
+    await sleep(10);
+    gotoDlg = [...doc.querySelectorAll("dialog.modal")].find((d) => d.querySelector("[name=cue]")) ?? null;
+  }
+  check(!!gotoDlg, "Ctrl+G opens Go to");
+  if (gotoDlg) {
+    gotoDlg.querySelector("[name=cue]").value = cue.toString(16);
+    gotoDlg.querySelector("[name=row]").value = "0";
+    gotoDlg.querySelector(".modal-buttons .proceed").click();
+    await sleep(120);
+    check(store.cursor.row === playRow && copies[1].scrollRow > 0 && copies[0].scrollRow === 5,
+      "Go to scrolls the focused Timeline and leaves the other where it was",
+      `cursor ${store.cursor.row} (want ${playRow}), ${copies[0].scrollRow} / ${copies[1].scrollRow}`);
+  }
+
   tab(1, "samples").click();
   await sleep(200);
   check(store.views.join() === "timeline,samples" && !strip.hidden,
@@ -235,6 +323,7 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
   const kept = objOf(1, "timeline");
   kept.scrollBy(48);
   const keptRow = kept.scrollRow;
+  store.follow = false; // the kept pane's own Follow, which must go with it
   check(keptRow > 0 && objOf(0, "timeline").scrollRow !== keptRow,
     "two Timelines, scrolled apart", `${objOf(0, "timeline").scrollRow} vs ${keptRow}`);
   paneBtn(0).click();  // ✕ on the pane the keyboard is in
@@ -246,6 +335,9 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
     Math.abs(rect(hostOf(0, "timeline")).width - rect($("viewStage")).width) < 2,
     "…keeping where it was scrolled to, re-measured for the full stage",
     `${objOf(0, "timeline").scrollRow} vs ${keptRow}`);
+  check(split.paneFollows(0) === false && store.follow === false,
+    "…and its own Follow, off as it was (item 381)");
+  store.follow = true;
 
   // (b) closing the OTHER pane leaves yours exactly as it was.
   paneBtn(0).click();          // split again
