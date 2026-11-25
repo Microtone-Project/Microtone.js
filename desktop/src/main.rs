@@ -9,6 +9,7 @@
 //   closing.rs      closing the window asks the page's beforeunload first
 //   updates.rs      the updater plugin, driven by the glue's banner
 //   online.rs       online projects: browser sign-in, an access token, the API
+//   handover.rs     the projects copied to ~/Microtone, for the next app (desktop-qt)
 //   mac_dialogs.rs  alert() and confirm() on macOS, where wry has neither
 //   webkitgtk.rs    storage, the microphone: what WebKitGTK has switched off
 
@@ -16,6 +17,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod closing;
+mod handover;
 mod links;
 #[cfg(target_os = "macos")]
 mod mac_dialogs;
@@ -97,8 +99,14 @@ fn main() {
       updates::update_check,
       updates::update_download,
       updates::update_install,
+      updates::new_app,
+      updates::open_new_app,
       online::online_request,
       online::online_sign_in,
+      handover::handover_info,
+      handover::handover_folder,
+      handover::handover_read,
+      handover::handover_write,
     ])
     .setup(|app| {
       saving::clear_staging(app.handle());

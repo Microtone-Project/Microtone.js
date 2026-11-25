@@ -2166,6 +2166,7 @@ dependencies = [
  "tauri-plugin-updater",
  "tauri-plugin-window-state",
  "webkit2gtk",
+ "winreg",
 ]
 
 [[package]]

@@ -64,7 +64,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEIxMThGMkQ0MzdEODVDNTAKUldSUVhOZzMxUElZc1VnWm0zM215SWxiNGpnSjNaWnR6cCtRR2VCWkU0Sm15SWNPQWloQytYZ0sK",
       "endpoints": [
-        "https://github.com/Microtone-Project/Microtone.js/releases/latest/download/latest.json"
+        "https://microtone.cc/api/desktop/update?channel=stable&from=tauri&version={{current_version}}&platform={{target}}-{{arch}}-{{bundle_type}}"
       ],
       "requireSignedVersion": true,
       "windows": {

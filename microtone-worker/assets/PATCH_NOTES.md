@@ -4,6 +4,15 @@ Every entry below is one version of Microtone, newest first, with the date it wa
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone-project/Microtone.js).
 
+## Version 5.0.6 (2026-11-26)
+
+**The desktop app gets ready for its successor**: a new Microtone desktop app is on its way, and this version prepares your projects and your copy for the move.
+
+- The desktop app now also copies your projects, soundfonts and keymaps into a folder called Microtone in your home folder, where the new app keeps them; nothing is moved or deleted, and whatever you change is copied again while you work.
+- When the new app is ready, the update banner says so and offers to move you to it; your projects come along.
+- On Windows the new app installs beside this one: keep the old app until the new one shows your projects, then uninstall it.
+- The new app needs macOS 13 or later; on macOS 12 this version says so and keeps working, without further updates.
+
 ## Version 5.0.5 (2026-11-17)
 
 **MIDI import keeps drum kits in tune, uses up to 64 lanes, and can play through your own soundfonts**: a song that sends a pitch bend to its drum part no longer detunes the whole kit.

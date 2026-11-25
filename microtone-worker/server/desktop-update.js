@@ -15,6 +15,16 @@
 //            "nothing new")
 //   preview  the desktop-preview pre-release's, published by hand
 //            (.github/workflows/desktop-qt.yml) for testing before then
+//
+// The Tauri build asks here too from 5.0.6 on, with `from=tauri`
+// (desktop/tauri.conf.json): its move to the new app is the new app's
+// manifest, installed by Tauri's own updater (the same key signs both). On the
+// stable channel that waits for TAURI_MOVES — until then a Tauri copy hears
+// 204, Tauri's "nothing new" — so the switch is thrown HERE, whenever the new
+// app has been checked, independently of when it was released. The preview
+// channel moves a Tauri copy at once: that is how the move is tried. Tauri
+// copies up to 5.0.5 ask GitHub's latest release for latest.json instead, and
+// every release from the switch on carries one that brings them to 5.0.6.
 
 const RELEASES = "https://github.com/Microtone-Project/Microtone.js/releases";
 
@@ -25,12 +35,19 @@ export const CHANNELS = Object.freeze({
 
 export const UPDATE_PATH = "/api/desktop/update";
 
-export function desktopUpdate(request) {
+/** Whether Tauri copies (5.0.6 on) are offered the new app on the stable channel. */
+export const TAURI_MOVES = false;
+
+export function desktopUpdate(request, { tauriMoves = TAURI_MOVES } = {}) {
   if (request.method !== "GET" && request.method !== "HEAD") {
     return new Response("Method not allowed", { status: 405, headers: { allow: "GET, HEAD", "content-type": "text/plain; charset=utf-8" } });
   }
-  const channel = new URL(request.url).searchParams.get("channel") || "stable";
+  const params = new URL(request.url).searchParams;
+  const channel = params.get("channel") || "stable";
   const to = Object.hasOwn(CHANNELS, channel) ? CHANNELS[channel] : null;
   if (!to) return new Response("No such channel", { status: 400, headers: { "content-type": "text/plain; charset=utf-8" } });
+  if (params.get("from") === "tauri" && channel === "stable" && !tauriMoves) {
+    return new Response(null, { status: 204, headers: { "cache-control": "no-store" } });
+  }
   return new Response(null, { status: 302, headers: { location: to, "cache-control": "no-store" } });
 }

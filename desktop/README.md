@@ -47,8 +47,48 @@ That is the whole procedure: `.github/workflows/desktop.yml` builds Linux
 (AppImage, .deb, .rpm), Windows (NSIS installer) and macOS (universal .app and
 .dmg) for any version that has no `v<version>` release yet, signs the updater
 artefacts, and publishes the release with its `latest.json` once every platform
-has uploaded. Installed copies look at
-`https://github.com/Microtone-Project/Microtone.js/releases/latest/download/latest.json`.
+has uploaded. Copies up to 5.0.5 look at
+`https://github.com/Microtone-Project/Microtone.js/releases/latest/download/latest.json`;
+from 5.0.6 on they ask the site (next section).
+
+## The move to the next desktop app
+
+5.0.6 is meant to be this app's last release: the Qt build (`../desktop-qt`)
+replaces it, and reaches its copies as an ordinary update.
+
+- **Where 5.0.6 asks**: `https://microtone.cc/api/desktop/update?channel=stable&from=tauri&…`
+  (`tauri.conf.json`), the address the Qt build asks too
+  (`microtone-worker/server/desktop-update.js`). Until `TAURI_MOVES` is
+  switched on there, it answers 204, "nothing new"; then it sends the Qt
+  build's manifest, which is Tauri's `latest.json` shape and signed with the
+  same key. So the switch is thrown on the site, whenever the new app has
+  been checked, not by a release.
+- **Copies up to 5.0.5** still read GitHub's latest release. Every release
+  from the switch on carries a `latest.json` that brings them to 5.0.6 (its
+  own files), so none skips the steps below.
+- **An update from 5.1.0 on is the new app** (`src/updates.rs`
+  `is_new_app`). The banner says so (that this app gets no more updates, and
+  that the projects come along) instead of the usual line.
+- **macOS before 13 declines it**: the new app needs 13. The banner says so
+  once per version and nothing is downloaded.
+- **Windows installs the new app beside this one** (its own folder and
+  uninstall entry), so this one stays. Once the new app is installed (its
+  uninstall key, `cc.microtone.desktop`), this one stops asking for updates
+  and says instead that it is the old app: keep it until the new app shows
+  the projects, then uninstall it. **Open the new app** starts it.
+- Everywhere else the update replaces this app: macOS swaps the bundle (same
+  bundle id; Tauri restarts whatever `CFBundleExecutable` the new
+  `Info.plist` names), an AppImage replaces its file, and the .deb and .rpm
+  are upgraded by the new app's packages, which have the same name.
+- Tried (2026-11-26) on Linux with a probe copy of 5.0.6 marked as an
+  AppImage, a manifest served locally and signed by a throwaway key
+  (`--app-version`: `requireSignedVersion` refuses a signature without it):
+  the banner offered 5.1.0 as the new app, Download, Restart now, and the Qt
+  build's AppImage took the file's place and started, showing the handed-over
+  project.
+- `MICROTONE_UPDATE_URL=<address>` checks another manifest instead, e.g.
+  `…/api/desktop/update?channel=preview&from=tauri`, which moves a copy to the
+  preview release at once: that is how the move is tried before the switch.
 
 Once, before the first release:
 
@@ -78,6 +118,55 @@ initialization script:
 | `src/webkitgtk.rs` | Linux: switches on the Storage and File System APIs (where every project lives) and the microphone, which WebKitGTK ships switched off |
 | `src/mac_dialogs.rs` | macOS: `alert()` and `confirm()`, which WKWebView lacks, as native alerts |
 | `glue/desktop.js` | hides the welcome screen's **Get the desktop app** (`.wc-desktop`), from the first paint — the page offers the app to a browser and never asks where it runs |
+| `src/handover.rs` | copies the projects, soundfonts and keymaps out of OPFS into `~/Microtone`, where the next desktop app keeps them (below) |
+
+### Moving the projects to the next desktop app
+
+The Qt build (`../desktop-qt`) replaces this one. It keeps projects,
+soundfonts and keymaps as ordinary files in `~/Microtone/{Projects,
+Soundfonts,Keymaps}` (`%USERPROFILE%\Microtone` on Windows). This build keeps
+them in its webview's OPFS. WebView2 stores that in Chromium's LevelDB and
+SQLite and WebKit in a format of its own; nothing but the webview itself
+reads either. So this build copies its own across:
+
+- **The glue reads OPFS through the page's API** in the main window, 5 s after
+  start and then every minute. It hands each file to `handover_write`
+  (`src/handover.rs`) as raw bytes, which writes it into the folder.
+- **Never overwrites what it did not write.** A file is created; or replaced
+  only while it is still exactly what was written (the glue keeps a manifest
+  in localStorage, one per destination folder, with the modification times on
+  both sides); or, if the
+  same bytes are already there, counted as done. Anything else gets its copy
+  beside it, as "name (from the old app).taud".
+- **So edits keep flowing** while this app is used: a project changed here is
+  copied again, unless the copy was changed in the new app meanwhile.
+- **Nothing is deleted**, here or there. Empty folders come along, the
+  soundfonts' notes are merged into the folder's `index.json` (what is
+  already there wins), and a name Windows or macOS cannot hold is made
+  portable (`bad:name?.taud` → `bad_name_.taud`).
+- A banner says so the first time anything is copied.
+- `MICROTONE_FILES_ROOT=<dir>` puts the folder elsewhere, for tests.
+
+Tested:
+- `cargo test`: the write rules, names, path escapes;
+- the glue's logic in headless Chromium against a stand-in for the Rust side
+  (copy, beside, nothing twice, replace an unchanged copy, keep a copy edited
+  in the new app, the merged index, one banner).
+- the release build in WebKitGTK on Linux (2026-11-26, a probe copy on
+  Xvfb): a project and a keymap seeded into OPFS reached the folder, and the
+  banner said so; the same run took the move below end to end.
+
+The Qt build also reads this build's storage itself, at every start
+(`desktop-qt/src/oldapp.cpp`, "The earlier desktop app's projects" in its
+README), with the same rules: the same "(from the old app)" name, the same
+"never beside a copy beside it". A change to the rules here is a change there.
+So this side is not strictly needed, but it keeps edits flowing while both
+apps are in use, and it covers a Windows store the Qt build's LevelDB reader
+might not read.
+
+**Shipping it is a release of this app** (a version bump pushed to master),
+and it goes out before the Qt build takes over: 5.0.6 carries it, and every
+installed kind gets it through the updater.
 
 ### Online projects
 

@@ -40,6 +40,11 @@ getrandom = "0.3"
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 rfd = { version = "0.16", default-features = false, features = ["common-controls-v6"] }
 
+# The next desktop app's install location, from its uninstall key (src/updates.rs);
+# the version tauri-plugin-deep-link already brings.
+[target.'cfg(windows)'.dependencies]
+winreg = "0.55"
+
 [target.'cfg(target_os = "linux")'.dependencies]
 # Tauri's own GTK, for the Save dialog (src/saving.rs).
 gtk = "0.18"
