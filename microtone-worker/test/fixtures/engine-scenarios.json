@@ -208,6 +208,14 @@
       "u8": "4265e146470a1acd7ac9dd4d1b25eeedbcf62c8b34d6cedbbfeeb4b89032df49",
       "notes": "c287b40cc5082c2914dcecefc63e50f13ca7a9a31ce7cafaa4573a660050d291",
       "peak": 0.958
+    },
+    "the lane peak meters: on, drained by every snapshot, off and on again": {
+      "file": "assets/demo_projects/Daisy_bell.taud",
+      "chunks": 180,
+      "f32": "69b3a70df25a80a594b9a038e6608c68bc0848dce8d04e05e22d9a48307f62bf",
+      "u8": "204db9e2b71b60921d4e3860d4003ffbbb880d4aab31960ee35c728ea05c86ab",
+      "notes": "e2a97df43ba372f997a04f1754aea7d8c8ffe837a268f72f54b55d462489aafc",
+      "peak": 0.403
     }
   }
 }

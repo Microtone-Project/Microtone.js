@@ -12,6 +12,7 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 - In record mode the knob writes `S $80xx`, `S $8xxx` or `X $eeaa` into the cursor's cell, by the song's panning model, and its push switches a spatial song's knob between azimuth and elevation. The fader writes `M $xx00` and the master fader `V $xx00`, one undo step per touch, and the motor shows the lane's volume.
 - Every strip's Mute, Solo and Rec mute, solo and show the second effect column of the cursor's lane, and Select opens the lane's menu, which the knob then walks.
 - The transport plays, stops, records and jumps from cue to cue; F1–F7 are the tabs; Cycle and Drop change the keyboard layout; Replace and Click move between panes, and the transport's Solo splits the view.
+- The surface's level meter shows the cursor lane's level in decibels, with its top light for a lane that goes over full scale.
 - Marker marks a row (shown in the Timeline's trough) and Nudge goes back to it.
 - The display reads cue, row, speed and BPM, or bars, beats and subdivisions from the row highlights (BPM/Time).
 - The jog wheel moves by every other row, further the faster it turns; Bank, Channel and the arrows move as the keyboard's arrows do; Zoom is selection mode, Scrub is undo, and a footswitch plays and stops.

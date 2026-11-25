@@ -115,6 +115,7 @@ async function ensureAudio({ resume = true } = {}) {
       audio.setMonitorMode(0, store.binaural ? 1 : 0); // #998.3, survives reloads
       applyPolyphony(audio); // item 355: the desktop's choice, the engine's default elsewhere
       if (store.laneScope) audio.setLaneScope(true); // item 358, switched on before audio started
+      if (store.lanePeak) audio.setLanePeak(true);   // item 379: a surface attached before audio started
       store.audio = audio;
     })();
   }
@@ -2562,6 +2563,13 @@ const surfaceHost = {
     return { vol: audio.getVoiceChannelVolume(ch), az: audio.getVoiceChannelAzimuth(ch), el: audio.getVoiceChannelElevation(ch) };
   },
   globalVolume: () => store.audio?.getLiveGlobalVolume() ?? store.song?.globalVolume ?? 0x80,
+  /** The lane's peak over the latest snapshot (linear, 1.0 = full scale), or
+   *  null while nothing is measuring. */
+  lanePeak: (ch) => store.audio?.getLanePeak(ch) ?? null,
+  setLanePeak(on) {
+    store.lanePeak = on;
+    store.audio?.setLanePeak(on);
+  },
   muted: (ch) => store.voiceMutes[ch] === true,
   soloed(ch) {
     const n = store.doc?.channelCount ?? 0;

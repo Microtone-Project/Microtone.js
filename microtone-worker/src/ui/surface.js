@@ -18,7 +18,7 @@
 import {
   decode, BUTTON, STRIP_BUTTON, LED, FADER_MAX, RING,
   ledMessage, faderMessage, ringMessage, segmentCells, timecodeMessages,
-  assignmentMessages, lcdMessage, TIMECODE_DIGITS,
+  assignmentMessages, lcdMessage, meterMessage, meterEnableMessage, TIMECODE_DIGITS,
 } from "../midi/mackie.js";
 import { EffectOp } from "../../core/engine/tables.js";
 import { SURROUND_STEREO, SURROUND_SPATIAL } from "../../core/engine/spatial.js";
@@ -85,6 +85,39 @@ export function jogRows(row, units) {
     ? Math.floor(row / JOG_ROWS) * JOG_ROWS + units * JOG_ROWS
     : Math.ceil(row / JOG_ROWS) * JOG_ROWS + units * JOG_ROWS;
   return target - row;
+}
+
+/**
+ * The level meter: the cursor lane's peak, in dB of full scale, on the strip's
+ * LED meter (channel pressure: strip << 4 | segment). 0x0…0xB follow Ardour's
+ * deflection curve (reference_materials/mackie-control/ardour/meter.cc: −60 dB
+ * near the bottom, 0 dB at the top), and 0xC is CLIPPING: the lane at or over
+ * full scale, held CLIP_HOLD_MS so it is seen. A rise shows at once; a fall is
+ * eased at METER_FALL_DB_S, and a lit meter is sent again every
+ * METER_REFRESH_MS so a surface's own decay cannot take it down early.
+ */
+export const METER_CLIP = 0xc;
+const METER_TOP = 0xb;
+const METER_FALL_DB_S = 24;
+const METER_REFRESH_MS = 250;
+const CLIP_HOLD_MS = 1000;
+
+/** Ardour's meter deflection, 0…100 % at 0 dBFS (calculate_meter_over_and_deflection). */
+export function meterDeflection(dB) {
+  if (dB < -70) return 0;
+  if (dB < -60) return (dB + 70) * 0.25;
+  if (dB < -50) return (dB + 60) * 0.5 + 2.5;
+  if (dB < -40) return (dB + 50) * 0.75 + 7.5;
+  if (dB < -30) return (dB + 40) * 1.5 + 15;
+  if (dB < -20) return (dB + 30) * 2 + 30;
+  return Math.min(100, (dB + 20) * 2.5 + 50);
+}
+
+/** The meter's segment for a level in dBFS: 0xC at or over full scale. */
+export function meterSegment(dB) {
+  if (!(dB > -Infinity)) return 0;
+  if (dB >= 0) return METER_CLIP;
+  return Math.max(0, Math.min(METER_TOP, Math.round((meterDeflection(dB) / 100) * METER_TOP)));
 }
 
 /** The function keys: the tabs, as F1…F7 are on the keyboard; F8 splits. */
@@ -238,6 +271,11 @@ export class ControlSurface {
     this.jogDir = 0;
     this.jogAcc = 0;
     this.held = null;     // a held arrow: {code, next}
+    this.meterDb = -Infinity; // the meter's level, eased (see METER_*)
+    this.meterAt = 0;
+    this.clipUntil = -Infinity;
+    this.meterSeg = -1;       // the segment last sent, and when
+    this.meterSentAt = -Infinity;
     this.status = "";     // what the scribble strip's second line says
     this.statusUntil = 0;
     this.sent = new Map(); // feedback key → what was last sent
@@ -248,6 +286,10 @@ export class ControlSurface {
    *  shows is sent afresh on the next frame. */
   attach(send) {
     this.send = send;
+    // The engine measures the lanes' peaks only while a surface listens.
+    this.host.setLanePeak?.(send !== null);
+    this.meterSeg = -1;
+    this.meterDb = -Infinity;
     this.sent.clear();
     this.prevCells = null;
     this.touched = [false, false];
@@ -481,6 +523,7 @@ export class ControlSurface {
       this.led(STRIP_BUTTON.solo + s, on(soloed));
       this.led(STRIP_BUTTON.rec + s, on(fx2));
       this.led(STRIP_BUTTON.select + s, on(s === HOME_STRIP));
+      this.out(`meterOn${s}`, true, () => meterEnableMessage(s, true));
     }
     const playing = ready && h.playing();
     this.led(BUTTON.play, on(playing));
@@ -508,6 +551,8 @@ export class ControlSurface {
       const v = levelFader(own ? own.arg >> 8 : h.globalVolume());
       this.out("faderM", v, () => faderMessage(null, v));
     }
+
+    this.meter(ready ? ch : null, now);
 
     // the knob's ring
     const model = ready ? h.surroundModel() : SURROUND_STEREO;
@@ -545,10 +590,27 @@ export class ControlSurface {
     }
   }
 
+  /** The level meter (see METER_*): the lane's peak since the last frame. */
+  meter(ch, now) {
+    const peak = ch === null ? null : this.host.lanePeak(ch);
+    const dt = Math.max(0, (now - this.meterAt) / 1000);
+    this.meterAt = now;
+    const dB = peak > 0 ? 20 * Math.log10(peak) : -Infinity;
+    const fallen = this.meterDb - METER_FALL_DB_S * dt;
+    this.meterDb = dB > fallen ? dB : fallen;
+    if (dB >= 0) this.clipUntil = now + CLIP_HOLD_MS;
+    const seg = now < this.clipUntil ? METER_CLIP : meterSegment(this.meterDb);
+    if (seg === this.meterSeg && (seg === 0 || now - this.meterSentAt < METER_REFRESH_MS)) return;
+    this.meterSeg = seg;
+    this.meterSentAt = now;
+    for (let s = 0; s < 8; s++) this.send(meterMessage(s, seg));
+  }
+
   /** Put out every lamp this lit and blank the displays: the surface is
    *  being let go of. */
   goodbye() {
     if (!this.send) return;
+    for (let s = 0; s < 8; s++) this.send(meterMessage(s, 0));
     for (const [key, value] of this.sent) {
       if (key.startsWith("led") && value !== "off") this.send(ledMessage(Number(key.slice(3)), "off"));
       if (key.startsWith("ring")) this.send(ringMessage(Number(key.slice(4)), RING.dot, 0));

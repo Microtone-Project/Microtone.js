@@ -37,6 +37,7 @@ import { normaliseMastering } from "../core/engine/mastering.js";
 import {
   SNAP_FLOATS, SNAP_AN_METERS, SNAP_HEADER_SIZE, SNAP_METER_BASE,
   SNAP_EP_BASE, SNAP_EP_COUNT, SNAP_EP_ENTRIES, SNAP_EP_STRIDE, SNAP_INTERRUPT_ARGS, SNAP_IM_BASE,
+  SNAP_LP_LANES, SNAP_LP_DATA,
 } from "../core/worklet/protocol.js";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
@@ -706,6 +707,32 @@ export const SCENARIOS = {
   // hundreds when nothing stops them. Played under a tight limit, then with
   // the desktop's largest, then lowered under sounding voices (the surplus
   // ramps out at once), then an out-of-range ask (clamped).
+  // Item 379: a control surface's meter. The tap must not move a sample (the
+  // f32/u8 digests equal a plain play's), each snapshot takes the peaks it
+  // reports (the next starts from silence), and while off the block says 0
+  // lanes and nothing else is written.
+  "the lane peak meters: on, drained by every snapshot, off and on again": {
+    file: DEMO("Daisy_bell"),
+    script(r) {
+      const { eng } = r;
+      const peaks = () => {
+        fillSnapshotInto(eng, 0, r.snap);
+        const n = r.snap[SNAP_LP_LANES];
+        r.note(n);
+        for (let l = 0; l < n; l++) r.note(r.snap[SNAP_LP_DATA + l]);
+      };
+      eng.setLanePeak(true);
+      playFromTop(r);
+      for (let i = 0; i < 120; i++) { r.render(1); peaks(); }
+      peaks(); // nothing rendered since: every lane back to silence
+      eng.setLanePeak(false);
+      r.render(20);
+      peaks();
+      eng.setLanePeak(true);
+      r.renderSpans([1, 64, 333, 512], 40);
+      peaks();
+    },
+  },
   "the polyphony limit: tight, at its largest, lowered under sounding voices": {
     file: DEMO("Temjin_speaki"),
     script(r) {

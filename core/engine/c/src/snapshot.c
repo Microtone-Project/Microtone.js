@@ -187,6 +187,18 @@ void te_fill_snapshot(TaudEngine *e, float *f)
     } else {
         f[SNAP_LS_LANES] = 0.0f;
     }
+    /* The lane peak meters (item 379): each lane's peak since the last
+     * snapshot, which takes it (the next one starts from silence). */
+    if (e->lanePeakOn) {
+        int lanes = te_channel_count(e), l;
+        f[SNAP_LP_LANES] = (float)lanes;
+        for (l = 0; l < lanes; l++) {
+            f[SNAP_LP_DATA + l] = e->lanePeak[l];
+            e->lanePeak[l] = 0.0f;
+        }
+    } else {
+        f[SNAP_LP_LANES] = 0.0f;
+    }
     /* The Mixing tab's meters, one block per seat. */
     te_fill_imix_meters(e, f);
     /* The master strip's and the Mastering view's (meters.c). */

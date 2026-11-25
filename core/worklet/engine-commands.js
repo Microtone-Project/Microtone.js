@@ -9,6 +9,7 @@ import {
   CMD, SNAP_HEADER_SIZE, SNAP_INTERRUPT_MASK, SNAP_INTERRUPT_ARGS, SNAP_SAB_I32_MASK,
   SNAP_SAB_I32_ARGS, SNAP_METER_BASE, SNAP_MM_BASE, SNAP_IM_BASE, SNAP_FLOATS,
   SNAP_LS_BASE, SNAP_LS_LANES, SNAP_LS_DATA, SNAP_LS_FRAMES,
+  SNAP_LP_BASE, SNAP_LP_LANES, SNAP_LP_DATA,
 } from "./protocol.js";
 
 /**
@@ -50,6 +51,7 @@ export function applyAudioCommand(eng, m) {
     case CMD.SET_MONITOR_MODE: eng.setMonitorMode(m.ph, m.mode); return true;
     case CMD.SET_POLYPHONY: eng.setPolyphony(m.limit); return true;
     case CMD.SET_LANE_SCOPE: eng.setLaneScope(m.on); return true;
+    case CMD.SET_LANE_PEAK: eng.setLanePeak(m.on); return true;
     case CMD.SET_ANALYSIS: eng.setAnalysis(m.ph, m.target); return true;
     case CMD.SET_MASTERING: eng.setMastering(m.ph, m.params); return true;
     case CMD.SET_MASTER_METER:
@@ -151,4 +153,6 @@ export function fillSnapshotInto(eng, playhead, f) {
   put(SNAP_IM_BASE, SNAP_LS_BASE); // the Mixing-tab seats, then the envelope playheads
   // The lane wavescopes' count, and their rings while the tap is on.
   put(SNAP_LS_BASE, SNAP_LS_DATA + (v[SNAP_LS_LANES] | 0) * SNAP_LS_FRAMES);
+  // The lane peak meters' count, and their peaks while the tap is on.
+  put(SNAP_LP_BASE, SNAP_LP_DATA + (v[SNAP_LP_LANES] | 0));
 }

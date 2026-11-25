@@ -335,6 +335,9 @@ void tw_set_polyphony(TaudEngine *e, int limit) { te_set_polyphony(e, limit); }
 TW_EXPORT(tw_set_lane_scope)
 void tw_set_lane_scope(TaudEngine *e, int on) { te_set_lane_scope(e, on != 0); }
 
+TW_EXPORT(tw_set_lane_peak)
+void tw_set_lane_peak(TaudEngine *e, int on) { te_set_lane_peak(e, on != 0); }
+
 TW_EXPORT(tw_set_cue_position)
 void tw_set_cue_position(TaudEngine *e, int pos) { te_set_cue_position(e, pos); }
 

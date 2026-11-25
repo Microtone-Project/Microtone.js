@@ -3755,6 +3755,7 @@ Mackie Control groups its faders in banks of eight strips. Microtone does not: *
 |---|---|
 | Knob | The lane's position, written into the cursor's cell: `S $80xx` in a stereo song, `S $8xxx` in a planar one, `X $eeaa` in a spatial one. It starts from the cell's own command, else from where the lane is. A quick turn goes further. |
 | Knob push | In a spatial song, switches the knob between azimuth and elevation. |
+| Level meter | The lane's level as it reaches the mix, in decibels of full scale: about −60 dB at the bottom, 0 dB at the top. The top light means the lane went over full scale, and stays on for a second so you see it. |
 | Fader | The lane's volume, `M $xx00`. One touch, from the moment you put a finger on it to the moment you let go, is one undo step. While nothing is under your hand the motor shows the cell's own `M $xx00`, else the lane's volume as it plays. |
 | Master fader | The song's global volume, `V $xx00`. On the X-Touch One the **Master** button switches its one fader between the lane and the master. |
 | Select | The lane's menu, as a right-click on its header opens it. While a menu (or any dialog) is open, the knob and the jog wheel walk it, the knob's push takes the highlighted item, and Select closes it. |

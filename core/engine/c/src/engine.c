@@ -698,6 +698,14 @@ void te_set_lane_scope(TaudEngine *e, bool on)
     e->laneScopeWrite = 0;
 }
 
+/* The lane peak meters' tap (item 379): every switch starts each lane at
+ * silence. */
+void te_set_lane_peak(TaudEngine *e, bool on)
+{
+    e->lanePeakOn = on;
+    memset(e->lanePeak, 0, sizeof e->lanePeak);
+}
+
 /* Swap the render target the object bus feeds (setSpatialRenderer): −1 is the
  * device's own monitor again. No-op for a stereo song, which has no bus. */
 void te_set_spatial_renderer(TaudEngine *e, int kind, int order, bool planar, int layout)

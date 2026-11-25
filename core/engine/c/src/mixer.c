@@ -355,7 +355,7 @@ bool te_generate_tracker_audio(TaudEngine *e, int frames)
         e->gainSpan[n] = globalGain;
         e->accL[n] = 0.0;
         e->accR[n] = 0.0;
-        if (e->laneScopeOn) memset(e->laneScopeAcc, 0, sizeof e->laneScopeAcc);
+        if (e->laneScopeOn || e->lanePeakOn) memset(e->laneScopeAcc, 0, sizeof e->laneScopeAcc);
 
         for (vi = 0; vi < TOTAL_VOICES; vi++) {
             TaudVoice *voice = &e->voices[vi];
@@ -418,7 +418,7 @@ bool te_generate_tracker_audio(TaudEngine *e, int frames)
             if (e->stemTap) {
                 stem_push(e, n, vi, voice, (voice->activeChanCount == 2 ? (sL + sR) * 0.5 : sL) * vol * rampGain);
             }
-            if (e->laneScopeOn && vi < MAX_VOICES) {
+            if ((e->laneScopeOn || e->lanePeakOn) && vi < MAX_VOICES) {
                 e->laneScopeAcc[vi] += (voice->activeChanCount == 2 ? (sL + sR) * 0.5 : sL) * vol * rampGain;
             }
             /* An instrument with a mixing chain mixes into its own bus, ahead of
@@ -515,7 +515,7 @@ bool te_generate_tracker_audio(TaudEngine *e, int frames)
             if (e->stemTap) {
                 stem_push(e, n, bg->sourceChannel, bg, (bg->activeChanCount == 2 ? (sL + sR) * 0.5 : sL) * vol * rampGain);
             }
-            if (e->laneScopeOn && bg->sourceChannel >= 0 && bg->sourceChannel < MAX_VOICES) {
+            if ((e->laneScopeOn || e->lanePeakOn) && bg->sourceChannel >= 0 && bg->sourceChannel < MAX_VOICES) {
                 e->laneScopeAcc[bg->sourceChannel] += (bg->activeChanCount == 2 ? (sL + sR) * 0.5 : sL) * vol * rampGain;
             }
             route = voice_route(e, bg);
@@ -557,6 +557,14 @@ bool te_generate_tracker_audio(TaudEngine *e, int frames)
             int l, w = e->laneScopeWrite;
             for (l = 0; l < MAX_VOICES; l++) e->laneScope[l * LANE_SCOPE_FRAMES + w] = (float)e->laneScopeAcc[l];
             e->laneScopeWrite = (w + 1) & (LANE_SCOPE_FRAMES - 1);
+        }
+        if (e->lanePeakOn) {
+            int l;
+            for (l = 0; l < MAX_VOICES; l++) {
+                double v = e->laneScopeAcc[l];
+                float a = (float)(v < 0.0 ? -v : v);
+                if (a > e->lanePeak[l]) e->lanePeak[l] = a;
+            }
         }
     }
     finish_span(e, n0, frames);

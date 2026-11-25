@@ -65,6 +65,7 @@ export const CMD = Object.freeze({
   SET_PROFILE: "setProfile",                       // {on} — the audio profiler; sent to the worklet AND the render Worker
   SET_POLYPHONY: "setPolyphony",                   // {limit} — item 355, background voices that may sound at once
   SET_LANE_SCOPE: "setLaneScope",                  // {on} — item 358, the lane headers' wavescopes (SNAP_LS_*)
+  SET_LANE_PEAK: "setLanePeak",                    // {on} — item 379, each lane's peak per snapshot (SNAP_LP_*)
 });
 
 // The audio port (CMD.USE_AUDIO_PORT, AUDIO_PORT_MSG): a non-isolated page has no
@@ -365,7 +366,16 @@ export const SNAP_LS_LANES = SNAP_LS_BASE;
 export const SNAP_LS_DATA = SNAP_LS_BASE + 1;
 export const SNAP_LS_FRAMES = 1024;
 
-export const SNAP_FLOATS = SNAP_LS_DATA + MAX_VOICES * SNAP_LS_FRAMES;
+// ── Lane peak meters (item 379: a control surface's meter) ──
+// Each lane's largest |signal| (the same per-lane signal as the wavescopes)
+// since the last snapshot, which takes it: linear, 1.0 = full scale.
+// SNAP_LP_LANES says how many lanes are filled — 0 while the tap is off
+// (CMD.SET_LANE_PEAK), and then the values after it are not current.
+export const SNAP_LP_BASE = SNAP_LS_DATA + MAX_VOICES * SNAP_LS_FRAMES;
+export const SNAP_LP_LANES = SNAP_LP_BASE;
+export const SNAP_LP_DATA = SNAP_LP_BASE + 1;
+
+export const SNAP_FLOATS = SNAP_LP_DATA + MAX_VOICES;
 
 // SAB fast path (crossOriginIsolated deploys): one shared buffer holding the
 // float snapshot region plus a trailing Int32 block — cell 0 is the interrupt

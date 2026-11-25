@@ -1443,8 +1443,11 @@ void NativeAudio::sendSnapshot(int index) {
   const int ep = std::clamp(int(s.f[size_t(L.epCount)]), 0, (L.lsLanes - L.epEntries) / L.epStride);
   ranges.emplace_back(L.epBase, L.epEntries + ep * L.epStride);
   // The lane wavescopes (item 358): the count, and the rings while it is on.
-  const int lanes = std::clamp(int(s.f[size_t(L.lsLanes)]), 0, (L.floats - L.lsData) / L.lsFrames);
+  const int lanes = std::clamp(int(s.f[size_t(L.lsLanes)]), 0, (L.lpLanes - L.lsData) / L.lsFrames);
   ranges.emplace_back(L.lsLanes, L.lsData + lanes * L.lsFrames);
+  // The lane peak meters (item 379): the count, and the peaks while it is on.
+  const int peaks = std::clamp(int(s.f[size_t(L.lpLanes)]), 0, L.floats - L.lpData);
+  ranges.emplace_back(L.lpLanes, L.lpData + peaks);
 
   QByteArray b = header(kSnapshot);
   appendU32(b, s.mask);

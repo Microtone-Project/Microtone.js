@@ -1660,6 +1660,12 @@ typedef struct TaudEngine {
     float *laneScope;
     int laneScopeWrite;
     double laneScopeAcc[MAX_VOICES];
+    /* The lane peak meters' tap (item 379, a control surface's meter): while
+     * on, each lane's largest |signal| — the same per-lane sum the wavescopes
+     * ring — since the last snapshot took it. Nothing about the render
+     * changes. */
+    bool lanePeakOn;
+    float lanePeak[MAX_VOICES];
     /* The Mixing tab's taps (item 217), one per split pane; NULL = off. */
     TaudImixTap *imixMeters[IMX_METER_SEATS];
     /* The frame accumulators the buses join (mixAccL/R): a span's frames are
@@ -1725,6 +1731,7 @@ void te_set_surround_model(TaudEngine *e, int model);
 void te_set_monitor_mode(TaudEngine *e, int mode);
 void te_set_polyphony(TaudEngine *e, int limit);
 void te_set_lane_scope(TaudEngine *e, bool on);
+void te_set_lane_peak(TaudEngine *e, bool on);
 void te_set_mastering(TaudEngine *e, const TaudMastering *params);
 void te_set_imix(TaudEngine *e, const TaudImixBlock *blocks, int count);
 void te_set_lyrics(TaudEngine *e, const TaudLyricEntry *entries, int count);

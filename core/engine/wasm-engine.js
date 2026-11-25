@@ -742,6 +742,8 @@ export class WasmTaudEngine {
   /** The lane wavescopes' tap (item 358): while on, the snapshot carries each
    *  lane's latest SNAP_LS_FRAMES frames, mono (protocol.js SNAP_LS_*). */
   setLaneScope(on) { this._x.tw_set_lane_scope(this._e, on ? 1 : 0); }
+  /** Item 379: each lane's peak since the last snapshot (protocol.js SNAP_LP_*). */
+  setLanePeak(on) { this._x.tw_set_lane_peak(this._e, on ? 1 : 0); }
 
   setSongGlobalVolume(ph, volume) { this._x.tw_set_song_global_volume(this._e, volume); }
   getSongGlobalVolume(ph) { return this._x.tw_get_song_global_volume(this._e); }

@@ -43,6 +43,7 @@ import {
   SNAP_EP_NOTE, SNAP_EP_EFF_VOL, SNAP_EP_SAMPLE_PTR, SNAP_EP_SAMPLE_LEN, SNAP_EP_SAMPLE_POS,
   SNAP_EP_LANE, SNAP_EP_PAN, SNAP_EP_AZIMUTH, SNAP_EP_ELEVATION, SNAP_EP_LOUD,
   SNAP_LS_LANES, SNAP_LS_DATA, SNAP_LS_FRAMES,
+  SNAP_LP_LANES, SNAP_LP_DATA,
 } from "../worklet/protocol.js";
 import {
   NUM_VOICES, TOTAL_VOICES, JAM_VOICES, JAM_VOICE_BASE,
@@ -110,6 +111,7 @@ export class AudioSystem {
     this.monitorMode = 0;   // #998.3 fold/binaural — re-sent on every song load
     this.polyphony = MAX_BG_VOICES; // item 355: background voices that may sound — likewise
     this.laneScopeOn = false; // item 358: the lane headers' wavescopes; the Timeline owns it
+    this.lanePeakOn = false;  // item 379: the lanes' peaks; a control surface owns it
     this.analysisTarget = ANALYSIS_OFF; // item 98 master-strip tap; the strip owns it
     this.masterMeterOn = false; // item 178 Mastering-view tap; that view owns it
     this.masterMeterDepth = DEFAULT_BIT_DEPTH; // …and which output its census describes
@@ -494,6 +496,7 @@ export class AudioSystem {
     this.setMonitorMode(0, this.monitorMode); // survives a context rebuild
     this.setPolyphony(this.polyphony);        // likewise
     this.setLaneScope(this.laneScopeOn);      // likewise
+    this.setLanePeak(this.lanePeakOn);        // likewise
     this.setSongGlobalVolume(0, song.globalVolume);
     this.setSongMixingVolume(0, song.mixingVolume);
     this.setMasterVolume(0, 255);
@@ -567,6 +570,20 @@ export class AudioSystem {
   clearLaneScope() {
     const f = this.snapshot;
     f.fill(0, SNAP_LS_DATA, SNAP_LS_DATA + (f[SNAP_LS_LANES] | 0) * SNAP_LS_FRAMES);
+  }
+  /** Item 379: each lane's peak, per snapshot — a control surface's meter.
+   *  The engine spends nothing on it while off. */
+  setLanePeak(on) {
+    this.lanePeakOn = !!on;
+    this._post({ t: CMD.SET_LANE_PEAK, on: this.lanePeakOn });
+  }
+  /** Lane `vi`'s peak |signal| over the latest snapshot's span, linear (1.0 =
+   *  full scale), or null while the tap is off or the lane is past the
+   *  song's. */
+  getLanePeak(vi) {
+    const f = this.snapshot;
+    if (!this.lanePeakOn || vi >= (f[SNAP_LP_LANES] | 0)) return null;
+    return f[SNAP_LP_DATA + vi];
   }
   /** Lane `vi`'s latest SNAP_LS_FRAMES frames, mono, oldest first — a view
    *  of the snapshot (read it before the next one lands) — or null while the

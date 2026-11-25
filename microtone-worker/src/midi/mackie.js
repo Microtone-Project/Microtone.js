@@ -201,6 +201,18 @@ export function lcdMessage(strip, line, text) {
   return [...SYSEX_HEADER, 0x12, offset, ...lcdBytes(text, LCD_STRIP_CHARS), 0xf7];
 }
 
+/** A strip's level meter: channel pressure, strip << 4 | segment (0…0xC;
+ *  0xE / 0xF light and clear the overload lamp). */
+export function meterMessage(strip, segment) {
+  return [0xd0, ((strip & 7) << 4) | (segment & 0x0f)];
+}
+
+/** Switch a strip's metering on (Ardour's Channel Meter Enable: the LCD's
+ *  level meter, peak hold and signal LED, 0x07) or off. */
+export function meterEnableMessage(strip, on) {
+  return [...SYSEX_HEADER, 0x20, strip & 7, on ? 0x07 : 0x00, 0xf7];
+}
+
 /** Does `bytes` need SysEx permission to send? (Web MIDI refuses a SysEx
  *  message on an access granted without it.) */
 export function isSysex(bytes) { return bytes[0] === 0xf0; }

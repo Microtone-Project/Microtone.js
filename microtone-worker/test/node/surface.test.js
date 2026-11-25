@@ -12,7 +12,7 @@ import {
 } from "../../src/midi/mackie.js";
 import {
   ControlSurface, HOME_STRIP, effectFields, cellArg, panStart, panTurn, panRing, positionText,
-  nextPanels, faderLevel, levelFader, jogGain, jogRows, JOG_ROWS,
+  nextPanels, faderLevel, levelFader, jogGain, jogRows, JOG_ROWS, meterSegment, meterDeflection, METER_CLIP,
 } from "../../src/ui/surface.js";
 import { partnerOutput, looksLikeSurface } from "../../src/midi/ports.js";
 import { EffectOp } from "../../core/engine/tables.js";
@@ -178,6 +178,10 @@ function fakeHost(over = {}) {
     } : null),
     engineLane: () => ({ vol: 200, az: 128, el: 0 }),
     globalVolume: () => 0x80,
+    peak: null,
+    lanePeak: () => host.peak,
+    peakOn: false,
+    setLanePeak: (on) => { host.peakOn = on; },
     muted: () => false, soloed: () => false, fx2: () => false,
     toggleMute: (ch) => calls.push(["mute", ch]),
     toggleSolo: (ch) => calls.push(["solo", ch]),
@@ -462,4 +466,57 @@ test("the jog: a unit a slow step, more the faster, on a grid of every other row
   h.dialog = true;
   now += 51; s.receive([0xb0, 60, 1]);
   assert.deepEqual(h.calls, [["dkey", "ArrowDown"]]);
+});
+
+test("the level meter: dBFS on 0…0xB, 0xC for clipping", () => {
+  assert.equal(meterDeflection(0), 100);
+  assert.equal(meterDeflection(-20), 50);
+  assert.equal(meterSegment(-Infinity), 0);
+  assert.equal(meterSegment(-80), 0);
+  assert.equal(meterSegment(-50), 1);
+  assert.equal(meterSegment(-20), 6);
+  assert.equal(meterSegment(-6), 9);
+  assert.equal(meterSegment(-0.1), 0xb);
+  assert.equal(meterSegment(0), METER_CLIP);
+  assert.equal(meterSegment(3), METER_CLIP);
+});
+
+test("the meter: the cursor lane's peak, every strip, eased down, clip held", () => {
+  let now = 1000;
+  const h = fakeHost();
+  const sent = [];
+  const s = new ControlSurface(h, () => now);
+  s.attach((m) => sent.push(m));
+  assert.equal(h.peakOn, true); // the engine measures while a surface listens
+  const meters = () => sent.filter((m) => m[0] === 0xd0);
+  // −20 dBFS: segment 6 on all eight strips
+  h.peak = 0.1;
+  s.frame();
+  assert.deepEqual(meters().map((m) => m[1]), [0, 1, 2, 3, 4, 5, 6, 7].map((st) => (st << 4) | 6));
+  // the same level a moment later sends nothing; after the refresh time, again
+  sent.length = 0;
+  now += 16; s.frame();
+  assert.equal(meters().length, 0);
+  now += 300; s.frame();
+  assert.equal(meters().length, 8);
+  // silence: it falls, not drops
+  sent.length = 0;
+  h.peak = 0;
+  now += 100; s.frame();
+  const seg = meters()[0][1] & 15;
+  assert.ok(seg > 0 && seg <= 6, `eased to ${seg}`);
+  // over full scale: 0xC, held for a second after it stops
+  h.peak = 1.2;
+  now += 16; s.frame();
+  assert.equal(meters().at(-1)[1] & 15, METER_CLIP);
+  h.peak = 0.001;
+  now += 500; s.frame();
+  assert.equal(meters().at(-1)[1] & 15, METER_CLIP);
+  now += 600; s.frame();
+  assert.notEqual(meters().at(-1)[1] & 15, METER_CLIP);
+  // let go: the meter goes dark and the engine stops measuring
+  sent.length = 0;
+  s.goodbye();
+  assert.ok(meters().length === 8 && meters().every((m) => (m[1] & 15) === 0));
+  assert.equal(h.peakOn, false);
 });
