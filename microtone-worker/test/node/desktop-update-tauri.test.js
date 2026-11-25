@@ -35,8 +35,11 @@ test("the new app's own copies are not held back", () => {
   }
 });
 
-test("the switch is a boolean", () => {
-  assert.equal(typeof TAURI_MOVES, "boolean");
+test("the switch is thrown: Tauri copies are moving to the new app", () => {
+  assert.equal(TAURI_MOVES, true);
+  const res = desktopUpdate(new Request(`https://microtone.cc${UPDATE_PATH}?channel=stable&from=tauri&version=5.0.6`));
+  assert.equal(res.status, 302);
+  assert.equal(res.headers.get("location"), CHANNELS.stable);
 });
 
 // What Tauri 5.0.6 asks, as it shipped (desktop/tauri.conf.json, retired with

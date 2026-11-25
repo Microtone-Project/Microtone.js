@@ -35,8 +35,10 @@ export const CHANNELS = Object.freeze({
 
 export const UPDATE_PATH = "/api/desktop/update";
 
-/** Whether Tauri copies (5.0.6 on) are offered the new app on the stable channel. */
-export const TAURI_MOVES = false;
+/** Whether Tauri copies (5.0.6 on) are offered the new app on the stable
+ *  channel. Thrown 2026-11-26, once 5.1.0 had been released and the move tried
+ *  on Windows and macOS. */
+export const TAURI_MOVES = true;
 
 export function desktopUpdate(request, { tauriMoves = TAURI_MOVES } = {}) {
   if (request.method !== "GET" && request.method !== "HEAD") {

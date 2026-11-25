@@ -453,7 +453,9 @@ Tested:
 site (`/api/desktop/update?channel=stable&from=tauri`), which answers 204
 until `TAURI_MOVES` in `server/desktop-update.js` is thrown and then sends it
 this build's `desktop.json`, which the Tauri updater installs: the move is
-thrown on the site, not by a release. Tauri copies up to 5.0.5 read GitHub's
+thrown on the site, not by a release (thrown 2026-11-26, after the move
+was tried on Windows and macOS from a real 5.0.6 copy through the preview
+channel: `MICROTONE_UPDATE_URL=https://microtone.cc/api/desktop/update?channel=preview&from=tauri`). Tauri copies up to 5.0.5 read GitHub's
 latest release's `latest.json`, so every release carries v5.0.6's own
 (fetched by the workflow, its version checked): they update to 5.0.6 first,
 and no copy skips its checks. 5.0.6 declines the update on macOS before 13,
@@ -1110,9 +1112,6 @@ carried library that no Debian package owns.
 
 ## Not yet done
 
-- The switch from the Tauri build (Updates, above): throwing `TAURI_MOVES`
-  once 5.1.0 has been checked; the move tried for real on Windows and macOS
-  (a 5.0.6 copy with `MICROTONE_UPDATE_URL=https://microtone.cc/api/desktop/update?channel=preview&from=tauri`).
 - An AppArmor profile in the .deb (Ubuntu 23.10+), which would give the
   installed app Chromium's sandbox back; the AppImage would still need to go
   without.
