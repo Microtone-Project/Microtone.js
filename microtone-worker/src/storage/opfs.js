@@ -1,4 +1,5 @@
-// Where the app keeps its projects, soundfonts, keymaps and autosave copies:
+// Where the app keeps its projects, soundfonts, keymaps, instrument packs and
+// autosave copies:
 //
 //   in a browser       OPFS, the origin's private storage (opfs-browser.js)
 //   the desktop app    ordinary files in ~/Microtone, through the shell's
@@ -21,6 +22,8 @@ export const {
   writeAutosave, listAutosaves, readAutosave, removeAutosave,
   writeKeymap, listKeymaps, readKeymap, removeKeymap,
   writeSoundfont, readSoundfontIndex, writeSoundfontIndex, listSoundfonts, soundfontFile, removeSoundfont,
+  writeInstrumentPack, readInstrumentIndex, writeInstrumentIndex, listInstrumentPacks, instrumentPackFile,
+  removeInstrumentPack,
   tree, list, exists, read, write, remove, rename, makeFolder, removeFolder, renameFolder,
 } = store;
 
@@ -35,7 +38,7 @@ export function validName(name) {
 
 /** Where a store's files are, as the person would write it, or null (a
  *  browser: nowhere a person can see). `store`: "projects", "soundfonts",
- *  "keymaps". */
+ *  "keymaps", "instruments". */
 export function location(storeName) {
   return native.enabled ? native.location(storeName) : null;
 }

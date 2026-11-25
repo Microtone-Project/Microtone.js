@@ -34,20 +34,18 @@ test("the band root sits dead centre, and a period either way is still inside it
   for (const e of s) assert.equal(e.octave, ANCHOR_OCTAVE, "the band is closed at ±1 period");
 });
 
-test("one step past the edge is outside, and re-roots", () => {
+test("the first band is fitted to what FOLLOWS; a note that leaves it re-roots", () => {
+  // C-4 then C#5: a period and a step apart. Rooting on the first note alone
+  // would break the contour at once; the band is fitted to the notes ahead
+  // instead, at the period root that shows them (C-5).
   const s = plotSeries([N(4, 0), N(5, 1), N(4, 0), N(2, 11)], P12);
-  assert.equal(s[1].octave, 5, "a semitone above +1 period has left the band");
-  // It re-roots to its OWN period, so it lands just above that root's centre —
-  // one semitone of a two-period axis — not at the far edge it came over.
+  assert.deepEqual(s.map((e) => e.octave), [5, 5, 5, 3]);
+  near(s[0].x, 0);
   near(s[1].x, 0.5 + 1 / 24, 1e-3);
-  // Coming back down to C-4 is exactly one period from the NEW root, so it
-  // stays in the new band at its bottom edge. That is the hysteresis working:
-  // the band follows where the music went, and does not snap back for a note
-  // it can still show.
-  assert.equal(s[2].octave, 5);
-  near(s[2].x, 0);
-  assert.equal(s[3].octave, 2, "…until something is genuinely out of reach again");
-  near(s[3].x, 0.5 + 11 / 24, 1e-3);
+  assert.deepEqual(s.map((e) => e.joins), [false, true, true, false]);
+  // B-2 is out of reach: the new band is the period root nearest what it has
+  // to show (C-3, a semitone away), not the note's own octave's floor.
+  near(s[3].x, 0.5 - 1 / 24, 1e-3);
 });
 
 test("a melody that stays inside one period never moves the band", () => {
@@ -60,14 +58,47 @@ test("a melody that stays inside one period never moves the band", () => {
   assert.deepEqual(s.map((e) => e.joins), [false, true, true, true, true]);
 });
 
-test("a leap of more than a period re-roots the band, and breaks the contour there", () => {
+test("a leap re-roots the band, and the break goes at the widest leap", () => {
+  // C-4 G-4 C-6 fit one band (C-5) exactly; E-6 does not. The new band (C-6)
+  // could also show C-6, so the break is put where the music leapt — between
+  // G-4 and C-6 — not on E-6, which only crossed the old band's edge.
   const s = plotSeries([N(4, 0), N(4, 7), N(6, 0), N(6, 4)], P12);
-  assert.equal(s[1].octave, 4);
-  assert.equal(s[2].octave, 6, "re-rooted to the new note's own period");
-  assert.equal(s[2].joins, false, "…and the axis changed, so no line across it");
-  assert.equal(s[3].octave, 6);
-  assert.equal(s[3].joins, true, "…but the next note joins normally");
+  assert.deepEqual(s.map((e) => e.octave), [5, 5, 6, 6]);
+  assert.deepEqual(s.map((e) => e.joins), [false, true, false, true]);
   near(s[2].x, 0.5);
+  // A plain run is cut where it crosses (the later note on a tie).
+  const run = [];
+  for (let i = 0; i <= 30; i++) run.push(N(3, i));
+  const r = plotSeries(run, P12);
+  const breaks = r.flatMap((e, i) => (e.joins ? [] : [i]));
+  assert.deepEqual(breaks, [0, 25], "C-3…C-5 on C-4, then a fresh band at C#5");
+});
+
+test("a repeating figure wider than a period draws the same every time round", () => {
+  // G-3 up to G-5 and back: exactly two periods. No period root can show it,
+  // so the band is centred on its middle (G-4) — and holds, unbroken.
+  const fig = [N(3, 7), N(4, 0), N(4, 7), N(5, 0), N(5, 7), N(5, 0), N(4, 7), N(4, 0)];
+  const lead = [N(2, 0), N(2, 4), N(2, 7)];   // something else first, no rest between
+  const s = plotSeries([...lead, ...fig, ...fig, ...fig, ...fig], P12);
+  const reps = [0, 1, 2, 3].map((i) => s.slice(lead.length + i * fig.length, lead.length + (i + 1) * fig.length));
+  for (const rep of reps) {
+    assert.deepEqual(rep.map((e) => e.x), reps[0].map((e) => e.x), "every repetition places alike");
+    assert.ok(rep.every((e) => e.octave === 4));
+  }
+  near(reps[0][2].x, 0.5, 1e-9);   // G-4 is the centre
+  near(reps[0][0].x, 0);           // …G-3 and G-5 the edges
+  near(reps[0][4].x, 1);
+  const breaks = s.flatMap((e, i) => (e.joins ? [] : [i]));
+  assert.deepEqual(breaks, [0, lead.length], "one break, where the figure comes in");
+});
+
+test("after a long rest a phrase is planned from its own notes alone", () => {
+  const phrase = [N(4, 0), N(4, 4), N(4, 7), N(5, 0), N(5, 4), N(4, 7)];
+  const gap = new Array(RE_ENTRY_ROWS + 1).fill(0);
+  const a = plotSeries([N(1, 0), N(1, 7), ...gap, ...phrase], P12);
+  const b = plotSeries([N(7, 0), N(6, 7), ...gap, ...phrase], P12);
+  const tail = (s) => s.slice(2 + gap.length);
+  assert.deepEqual(tail(a), tail(b), "the same whatever came before the rest");
 });
 
 test("the contour gives up after a rest longer than RE_ENTRY_ROWS", () => {
@@ -233,7 +264,8 @@ test("a rest between two notes keeps the BAND without wearing the tab", () => {
 
 test("a leap recolours the tab on the note that caused it", () => {
   const C = { octRed: "#ec1c15", octYellow: "#f4ce23", octGreen: "#1cee65", octBlue: "#0f79fd" };
-  const tabs = tabsFor([N(4, 0), 0, N(6, 0), 0, N(2, 0)], C);
+  // D-6 is more than two periods above C-4, so no band shows both.
+  const tabs = tabsFor([N(4, 0), 0, N(6, 2), 0, N(2, 0)], C);
   assert.equal(tabs[0], octaveColour(4, C));
   assert.equal(tabs[2], octaveColour(6, C), "…two periods up, and bluer");
   assert.equal(tabs[4], octaveColour(2, C), "…four down, and redder");

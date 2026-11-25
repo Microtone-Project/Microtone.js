@@ -45,7 +45,17 @@ export async function showImportInstruments(store) {
   if (lower.endsWith(".bnk")) {
     return importFromBnk(store, file.name, fileBytes);
   }
+  return importFromBank(store, file.name, fileBytes);
+}
 
+/**
+ * A .taud or .tsii's instruments → selection dialog → apply: Import… after
+ * its file pick, and the File view's Instruments tab with a stored pack.
+ * Resolves as showImportInstruments does.
+ */
+export async function importFromBank(store, fileName, fileBytes) {
+  if (!store.doc) return null;
+  const file = { name: fileName };
   let src;
   try {
     const parsed = parseTaud(fileBytes);

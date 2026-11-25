@@ -872,7 +872,10 @@ instrument into the cell (unless the cell already has one).
 time — a degree of the song's tuning, or a semitone on the piano layouts —
 without touching the octave, so a tune that sits awkwardly across the rows can
 be moved until it falls under the hand. The top bar shows it beside the octave:
-**Oct 4+3** is octave 4, three steps up. **Shift+Alt+↑** and **Shift+Alt+↓**
+**Oct 4+3** is octave 4, three steps up. A transposition that reaches a whole
+octave's worth (12 semitones, or every degree of the tuning once) becomes the
+next octave instead: **Oct 3+11** and one more step up is **Oct 4**, and
+**Oct 3−12** is **Oct 2**. **Shift+Alt+↑** and **Shift+Alt+↓**
 walk through the keyboard layouts, in the order the Keymap tab lists them.
 
 After each note — or each finished field — the cursor moves down by the
@@ -1776,7 +1779,9 @@ Two rows of three: the top row fills a slot from outside the project, the bottom
 
 All imports are single undo steps.
 
-Below the list, **Export…** saves instruments as a `.tsii` bank — a file of instruments and their samples with no songs, which **Import…** reads like a project and **Open…** loads as a project's whole instrument set. Every instrument starts ticked; untick the ones to leave out. A metainstrument takes the instruments it is built from even when they are unticked, the instruments keep their numbers so the bank still matches the project's patterns, and only the samples the chosen instruments use go with them. Recordings in memory go too unless you clear their box. The project itself is not changed.
+Below the list, **Export…** saves instruments as a `.tsii` pack — a file of instruments and their samples with no songs, which **Import…** reads like a project and **Open…** loads as a project's whole instrument set. Every instrument starts ticked; untick the ones to leave out. A metainstrument takes the instruments it is built from even when they are unticked, the instruments keep their numbers so the pack still matches the project's patterns, and only the samples the chosen instruments use go with them. Recordings in memory go too unless you clear their box. The project itself is not changed.
+
+The pack goes into the File view's [Instruments](#instrument-packs) tab under the **File** name you give it, and can be downloaded from there. It can also carry a **Pack name**, **Copyright** and **Message** of its own: they belong to the pack, not to this project, start empty, and never replace the strings of a project the pack is later loaded into. Fill them in when the pack is meant to be passed around.
 
 ### Metainstruments: the family, and its two kinds
 
@@ -2912,8 +2917,8 @@ if you want them changed too.
 ## File (F9)
 
 The File view works even before anything is loaded (**F9** from the empty
-screen). It has two tabs: **Projects** (everything below, up to Import and
-export) and **[Soundfonts](#soundfonts)**.
+screen). It has three tabs: **Projects** (everything below, up to Import and
+export), **[Soundfonts](#soundfonts)** and **[Instruments](#instrument-packs)**.
 
 ### Browser storage (OPFS)
 
@@ -3031,6 +3036,32 @@ why it could not be. A row with a bar stands for a conversion still going; its
 - **⬇** downloads the converted file (`.taud.sf2.gz`), and **✕** deletes it. A downloaded file can be added again — in another browser, say — and goes straight in without converting again.
 - Very large soundfonts (around a gigabyte) are more than a browser can convert. `sf2taudify.py`, linked under the table, does the same conversion on a computer (it needs Python 3 and numpy); add the `.taud.sf2.gz` it makes here.
 - Like your projects, the library lives in this browser only: clearing the browser's data takes it with it, notes and all.
+
+### Instrument packs
+
+The **Instruments** tab keeps the packs **Export…** in the Instruments view
+saved, beside your projects. **Add pack…** puts `.tsii` files from your disk in
+with them.
+
+- The table shows each pack's file, the **pack** name it carries (point at it for the copyright), and a **note** of your own, kept the same way as a soundfont's.
+- **Import** opens the same picker as Instruments → **Import…** on that pack, for the open project; the instruments you choose land there and the Instruments view shows the first.
+- **⬇** downloads the `.tsii` to share, and **✕** deletes it.
+- In a browser the packs live in this browser only, like your projects; the desktop app keeps them as files in `~/Microtone/Instruments`.
+
+### Moving to the desktop app
+
+In a browser, **For the desktop app…** on the Projects tab downloads everything
+the browser keeps — projects (folders and all), soundfonts, keymaps and
+instrument packs, with their notes — as one ZIP, laid out the way the [desktop
+app](#the-desktop-app) keeps them. Nothing is removed from the browser. To move
+it over:
+
+1. Start the desktop app once, so it makes its `Microtone` folder in your home folder, then quit it.
+2. Unzip the download. Inside it is a folder called `Microtone`.
+3. Move what is in it — `Projects`, `Soundfonts`, `Keymaps` and `Instruments` — into the `Microtone` folder in your home folder (`~/Microtone` on macOS and Linux, `%USERPROFILE%\Microtone` on Windows), merging the folders. A file with the same name as one already there replaces it; `index.json` in `Soundfonts` and `Instruments` holds the notes on them, so keep the desktop's own if you have already left notes there.
+4. Start the desktop app: it is all in the File view.
+
+The same steps are in a text file inside the ZIP. Autosave copies stay behind.
 
 ## Keymap (Shift+F9)
 
@@ -3671,9 +3702,20 @@ drawing it — but a colour that strong held down every row would read as
 decoration and bury the one place it changes.
 
 It changes colour only when the music really moves register — stepping from B
-up to C does not, a leap of more than an octave does, and that is also where the
+up to C does not, a leap out of the scale does, and that is also where the
 contour breaks, because the scale underneath it has moved. A long rest breaks it
 too.
+
+**Where the scale moves to is read from what comes next.** When a note leaves
+the scale, the new one is placed to show the notes that follow it, as far ahead
+as two octaves of range allow, and the break goes at the widest leap just
+before — where the part changed register, not wherever it happened to cross the
+edge. So a figure that repeats is drawn the same way every time round, unbroken
+even when it sweeps a full two octaves, and a phrase that comes back after a
+rest is drawn the same wherever it appears in the song: after a long rest each
+phrase is placed by its own notes alone. The centre line usually sits on a C
+(the first degree of the tuning's period); only a passage no such scale can
+hold is centred on its own middle instead.
 
 The ticks and their contour are drawn in **rose**, a colour nothing else in
 those cells wears, so the plot reads as something laid over the notation rather

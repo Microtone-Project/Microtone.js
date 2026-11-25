@@ -44,6 +44,24 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 - Fixed: the Advanced tab's zone map, envelope cursor and play-position marks showed nothing for an instrument sounding as a layer of a layered instrument or an operator of an FM rack; they follow every voice that plays it now.
 - The Advanced tab's per-zone overrides show their values in hex beside the boxes, as the instrument's own fields do: pan, note volume and the four vibrato settings.
 
+**Exported instruments have a home**: the File view has an Instruments tab, and Export… in the Instruments view now saves the chosen instruments there as a pack instead of downloading it at once.
+
+- A pack can carry a name, a copyright notice and a message of its own, filled in as you export it. They belong to the pack, not to the project it came from, and loading a pack never changes a project's own.
+- From the tab, Import opens the instrument picker on a pack for the open project, ⬇ downloads the .tsii to share, and each pack takes a note of your own, as a soundfont does. Add pack… brings in .tsii files from your disk.
+- The desktop app keeps the packs as files in a Microtone/Instruments folder beside its projects.
+
+**Moving from the browser to the desktop app**: in a browser, For the desktop app… on the File view's Projects tab downloads everything it keeps — projects with their folders, soundfonts, keymaps and instrument packs, with their notes — as one ZIP laid out the way the desktop app keeps them, and says where to put it.
+
+**A steadier pitch plot**: the contour behind each lane now picks where its scale sits from the notes that come next, not from the one note that left it, so a passage that repeats is drawn the same way every time round.
+
+- A figure that sweeps up to two octaves is drawn whole and unbroken, where it used to break at a different place on every pass; the contour breaks less often overall, on some songs half as often.
+- When the scale does have to move, the break goes at the widest leap, where the part changed register.
+- After a long rest, a phrase is placed by its own notes alone, so the same phrase looks the same wherever it comes in the song.
+
+**Transposing a whole octave moves the octave**: a keyboard transposition that reaches a full octave's worth of steps (12 semitones, or every degree of the tuning once) becomes the next octave instead, so Oct 3−12 reads Oct 2 and Oct 3+12 reads Oct 4. At the top and bottom octave the transposition stays as it is.
+
+**MIDI imports leave the first effect column free**: a note delay `S $Dx` from a MIDI import now always goes in the second effect column, so the first is free for your own commands. The song sounds exactly as before.
+
 **Messages and questions no longer stop the page**: every message the app shows — "Nothing to clean up", a file it cannot read, a full table — and every question it asks — discarding unsaved changes, deleting rows, replacing a sample — is now one of its own dialogs, in the theme, instead of the browser's alert and confirm boxes.
 
 - The rest of the page keeps going while one is open, the playhead and the meters included, and the browser's offer to prevent the page from creating more dialogs can no longer silence them.
@@ -73,6 +91,12 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 **Projects made in the desktop app say where they were made**: a new project, or one built by Motif, now carries the desktop app's own signature — MicrotoneQtWin, MicrotoneQtMac or MicrotoneQtLnx, after the system it was made on — and the Project view shows it. The website's still say Microtone.js.
 
 - A project that already has a signature keeps it when it is saved again, wherever that is.
+
+**SoundFont imports follow the SoundFont specification's own rules**: bringing instruments in from a SoundFont, or converting a MIDI file through one, now works out how velocity sets each note's loudness and brightness, and which drum notes choke which, by the rules the SoundFont specification itself lays down.
+
+- Fixed: some SoundFont instruments came in far duller at low velocities than the soundfont intends — seven of GeneralUser GS's, among them Synth Strings 2, Concert Choir, Baritone Sax and Chiffer Lead — because a velocity-to-brightness setting that the soundfont replaces for those sounds was still applied on top of their own.
+- A choke group, such as the closed hi-hat cutting off the open one, now acts only within one drum kit: when a MIDI file changes kit, a cymbal from the old kit rings on instead of being cut short by the new kit's.
+- Everything else imports exactly as before: every other instrument in GeneralUser GS, and in the thirty-odd other soundfonts it was checked against, comes out the same.
 
 ## Version 5.0.5 (2026-11-17)
 

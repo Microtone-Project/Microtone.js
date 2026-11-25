@@ -4,6 +4,12 @@
 // (bankExportClosure). Slot numbers are kept, so the bank still lines up with
 // this project's patterns and with any .tpif written against it. Pool regions
 // ride along unless their box is cleared.
+//
+// The bank goes into the instrument library (instlibrary.js, the File view's
+// Instruments tab: item 362), which downloads it from there; only where there
+// is no storage (a private window) is it downloaded at once. It may carry a
+// name, copyright and message of its OWN — the pack's, not the project's
+// (TAUD_FILE_FORMAT.md §8) — which start empty.
 
 import { planBankExport, bankExportSize } from "../../doc/cleanup.js";
 import { regionBytes } from "../../doc/sampleregions.js";
@@ -11,6 +17,10 @@ import { Document } from "../../doc/document.js";
 import { ZSTD_LEVEL_SAVE } from "../../../core/format/zstd.js";
 import { unescapeName } from "../../../core/format/names.js";
 import { download } from "../../storage/import-export.js";
+import * as opfs from "../../storage/opfs.js";
+import { packFile, packTitle, packExists, packSections, savePack, showInstrumentLibrary } from "../instlibrary.js";
+import { showModal, showAlert } from "../components/modal.js";
+import { showBanner } from "../components/banner.js";
 import { withSaveProgress } from "../saveprogress.js";
 import { actionRow } from "../components/actions.js";
 import { t } from "../i18n.js";
@@ -37,15 +47,17 @@ export function bankFileName(fileName) {
 }
 
 /**
- * Selection dialog → .tsii download. `badgeOf(inst)` is the list's kind badge
- * (the Instruments view's own). Resolves true once the file is handed to the
- * browser, false when cancelled.
+ * Selection dialog → .tsii in the instrument library (or a download where
+ * there is no storage). `badgeOf(inst)` is the list's kind badge (the
+ * Instruments view's own). Resolves true once the bank is on its way, false
+ * when cancelled.
  */
-export function showExportBank(store, { badgeOf = () => "" } = {}) {
+export async function showExportBank(store, { badgeOf = () => "" } = {}) {
   const doc = store.doc;
-  if (!doc?.sampleInstImage) return Promise.resolve(false);
+  if (!doc?.sampleInstImage) return false;
   const slots = doc.selectableInstrumentSlots();
   const regions = doc.sampleRegions();
+  const toLibrary = await opfs.available();
 
   return new Promise((resolve) => {
     const dlg = el("dialog", "modal import-modal");
@@ -86,12 +98,43 @@ export function showExportBank(store, { badgeOf = () => "" } = {}) {
       opts.push(opt);
     }
 
+    // The pack: its file in the library, and the strings it carries.
+    const form = el("div", "modal-form bank-pack");
+    const field = (labelKey, input, titleKey) => {
+      const label = el("label", "modal-field");
+      label.append(el("span", "modal-label", t(labelKey)), input);
+      if (titleKey) label.title = t(titleKey);
+      form.append(label);
+      return input;
+    };
+    const text = (value, placeholder, max) => {
+      const i = document.createElement("input");
+      i.type = "text";
+      i.value = value;
+      i.maxLength = max;
+      if (placeholder) i.placeholder = placeholder;
+      return i;
+    };
+    const fileInput = field("bankExport.file", text(packTitle(bankFileName(store.fileName)), "", 120),
+      toLibrary ? "bankExport.fileTitle" : null);
+    const nameInput = field("bankExport.packName", text("", t("bankExport.optional"), 200), "bankExport.packNameTitle");
+    const cprInput = field("bankExport.packCopyright", text("", t("bankExport.optional"), 200));
+    const msg = document.createElement("textarea");
+    msg.rows = 3;
+    msg.maxLength = 4000;
+    msg.placeholder = t("bankExport.optional");
+    const msgInput = field("bankExport.packMessage", msg);
+    const errEl = el("p", "import-error");
+    errEl.hidden = true;
+
     const { row: btnRow, proceed: okBtn, cancel: cancelBtn } = actionRow({
       cancel: true,
-      proceed: { label: t("bankExport.export"), icon: "download", iconAfter: true },
+      proceed: toLibrary
+        ? { label: t("bankExport.save") }
+        : { label: t("bankExport.export"), icon: "download", iconAfter: true },
     });
 
-    dlg.append(h, hint, bar, list, ...opts, btnRow);
+    dlg.append(h, hint, bar, list, ...opts, form, errEl, btnRow);
     document.body.appendChild(dlg);
 
     const picked = () => boxes.filter((b) => b.checked).map((b) => Number(b.dataset.slot));
@@ -114,13 +157,43 @@ export function showExportBank(store, { badgeOf = () => "" } = {}) {
     dlg.addEventListener("keydown", (e) => e.stopPropagation());
     okBtn.addEventListener("click", async (e) => {
       e.preventDefault();
+      const file = packFile(fileInput.value.trim() || packTitle(bankFileName(store.fileName)));
+      if (!opfs.validName(file)) {
+        errEl.textContent = t("bankExport.badName");
+        errEl.hidden = false;
+        fileInput.focus();
+        return;
+      }
+      if (toLibrary && await packExists(file)
+          && !(await showModal({ title: t("sf.replaceAsk", { name: packTitle(file) }), okLabel: t("sf.replace") }))) {
+        return;
+      }
+      const pack = { name: nameInput.value, copyright: cprInput.value, message: msgInput.value };
       // Planned now, from the document as it stands; the dialog goes before
       // the compression so the status bar's progress is what is seen.
-      const plan = planBankExport(doc, picked(), { regions: regionBox?.checked ?? true });
+      const plan = planBankExport(doc, picked(), { regions: regionBox?.checked ?? true, pack: packSections(pack) });
       finish(true);
       const bytes = await withSaveProgress(store, (progress) =>
         new Document(plan).toSaveBytes(ZSTD_LEVEL_SAVE, progress));
-      download(bytes, bankFileName(store.fileName));
+      if (!toLibrary) {
+        download(bytes, file);
+        return;
+      }
+      try {
+        await savePack(file, bytes, pack);
+      } catch (err) {
+        console.error("Instrument pack:", err);
+        showAlert(t("bankExport.saveFailed", { name: packTitle(file), err: err.message ?? String(err) }));
+        download(bytes, file);
+        return;
+      }
+      showBanner({
+        text: t("bankExport.saved", { name: packTitle(file) }),
+        actions: [
+          { label: t("sf.show"), onClick: () => showInstrumentLibrary(), primary: true },
+          { label: t("sf.dismiss") },
+        ],
+      });
     });
     dlg.showModal();
   });

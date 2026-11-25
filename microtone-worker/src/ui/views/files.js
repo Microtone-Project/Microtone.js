@@ -3,9 +3,10 @@
 // Reachable WITHOUT a loaded document (browse OPFS / import something); the
 // doc-scoped buttons and the song list only appear once a project is loaded.
 // Under the browser's own list sits the online projects section
-// (filesonline.js), on hosts that have one. A second subtab holds the
-// soundfont library (filessoundfonts.js); which one is up is the viewer's,
-// remembered per browser.
+// (filesonline.js), on hosts that have one. Two more subtabs hold the
+// soundfont library (filessoundfonts.js) and the instrument packs
+// (filesinstruments.js); which one is up is the viewer's, remembered per
+// browser.
 //
 // The local list has FOLDERS (real OPFS directories, opfs.js): the view shows
 // one folder at a time — its folders first, then its projects — under a
@@ -19,6 +20,7 @@ import * as opfs from "../../storage/opfs.js";
 import { onAuthChange } from "../../../core/storage/online.js";
 import { OnlineSection, nameList } from "./filesonline.js";
 import { SoundfontSection } from "./filessoundfonts.js";
+import { InstrumentPackSection } from "./filesinstruments.js";
 import { pickFile, download, downloadBlob } from "../../storage/import-export.js";
 import { converterFor, CONVERT_ACCEPT } from "../../convert/convert.js";
 import { isImac } from "../../convert/imac.js";
@@ -39,7 +41,7 @@ import { setIconLabel } from "../icons.js";
 
 const TAB_KEY = "microtone-files-tab";
 const FOLDER_KEY = "microtone-files-folder";
-const TABS = ["projects", "soundfonts"];
+const TABS = ["projects", "soundfonts", "instruments"];
 
 function storedTab() {
   try { const v = localStorage.getItem(TAB_KEY); return TABS.includes(v) ? v : "projects"; } catch { return "projects"; }
@@ -86,11 +88,14 @@ export class FilesView {
     this._renderSeq = 0;
     this.tab = storedTab();
     this.soundfonts = new SoundfontSection();
+    this.instruments = new InstrumentPackSection(store, {
+      onImported: (res) => callbacks.showInstruments?.(res.firstSlot),
+    });
     // A sign-in window finishing, or a sign-out in any tab.
     onAuthChange(() => this.refresh());
   }
 
-  /** Bring up a subtab ("projects" | "soundfonts"). */
+  /** Bring up a subtab ("projects" | "soundfonts" | "instruments"). */
   setTab(tab) {
     if (!TABS.includes(tab)) return;
     this.tab = tab;
@@ -110,7 +115,8 @@ export class FilesView {
     const bar = document.createElement("div");
     bar.className = "subtabs files-tabs";
     bar.setAttribute("role", "tablist");
-    for (const [tab, key] of [["projects", "files.tabProjects"], ["soundfonts", "files.tabSoundfonts"]]) {
+    for (const [tab, key] of [["projects", "files.tabProjects"], ["soundfonts", "files.tabSoundfonts"],
+      ["instruments", "files.tabInstruments"]]) {
       const b = mkBtn(t(key), () => this.setTab(tab));
       b.setAttribute("role", "tab");
       b.setAttribute("aria-selected", String(tab === this.tab));
@@ -121,13 +127,17 @@ export class FilesView {
   }
 
   async refresh() {
-    if (this.tab === "soundfonts") {
+    if (this.tab === "soundfonts" || this.tab === "instruments") {
       ++this._renderSeq; // a projects refresh still on its way gives way
-      this.root.replaceChildren(this._tabBar(), this.soundfonts.el);
-      await this.soundfonts.render();
+      const [on, off] = this.tab === "soundfonts"
+        ? [this.soundfonts, this.instruments] : [this.instruments, this.soundfonts];
+      off.render(false);
+      this.root.replaceChildren(this._tabBar(), on.el);
+      await on.render();
       return;
     }
     this.soundfonts.render(false);
+    this.instruments.render(false);
     // Refreshes overlap — a sign-out both tells every tab (this one included)
     // and asks for one directly — and each waits on the disk listing half-way.
     // So the page is built off-screen and put up in ONE step, by the newest
@@ -173,6 +183,15 @@ export class FilesView {
     // doc-scoped actions grey out until something is loaded
     for (const b of [saveBtn, saveAsBtn, exportBtn, wavBtn, stemsBtn, modBtn, itBtn]) b.disabled = !doc;
     bar.append(saveBtn, saveAsBtn, importBtn, importMidiBtn, demoBtn, exportBtn, wavBtn, stemsBtn, modBtn, itBtn, allBtn);
+    // In a browser: everything it keeps, laid out as the desktop app keeps
+    // it, for someone moving over (item 363). The desktop has nothing to move.
+    if (!where && opfs.backend === "browser") {
+      const deskBtn = mkBtn("", () => this.exportForDesktop());
+      setIconLabel(deskBtn, "download", t("files.toDesktop"), { after: true });
+      deskBtn.title = t("files.toDesktopTitle");
+      deskBtn.disabled = !ok;
+      bar.append(deskBtn);
+    }
     if (where) {
       const folderBtn = mkBtn(t("files.showFolder"), () => opfs.reveal("projects", this.folder));
       folderBtn.title = where;
@@ -719,6 +738,65 @@ export class FilesView {
     if (entries.length === 0) return;
     const stamp = new Date().toISOString().slice(0, 10);
     await this._zipProjects(entries, "", `microtone-projects-${stamp}.zip`);
+  }
+
+  /**
+   * Everything this browser keeps — projects (folders and all), soundfonts,
+   * keymaps, instrument packs, and the notes on them — in one archive laid out
+   * as the desktop app keeps them: Microtone/{Projects,Soundfonts,Keymaps,
+   * Instruments}, with a text file saying where it goes. The dialog says it
+   * first; moving the files is the person's to do (item 363). Autosave copies
+   * stay behind: they are recovery copies of projects nobody saved.
+   */
+  async exportForDesktop() {
+    const go = await showModal({
+      title: t("files.toDesktopAsk"),
+      body: t("files.toDesktopSteps"),
+      okLabel: t("files.toDesktopOk"),
+    });
+    if (!go) return;
+    const progress = showProgress(t("files.toDesktopZipping"), { cancellable: true });
+    const zip = new StemZip();
+    const enc = new TextEncoder();
+    const json = (o) => enc.encode(JSON.stringify(o, null, 1));
+    let chunks;
+    try {
+      // What goes in, gathered first so the bar can count it.
+      const jobs = [];
+      for (const f of await opfs.list()) jobs.push([`Projects/${f.name}`, () => opfs.read(f.name)]);
+      for (const f of await opfs.listSoundfonts()) {
+        jobs.push([`Soundfonts/${f.name}`, async () => new Uint8Array(await (await opfs.soundfontFile(f.name)).arrayBuffer())]);
+      }
+      const sfIndex = await opfs.readSoundfontIndex();
+      if (Object.keys(sfIndex).length) jobs.push(["Soundfonts/index.json", async () => json(sfIndex)]);
+      for (const name of await opfs.listKeymaps()) jobs.push([`Keymaps/${name}`, async () => enc.encode(await opfs.readKeymap(name))]);
+      for (const f of await opfs.listInstrumentPacks()) {
+        jobs.push([`Instruments/${f.name}`, async () => new Uint8Array(await (await opfs.instrumentPackFile(f.name)).arrayBuffer())]);
+      }
+      const ipIndex = await opfs.readInstrumentIndex();
+      if (Object.keys(ipIndex).length) jobs.push(["Instruments/index.json", async () => json(ipIndex)]);
+      if (jobs.length === 0) {
+        progress.done();
+        showNotice({ title: t("files.toDesktopEmpty") });
+        return;
+      }
+      zip.addFile(`Microtone/${t("files.toDesktopReadmeName")}.txt`,
+        enc.encode(t("files.toDesktopReadme").replace(/\n/g, "\r\n") + "\r\n"));
+      for (let i = 0; i < jobs.length; i++) {
+        if (progress.signal.aborted) { progress.done(); return; }
+        zip.addFile(`Microtone/${jobs[i][0]}`, await jobs[i][1]());
+        progress.set((i + 1) / jobs.length);
+        await new Promise((r) => setTimeout(r, 0)); // let the bar paint
+      }
+      chunks = zip.finish();
+    } catch (err) {
+      progress.fail(err.message ?? String(err));
+      console.error("Archive for the desktop app failed:", err);
+      return;
+    }
+    progress.done();
+    const stamp = new Date().toISOString().slice(0, 10);
+    downloadBlob(new Blob(chunks, { type: "application/zip" }), `microtone-for-desktop-${stamp}.zip`);
   }
 
   /**

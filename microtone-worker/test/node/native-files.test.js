@@ -58,6 +58,21 @@ test("listings come back sorted, soundfonts without their index", async () => {
   answer = () => new Response(null, { status: 204 });
 });
 
+test("instrument packs: their own store, listed without their index", async () => {
+  sent.length = 0;
+  answer = (url) => url.includes("/instruments?list")
+    ? Response.json({ files: [{ name: "b.tsii" }, { name: "index.json" }, { name: "a.tsii" }], folders: [] })
+    : new Response(null, { status: 204 });
+  assert.deepEqual((await opfs.listInstrumentPacks()).map((s) => s.name), ["a.tsii", "b.tsii"]);
+  await opfs.writeInstrumentPack("My kit.tsii", new Uint8Array([1]));
+  await opfs.removeInstrumentPack("My kit.tsii");
+  assert.deepEqual(sent.slice(1).map((s) => `${s.method} ${s.url}`), [
+    "PUT /api/files/instruments/My%20kit.tsii",
+    "DELETE /api/files/instruments/My%20kit.tsii",
+  ]);
+  answer = () => new Response(null, { status: 204 });
+});
+
 test("names every system can hold, on the desktop", () => {
   for (const ok of ["song.taud", "Album 2", "한국어 곡.taud", "a.b.c"]) assert.equal(opfs.validName(ok), true, ok);
   for (const bad of ["a:b.taud", "what?.taud", "con", "NUL.taud", "trailing.", "trailing ", "a|b", "a/b", ".."]) {

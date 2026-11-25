@@ -133,11 +133,13 @@ FileStore::FileStore(const QString &dataDir) {
   stores_.insert(QStringLiteral("projects"), root_ + QStringLiteral("/Projects"));
   stores_.insert(QStringLiteral("soundfonts"), root_ + QStringLiteral("/Soundfonts"));
   stores_.insert(QStringLiteral("keymaps"), root_ + QStringLiteral("/Keymaps"));
+  stores_.insert(QStringLiteral("instruments"), root_ + QStringLiteral("/Instruments"));
   stores_.insert(QStringLiteral("autosave"), dataDir + QStringLiteral("/autosave"));
   oldAppRecord_ = dataDir + QStringLiteral("/oldapp-copy.json");
   oldAppStatus_ = QJsonObject{{QStringLiteral("state"), QStringLiteral("done")}, {QStringLiteral("found"), false}};
   // Made now, so the person finds the folder where the app says it is.
-  for (const QString &s : {QStringLiteral("projects"), QStringLiteral("soundfonts"), QStringLiteral("keymaps")})
+  for (const QString &s : {QStringLiteral("projects"), QStringLiteral("soundfonts"), QStringLiteral("keymaps"),
+                           QStringLiteral("instruments")})
     QDir().mkpath(stores_.value(s));
   qInfo("files: projects in %s", qUtf8Printable(QDir::toNativeSeparators(stores_.value(QStringLiteral("projects")))));
 }
@@ -210,6 +212,7 @@ QJsonObject FileStore::describe() const {
       {QStringLiteral("projects"), shown(stores_.value(QStringLiteral("projects")))},
       {QStringLiteral("soundfonts"), shown(stores_.value(QStringLiteral("soundfonts")))},
       {QStringLiteral("keymaps"), shown(stores_.value(QStringLiteral("keymaps")))},
+      {QStringLiteral("instruments"), shown(stores_.value(QStringLiteral("instruments")))},
   };
 }
 

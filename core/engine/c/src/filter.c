@@ -1,7 +1,10 @@
 /* Per-voice filters + Taud voice FX — port of filter.js.
  *  - IT/tracker path: all-pole 2-pole resonant LPF, no feedforward terms.
- *  - filterSfMode path: FluidSynth's RBJ biquad (cents→Hz, −3.01 dB Q offset,
- *    1/√Q gain normalisation). */
+ *  - filterSfMode path: an Audio EQ Cookbook (RBJ) low-pass biquad, cutoff in
+ *    SF2 absolute cents and Q in cB (SF2 §8.1.2 #8, #9), the DC gain lowered by
+ *    half the resonance (#9) as 1/√Q; the clamps and the −3.01 dB Q offset are
+ *    FluidSynth's, where the spec leaves the realisation open (§9.1.3)
+ *    (TAUD_ENGINE_SPEC §9.2). */
 
 #include "taud_internal.h"
 
@@ -12,7 +15,7 @@ static double filter_rate(const TaudEngine *e, const TaudVoice *v)
     return v->filterOversample > 1 ? (double)e->rate * v->filterOversample : (double)e->rate;
 }
 
-/* RBJ cookbook low-pass, normalised to a0; SF2 §2.01 p.59 1/√Q gain-norm. */
+/* RBJ cookbook low-pass, normalised to a0; 1/√Q gain-norm (SF2 §8.1.2 #9). */
 static void sf_biquad(const TaudEngine *e, TaudVoice *v, double fres, double qLin)
 {
     const double pi = 3.141592653589793;

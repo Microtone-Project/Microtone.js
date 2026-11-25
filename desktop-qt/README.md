@@ -182,6 +182,7 @@ any other (`src/filestore.cpp`):
     ~/Microtone/Projects     the File view's projects, folders and all
     ~/Microtone/Soundfonts   converted soundfonts (*.taud.sf2.gz), index.json (their notes)
     ~/Microtone/Keymaps      jam layouts (*.taudkey)
+    ~/Microtone/Instruments  exported instrument packs (*.tsii), index.json (their notes)
 
 On Windows it is `%USERPROFILE%\Microtone`. The autosave copies stay private,
 in the app's data folder.

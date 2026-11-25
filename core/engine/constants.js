@@ -82,8 +82,9 @@ export const BPM_MAX = 25 + 0x3ff;
 export let RAMP_OUT_SAMPLES = 384;
 const RAMP_OUT_SEC = 0.008;
 
-// Fast note-fade (note word 0x0004): SF2 exclusiveClass choke, ≈ FluidSynth's
-// GEN_VOLENVRELEASE = -2000 timecents.
+// Fast note-fade (note word 0x0004): the SF2 exclusiveClass choke, which SF2
+// §8.1.2 #57 asks to be "rapidly terminated" without saying how fast; 0.3 s is
+// about the release FluidSynth gives it (−2000 timecents).
 export const FAST_FADE_SEC = 0.3;
 
 /** The longest crossfade over a funk-repeat seam (S $Fx, the walking loop),

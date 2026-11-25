@@ -1,10 +1,11 @@
-// The desktop app's file store: the page's projects, soundfonts and keymaps
-// as ordinary files in a folder of the user's own, where they can be seen,
-// backed up and synced like any other —
+// The desktop app's file store: the page's projects, soundfonts, keymaps and
+// instrument packs as ordinary files in a folder of the user's own, where they
+// can be seen, backed up and synced like any other —
 //
 //   ~/Microtone/Projects     the File view's projects, folders and all
 //   ~/Microtone/Soundfonts   converted soundfonts (*.taud.sf2.gz), index.json
 //   ~/Microtone/Keymaps      jam layouts (*.taudkey)
+//   ~/Microtone/Instruments  exported instrument packs (*.tsii), index.json
 //
 // (Windows: %USERPROFILE%\Microtone) — and, private to the app, its autosave
 // copies in <app data>/autosave. In a browser the same stores are OPFS

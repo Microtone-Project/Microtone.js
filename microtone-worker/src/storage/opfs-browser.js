@@ -194,6 +194,73 @@ export async function removeSoundfont(name) {
   } catch { /* absent is fine */ }
 }
 
+// ── instrument dir (.tsii packs, the File view's Instruments tab) ──
+//
+// Where Export… in the Instruments view puts a bank: an instrument SOURCE
+// like a soundfont, so it has its own directory and stays out of the song
+// list. Beside the packs, index.json holds what each one's file does not say
+// — the note its owner left on it — and a copy of the pack strings read when
+// it came in: { "<file name>": { note, pack: { name, copyright } } }.
+
+const INSTRUMENT_DIR = "instruments";
+const INSTRUMENT_INDEX = "index.json";
+
+export async function writeInstrumentPack(name, bytes) {
+  const dir = await projectsDir(true, INSTRUMENT_DIR);
+  const handle = await dir.getFileHandle(name, { create: true });
+  if (typeof handle.createWritable === "function") {
+    const w = await handle.createWritable();
+    await w.write(bytes);
+    await w.close();
+  } else {
+    await workerWrite(name, bytes, INSTRUMENT_DIR);
+  }
+}
+
+export async function readInstrumentIndex() {
+  try {
+    const dir = await projectsDir(false, INSTRUMENT_DIR);
+    const f = await (await dir.getFileHandle(INSTRUMENT_INDEX)).getFile();
+    const index = JSON.parse(await f.text());
+    return index && typeof index === "object" ? index : {};
+  } catch {
+    return {};
+  }
+}
+
+export async function writeInstrumentIndex(index) {
+  await writeInstrumentPack(INSTRUMENT_INDEX, new TextEncoder().encode(JSON.stringify(index, null, 1)));
+}
+
+export async function listInstrumentPacks() {
+  try {
+    const dir = await projectsDir(false, INSTRUMENT_DIR);
+    const out = [];
+    for await (const [name, handle] of dir.entries()) {
+      if (handle.kind !== "file" || name === INSTRUMENT_INDEX) continue;
+      const f = await handle.getFile();
+      out.push({ name, size: f.size, mtime: f.lastModified });
+    }
+    out.sort((a, b) => a.name.localeCompare(b.name));
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+/** The stored pack, as a File. */
+export async function instrumentPackFile(name) {
+  const dir = await projectsDir(false, INSTRUMENT_DIR);
+  return (await dir.getFileHandle(name)).getFile();
+}
+
+export async function removeInstrumentPack(name) {
+  try {
+    const dir = await projectsDir(false, INSTRUMENT_DIR);
+    await dir.removeEntry(name);
+  } catch { /* absent is fine */ }
+}
+
 // ── projects (the File view's list) ──
 //
 // A project is named by its PATH under projects/: "song.taud" at the top,

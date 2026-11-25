@@ -4,7 +4,7 @@ This document defines the **Taud playback engine**: how a conforming implementat
 
 The **reference implementation** is the Microtone web engine. Its renders are the worked examples conformance is measured against ([§13](#13-determinism)), and where it and this document disagree, one of the two has a defect to fix — neither is a licence for an implementation to differ. It is written in C — compiled to WebAssembly for the browser, and the same sources are the `libtaudplay` player library — and carries its own `pow`, so its renders are the same bits on every machine. The TSVM Audio Adapter's engine follows the reference implementation.
 
-Taud is a ScreamTracker 3-lineage tracker extended with 16-bit effect arguments and a 65536 tone-equal-temperament pitch grid. Where behaviour has an ancestor, this document names it — ImpulseTracker (via Schism Tracker's mixer), FastTracker 2 (via MilkyTracker), ProTracker, SoundFont 2 (via FluidSynth). Those lineages are the *reason* for many rules that would otherwise look arbitrary, and an implementation that follows the rule but not the lineage will drift on real songs.
+Taud is a ScreamTracker 3-lineage tracker extended with 16-bit effect arguments and a 65536 tone-equal-temperament pitch grid. Where behaviour has an ancestor, this document names it — ImpulseTracker (via Schism Tracker's mixer), FastTracker 2 (via MilkyTracker), ProTracker, SoundFont 2 (its specification, and FluidSynth where the specification leaves the realisation open). Those lineages are the *reason* for many rules that would otherwise look arbitrary, and an implementation that follows the rule but not the lineage will drift on real songs.
 
 ## Conformance language
 
@@ -1592,20 +1592,20 @@ The coefficients hold from one refresh to the next, so a sweep — the filter en
 
 ### 9.2 The SoundFont filter
 
-FluidSynth's RBJ biquad, with cutoff in absolute cents and resonance in centibels above the DC gain. Cutoff `$FFFF` or above turns the filter off.
+A low-pass biquad from Robert Bristow-Johnson's Audio EQ Cookbook, with cutoff in absolute cents and resonance in centibels above the DC gain — SoundFont 2.04's `initialFilterFc` and `initialFilterQ` (§8.1.2 generators 8 and 9), and its DC gain lowered by half the resonance as generator 9 asks. The specification idealises the filter rather than specifying a realisation (§9.1.3); where it is silent — the clamps, the offset, the gain at zero resonance — this is FluidSynth's. Cutoff `$FFFF` or above turns the filter off.
 
 ```
 fc  = clamp(8.176 × 2 ^ (cutoff ÷ 1200), 5, 0.45 × rate)
 qdB = clamp(resonance_cB ÷ 10, 0, 96) − 3.01          (0 cB ⇒ Butterworth)
 Q   = max(10 ^ (qdB ÷ 20), 0.001)
 ω = 2π·fc ÷ rate ,  α = sin ω ÷ (2Q) ,  a0inv = 1 ÷ (1 + α)
-gain = a0inv ÷ √Q                                      (SF2 §2.01 gain normalisation)
+gain = a0inv ÷ √Q                                      (DC gain down by half the resonance)
 b1  = (1 − cos ω) × gain ,  b02 = b1 ÷ 2
 a1  = −2 cos ω × a0inv   ,  a2  = (1 − α) × a0inv
 y[n] = b02·(x[n] + x[n−2]) + b1·x[n−1] − a1·y[n−1] − a2·y[n−2]
 ```
 
-Direct Form I, unclamped — the gain normalisation bounds it. The −3.01 dB offset is what makes a SoundFont's declared Q = 0 cB come out Butterworth.
+Direct Form I, unclamped — the gain normalisation bounds it. The −3.01 dB offset is what makes a SoundFont's declared Q = 0 cB come out Butterworth: not resonant, and below unity gain at the cutoff, as generator 9 allows. With the normalisation it also leaves the passband 1.5 dB above unity at Q = 0, where the specification's DC gain would be unity — FluidSynth's reading, which this engine keeps.
 
 **The glide.** FluidSynth never steps this filter: a new cutoff or Q is reached a sample at a time, the coefficients recomputed after every sample, and the engine **MUST** do the same, because a resonant sweep stepped once a tick zippers. With `G` = 64 samples at 44 100 Hz (FluidSynth's block at its default rate) carried as a time — `round(64 ÷ 44 100 × rate)` samples:
 

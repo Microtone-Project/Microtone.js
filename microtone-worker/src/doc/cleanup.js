@@ -611,7 +611,7 @@ export function bankExportSize(doc, slots) {
  * Returns null when the project has no bank. Pure w.r.t. the doc except a
  * _rebuildInstRegion() to make the image current first.
  */
-export function planBankExport(doc, slots, { regions = true } = {}) {
+export function planBankExport(doc, slots, { regions = true, pack = [] } = {}) {
   if (!doc.sampleInstImage) return null;
   doc._rebuildInstRegion(); // flush pending inst edits into the image
   const instAt = (s) => doc.instruments[s];
@@ -665,6 +665,11 @@ export function planBankExport(doc, slots, { regions = true } = {}) {
     if (!BANK_SECTIONS.includes(s.fourcc)) continue;
     const payload = rebuilt[s.fourcc] === undefined ? s.payload : rebuilt[s.fourcc];
     if (payload !== null) projSections.push({ fourcc: s.fourcc, payload: Uint8Array.from(payload) });
+  }
+  // The pack's own name, copyright and message (§8), never the project's:
+  // `pack` is the sections the export dialog made (instlibrary.js packSections).
+  for (const s of pack) {
+    if (["PNam", "PCpr", "PMsg"].includes(s.fourcc)) projSections.push({ fourcc: s.fourcc, payload: Uint8Array.from(s.payload) });
   }
 
   return {

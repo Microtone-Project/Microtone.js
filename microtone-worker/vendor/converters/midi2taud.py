@@ -51,10 +51,10 @@ Behaviour (per midi2taud.md):
     (--max-layers cap, default 4); each layer becomes one normal Taud instrument
     with its zones as Ixmp patches. A patch's volume range is a range of NOTE
     VOLUME, which the engine plays as linear amplitude, so a zone's velocity range
-    is mapped through the SoundFont's own velocity→attenuation curve (FluidSynth's
-    default 960 cB concave modulator, (vel/127)² in amplitude, unless the bank
-    overrides it) — and every note is written at the volume FluidSynth would play
-    it at. Timbre and level then agree: the layer a note selects is the layer that
+    is mapped through the SoundFont's own velocity→attenuation curve (the SF2
+    spec's default 960 cB concave modulator, (vel/127)² in amplitude, unless the
+    bank overrides it) — and every note is written at the volume the SoundFont
+    plays it at. Timbre and level then agree: the layer a note selects is the layer that
     sounds at that loudness (see VelAxis). A preset
     needing >1 layer is emitted as a Metainstrument (terranmon.txt "Metainstrument
     definition"): the note references the meta slot and the engine fans out one
@@ -70,8 +70,9 @@ Behaviour (per midi2taud.md):
     while the key is on. There is NO release leg — the SF2 *release segment*
     is the Volume Fadeout (with NNA Note Fade): on key-off the voice holds at
     the sustain node and fades to silence over the SF2 releaseVolEnv time
-    (the full release, scaled to FluidSynth's PERCEIVED release length because
-    the engine's fadeout is linear in amplitude, not dB — see _zone_fadeout).
+    (the full release, scaled to the PERCEIVED length of the spec's release
+    because the engine's fadeout is linear in amplitude, not dB — see
+    _zone_fadeout).
     Per-layer Ixmp patches carry their own fadeout when their release differs.
     The canonical zone's ADSR represents the instrument.
   * Polyphony rides the engine's New Note Action (matching MIDI semantics):
@@ -83,7 +84,7 @@ Behaviour (per midi2taud.md):
     releases the oldest pedal-held or soonest-ending note early, not cut.
   * SF2 exclusiveClass (gen 57) is honoured on the percussion channel: a new note
     in a class chokes any ringing note of the same class (e.g. a closed hi-hat
-    silences a ringing open hi-hat), matching FluidSynth's kill-by-exclusive-class.
+    silences a ringing open hi-hat) within the same preset, as the spec scopes it.
     The choke is the new fast note-fade (note 0x0004, ~0.3 s) emitted at the next
     same-class onset; without it long percussion tails wash over the whole beat.
   * Sub-row timing is carried by S $Dx note delays (one row = `--speed`
@@ -103,7 +104,7 @@ Behaviour (per midi2taud.md):
     extended set-tempo above 280 BPM); channel volume /
     expression (CC7 × CC11) map to M $xx00 lane-volume effects so they
     never disturb the velocity-driven patch selection axis. Both pass through
-    FluidSynth's default 960 cB concave curve, as velocity does: the lane volume
+    the spec's default 960 cB concave modulators, as velocity does: the lane volume
     is (CC7/127)² × (CC11/127)², not the plain product.
   * A MIDI whose declared tempo does not describe its own events — the beat is
     1.2 or 1.35 quarter notes long, so bar lines fall mid-phrase and rows per
@@ -197,10 +198,13 @@ SIGNATURE = b'midi2taud/TSVM'   # 14 bytes
 MIN_NOTE_FT = 1
 UNITS_PER_SEMI = 4096.0 / 12.0  # 4096-TET units per 12-TET semitone
 
-# Effect priorities for the shared per-cell effect slot. Higher wins when a
-# later pass needs the slot: SD note delays carry trigger timing and are
-# never overwritten; T tempo is global and may evict G/M; M only takes free
-# slots.
+# Note delays (S $Dx) always sit in the SECOND effect column, so they never
+# compete for the first: the engine reads an S $Dx in either (row.c
+# s_delay_arg), and a tone portamento must be in the first (it reads slot 1
+# only). A cell's 'prio' therefore describes its FIRST effect alone. Higher
+# wins when a later pass needs that slot: T tempo is global and may evict G/M;
+# M only takes free slots (the first, else the second). PRIO_DELAY is the
+# bound below which an effect may be evicted.
 PRIO_FREE  = 0
 PRIO_M     = 1
 PRIO_PORTA = 2
@@ -1409,11 +1413,13 @@ GEN_KEYRANGE         = 43
 GEN_VELRANGE         = 44
 GEN_STARTLOOP_COARSE = 45
 GEN_INITATTEN        = 48     # initialAttenuation (cB; per-zone static gain)
-# EMU8k/10k hardware (and therefore FluidSynth) scales the initialAttenuation GENERATOR
-# value set at preset and instrument level by 0.4 before using it — fluid_defsfont.c
-# EMU_ATTENUATION_FACTOR / case GEN_ATTENUATION. Applying the full SF2 cB makes every
-# attenuated instrument ~2.5× too quiet in cB vs FluidSynth (e.g. a 200 cB zone is
-# −8 dB in FluidSynth but −20 dB raw), so instrument-to-instrument balance is wrong.
+# The EMU8000/10K hardware the banks are voiced on applies the initialAttenuation
+# GENERATOR value set at preset and instrument level at 0.4 of its nominal centibels.
+# That is the hardware's, not the spec's (SF2 §8.1.2 #48 reads it as plain cB), and
+# the SF2 players that aim to sound like the hardware, FluidSynth among them, scale it
+# the same way. Applying the full cB makes every attenuated instrument ~2.5× too quiet
+# in cB against them (a 200 cB zone is −8 dB there but −20 dB raw), so the balance
+# between instruments is wrong.
 EMU_ATTENUATION_FACTOR = 0.4
 GEN_ENDLOOP_COARSE   = 50
 GEN_COARSETUNE       = 51
@@ -1473,7 +1479,8 @@ class SFZone:
                  'vel_filter_mods',
                  # SF2 velocity→attenuation modulators, defaults included (see
                  # _zone_velocity_atten_mods), and the static initialAttenuation BEFORE
-                 # its [0, 1440] clamp — FluidSynth clamps the SUM of the two.
+                 # its [0, 1440] clamp — the SUM of the two is what is held in
+                 # range (SF2 §10.5).
                  'vel_atten_mods', 'atten_raw_cb')
 
 
@@ -1532,232 +1539,263 @@ def _parse_bags(bag_data, gen_data, mod_data, start_bag, end_bag, terminal_gen):
     return glob_g, glob_m, zones
 
 
-# ── SF2 modulators (velocity → filter) ────────────────────────────────────────
-# Only the filter-cutoff destinations are modelled: GEN_FILTERFC (8) and
-# GEN_MODENV2FILT (11). Other modulator destinations are either bare-generator
-# defaults the converter already folds (attenuation, pan), or inaudible for the
-# spectral problem these solve. Sources other than note-on velocity (key tracking,
-# CC) are skipped — they would need a per-note / per-controller patch axis.
+# ── SF2 modulators (SoundFont 2.04 §8.2–§8.4, §9.5) ───────────────────────────
+# A modulator adds Transform(amount × Map(source) × Map(amount source)) to its
+# destination's summing node (§9.5.1). The converter evaluates only the modulators
+# a NOTE fixes once it starts — those whose sources are note-on velocity or none —
+# and only for the destinations it carries: initialAttenuation (48), which decides
+# the note-volume axis, and the two filter-cutoff destinations initialFilterFc (8)
+# and modEnvToFilterFc (11), folded per velocity band. A key-tracking or controller
+# source would need a per-note or per-controller patch axis, and is left out.
 
-# FluidSynth's default vel→filterFc modulator is hard-disabled (fluid_mod.c:471 "S.
-# Christian Collins' mod … return 0"); any soundfont modulator IDENTICAL to it must
-# therefore contribute nothing. Identity = (src1, amtsrc, dest, trans).
-_DEFAULT_VEL2FILTER_ID = (0x0102, 0x0C02, 8, 0)
+MOD_SRC_NONE = 0x0000           # §8.2.1 index 0 with C clear: "No Controller"
+MOD_VELOCITY = 2                # §8.2.1 general controller 2: Note-On Velocity
+MOD_TYPE_LINEAR, MOD_TYPE_CONCAVE, MOD_TYPE_CONVEX, MOD_TYPE_SWITCH = 0, 1, 2, 3
+MOD_TRANS_LINEAR, MOD_TRANS_ABSOLUTE = 0, 2     # §8.3
+
+# §9.5.3 Table 2: a 7-bit value's top position maps to 127/128 — "the maximum
+# position can not correspond to exactly 1".
+MOD_TOP = 127.0 / 128.0
+# The concave and convex curves span the 96 dB that the default attenuation
+# modulators' 960 cB amount covers (§8.4.1, §9.1.7): 20·log10 of the squared
+# fraction of the controller's range, over 96 dB.
+MOD_CURVE_DB = 40.0 / 96.0
 
 
-def _fluid_convex(x: float) -> float:
-    """FluidSynth fluid_convex over a 0..128 index (gentables/fluid_convex.cpp):
-    convex(i) = 1 + (400/960)·log10(i/127), clamped to [0, 1]."""
-    if x <= 0.0:
+def _mod_curve_concave(v: float) -> float:
+    """§8.2.4 type 1 over a native 7-bit value 0…127 already turned to its
+    direction: output = log of the squared fraction of the range left, i.e.
+    −(20/96)·log10(((127 − v)/127)²), held in [0, 1] — it reaches 1 only at the
+    top, where the logarithm runs away."""
+    if v <= 0.0:
         return 0.0
-    if x >= 127.0:
+    if v >= 127.0:
         return 1.0
-    return 1.0 + (400.0 / 960.0) * math.log10(x / 127.0)
+    return -MOD_CURVE_DB * math.log10((127.0 - v) / 127.0)
 
 
-def _fluid_concave(x: float) -> float:
-    """FluidSynth fluid_concave: the convex mirror, concave(i) = −(400/960)·log10((127−i)/127)."""
-    if x <= 0.0:
+def _mod_curve_convex(v: float) -> float:
+    """§8.2.4 type 2: "the same curve as the concave curve, except the start and
+    end points are reversed" — 1 − concave(127 − v)."""
+    if v <= 0.0:
         return 0.0
-    if x >= 127.0:
+    if v >= 127.0:
         return 1.0
-    return -(400.0 / 960.0) * math.log10((127.0 - x) / 127.0)
+    return 1.0 + MOD_CURVE_DB * math.log10(v / 127.0)
 
 
-def _mod_src_transform(oper: int, vel: int) -> float:
-    """Map a velocity-source modulator operator to its normalised value at MIDI
-    note-on velocity `vel`, matching fluid_mod_transform_source_value (range 128,
-    val_norm = vel/128, inv_norm = (127−vel)/128). Only velocity sources reach
-    here. A NONE source (oper 0) returns 1.0 (the amount-source identity)."""
-    if oper == 0:
+def _mod_valid_source(oper: int) -> bool:
+    """§8.2.4 and §7.4/§7.8: a source of an undefined type is ignored, with the
+    modulator it belongs to."""
+    return ((oper >> 10) & 0x3F) <= MOD_TYPE_SWITCH
+
+
+def _mod_map(oper: int, value: int) -> float:
+    """Map(source input) of §9.5.1 for a 7-bit input `value` (0…127) through the
+    source operator `oper` (§8.2: type in bits 10–15, P bit 9, D bit 8, C bit 7,
+    index bits 0–6). The source "no controller" maps to 1 (§8.4.1: "its effect is
+    the same as the effect of multiplying the amount by 1").
+
+    Direction (§8.2.2) mirrors the input: D = 1 reads 127 − value, so the default
+    modulators' "input value of 127 is mapped to 0" (§8.4.1). Unipolar (§8.2.3,
+    §9.5.3): the linear position is input/128, 0 … 127/128; concave and convex run
+    their curve over the input and stop at the same 127/128, the top position of
+    Table 2; a switch is 0 below half the range and 1 from there on (§8.2.4).
+    Bipolar: P "is a change in the bias, as well as cutting the resolution of the
+    source controller in half" (§9.5.2) — 2·position − 1, from −1 at the bottom to
+    the 127/128 of Table 2 at the top — and a curved bipolar source is its unipolar
+    curve run outward from the centre on each side (§9.5.2 Figure 8)."""
+    if oper == MOD_SRC_NONE:
         return 1.0
-    direction = (oper >> 8) & 1          # D: 0 = positive, 1 = negative
-    polarity  = (oper >> 9) & 1          # P: 0 = unipolar, 1 = bipolar
-    typ       = (oper >> 10) & 0x3F      # 0 linear, 1 concave, 2 convex, 3 switch
-    rng = 128.0
-    val_norm = vel / rng
-    inv_norm = 1.0 - 1.0 / rng - val_norm
-    base = inv_norm if direction else val_norm
-    if polarity == 0:                    # unipolar
-        if typ == 3:                     # switch
-            return 1.0 if base >= 0.5 else 0.0
-        if typ == 1:
-            return min(_fluid_concave(rng * base), (rng - 1) / rng)
-        if typ == 2:
-            return min(_fluid_convex(rng * base), (rng - 1) / rng)
-        return base                      # linear
-    # bipolar
-    b = base if base == (rng - 1) / rng else -1.0 + 2.0 * base
-    if typ == 3:
-        return 1.0 if b >= 0.0 else -1.0
-    if typ == 1:
-        return min(_fluid_concave(rng * b), (rng - 1) / rng) if b >= 0 else -_fluid_concave(-rng * b)
-    if typ == 2:
-        return min(_fluid_convex(rng * b), (rng - 1) / rng) if b >= 0 else -_fluid_convex(-rng * b)
-    return b
+    kind = (oper >> 10) & 0x3F
+    bipolar = (oper >> 9) & 1
+    v = 127 - value if (oper >> 8) & 1 else value
+    if not bipolar:
+        if kind == MOD_TYPE_SWITCH:
+            return 1.0 if v >= 64 else 0.0
+        if kind == MOD_TYPE_CONCAVE:
+            return min(_mod_curve_concave(v), MOD_TOP)
+        if kind == MOD_TYPE_CONVEX:
+            return min(_mod_curve_convex(v), MOD_TOP)
+        return v / 128.0
+    if v == 127:                     # Table 2's top position (a switch is at its 1)
+        return 1.0 if kind == MOD_TYPE_SWITCH else MOD_TOP
+    d = 2 * v - 128                  # the input's distance from the centre, in 1/128ths
+    if kind == MOD_TYPE_SWITCH:
+        return 1.0 if d >= 0 else -1.0
+    if kind == MOD_TYPE_CONCAVE:
+        return min(_mod_curve_concave(d), MOD_TOP) if d >= 0 else -_mod_curve_concave(-d)
+    if kind == MOD_TYPE_CONVEX:
+        return min(_mod_curve_convex(d), MOD_TOP) if d >= 0 else -_mod_curve_convex(-d)
+    return d / 128.0
 
 
-def _combine_mods(inst_glob, inst_local, pre_glob, pre_local):
-    """Combine modulator lists into the effective per-voice set, following
-    FluidSynth's load order (fluid_voice add-mod modes): instrument global then
-    local OVERWRITE identical modulators (replace the amount); preset global then
-    local ADD (sum the amount for identical, else append). Identity is
-    (src1, dest, amtsrc, trans) — every field except the amount."""
-    order = []
+def _mod_value(mod, value: int) -> float:
+    """One evaluated modulator, (amount, src, amtsrc[, transform]), at input `value`:
+    Transform(amount × Map(src) × Map(amtsrc)) (§9.5.1). The transform is carried
+    only when it is not linear; absolute value is §8.3's other one."""
+    out = mod[0] * _mod_map(mod[1], value) * _mod_map(mod[2], value)
+    if len(mod) > 3 and mod[3] == MOD_TRANS_ABSOLUTE:
+        return abs(out)
+    return out
+
+
+def _mod_sum_at(mods, vel: int) -> float:
+    """Σ of the evaluated modulators `mods` at note-on velocity `vel`."""
+    return sum(_mod_value(m, vel) for m in mods)
+
+
+def _mod_reads_velocity(oper: int) -> bool:
+    """A source operator reading note-on velocity (general controller 2, §8.2.1)."""
+    return not (oper & 0x80) and (oper & 0x7F) == MOD_VELOCITY
+
+
+def _mod_zone_list(mods) -> list:
+    """One zone's modulators as the zone defines them (§7.4, §7.8): a modulator
+    whose source, destination and amount source repeat an earlier one's in the same
+    zone replaces it ("the first modulator will be ignored"); a modulator of an
+    undefined source type, or whose amount source is a link, is ignored."""
+    out = {}
+    for m in mods:
+        src, dest, _amt, amtsrc, _trans = m
+        if not (_mod_valid_source(src) and _mod_valid_source(amtsrc)):
+            continue
+        if (amtsrc & 0xFF) == 0x7F:  # §8.2.1 index 127 with C clear: "Link"
+            continue
+        out.pop((src, dest, amtsrc), None)
+        out[(src, dest, amtsrc)] = m
+    return list(out.values())
+
+
+def _mod_identity(m) -> tuple:
+    """§9.5.1: two modulators are IDENTICAL when their source, destination, amount
+    source and transform are the same. Modulators are (src, dest, amount, amtsrc,
+    trans) tuples, the 10-byte record's order."""
+    return (m[0], m[1], m[3], m[4])
+
+
+def _mod_level(glob, local) -> list:
+    """One level's modulators for a zone: at either level a local modulator identical
+    to a global one "supersedes or replaces" it (§9.5.1), in the global one's place;
+    the local zone's others follow the global zone's."""
+    twin = {_mod_identity(m): m for m in _mod_zone_list(local)}
+    out = [twin.pop(_mod_identity(m), m) for m in _mod_zone_list(glob)]
+    return out + list(twin.values())
+
+
+def _zone_modulators(inst_glob, inst_local, pre_glob, pre_local, defaults=()) -> list:
+    """The modulators one sounding zone carries, by §9.5.1's precedence: `defaults`
+    (§8.4, the instrument level's implicit ones); then the instrument zone's, each
+    REPLACING the amount of an identical modulator already there ("IMOD modulators
+    are absolute", §7.8) and otherwise added to the list; then the preset zone's,
+    each ADDING its amount to an identical one ("a PMOD modulator can increase or
+    decrease the amount of an IMOD modulator", §7.4) and otherwise added to the
+    list. Returns (src, dest, amount, amtsrc, trans) tuples."""
     final = {}
-    def ident(m):  # m = (src, dest, amt, amtsrc, trans)
-        return (m[0], m[1], m[3], m[4])
-    def overwrite(m):
-        k = ident(m)
+    for m in defaults:
+        final[_mod_identity(m)] = list(m)
+    for m in _mod_level(inst_glob, inst_local):
+        k = _mod_identity(m)
         if k in final:
-            final[k] = (m[0], m[1], m[2], m[3], m[4])
+            final[k][2] = m[2]
         else:
-            final[k] = m; order.append(k)
-    def add(m):
-        k = ident(m)
+            final[k] = list(m)
+    for m in _mod_level(pre_glob, pre_local):
+        k = _mod_identity(m)
         if k in final:
-            p = final[k]
-            final[k] = (p[0], p[1], p[2] + m[2], p[3], p[4])
+            final[k][2] += m[2]
         else:
-            final[k] = m; order.append(k)
-    for m in inst_glob:  overwrite(m)
-    for m in inst_local: overwrite(m)
-    for m in pre_glob:   add(m)
-    for m in pre_local:  add(m)
-    return [final[k] for k in order]
+            final[k] = list(m)
+    return [tuple(m) for m in final.values()]
 
 
+def _mod_evaluable(m) -> tuple:
+    """A carried modulator as the converter evaluates it per velocity, (amount, src,
+    amtsrc) plus its transform when that is not linear — or None when it reads
+    anything but velocity, or its amount source does, or it adds nothing."""
+    src, _dest, amt, amtsrc, trans = m
+    if amt == 0 or not _mod_reads_velocity(src):
+        return None
+    if amtsrc != MOD_SRC_NONE and not _mod_reads_velocity(amtsrc):
+        return None
+    return (amt, src, amtsrc) if trans == MOD_TRANS_LINEAR else (amt, src, amtsrc, trans)
+
+
+# §8.4.2's default modulator (note-on velocity → initialFilterFc, −2400 cents) is
+# deliberately NOT applied: §8.4.2 itself calls it an approximation of the AWE32, and
+# applied to every bank it darkens each soft note of a bank voiced without it. A
+# bank's own modulator of that shape still sounds, as any other modulator does.
 def _zone_velocity_filter_mods(inst_glob, inst_local, pre_glob, pre_local):
-    """Resolve a zone's velocity→filter modulators into (fc_mods, me2_mods),
-    each a list of (amount, src1, amtsrc) evaluated later per velocity. Keeps only
-    note-on-velocity-sourced modulators targeting initialFilterFc (8) and
-    modEnvToFilterFc (11), drops zero-amount and default-vel2filter-identity ones."""
+    """A zone's velocity→filter modulators as (fc_mods, me2_mods): the evaluable
+    modulators (see _mod_evaluable) aimed at initialFilterFc (8) and at
+    modEnvToFilterFc (11), each a list evaluated later per velocity."""
     fc_mods, me2_mods = [], []
-    for (src, dest, amt, amtsrc, trans) in _combine_mods(inst_glob, inst_local,
-                                                         pre_glob, pre_local):
-        if dest not in (8, 11) or amt == 0:
+    for m in _zone_modulators(inst_glob, inst_local, pre_glob, pre_local):
+        if m[1] not in (GEN_FILTERFC, GEN_MODENV2FILT):
             continue
-        if (src, amtsrc, dest, trans) == _DEFAULT_VEL2FILTER_ID:
-            continue                      # FluidSynth disables this identity
-        if (src & 0x80) or (src & 0x7F) != 2:
-            continue                      # only note-on velocity (GC index 2)
-        # amount source must be NONE or velocity to evaluate statically; skip CC/other.
-        if amtsrc != 0 and ((amtsrc & 0x80) or (amtsrc & 0x7F) != 2):
-            continue
-        (fc_mods if dest == 8 else me2_mods).append((amt, src, amtsrc))
+        e = _mod_evaluable(m)
+        if e is not None:
+            (fc_mods if m[1] == GEN_FILTERFC else me2_mods).append(e)
     return (fc_mods, me2_mods)
 
 
 def _eval_zone_filter_at(z: 'SFZone', vel: int):
     """(filter_fc, me2filt) for zone `z` at MIDI velocity `vel`, with its
-    velocity→filter modulators folded onto the base generators."""
+    velocity→filter modulators added to the generators' summing nodes."""
     fc_mods, me2_mods = z.vel_filter_mods
-    fc  = z.filter_fc + sum(amt * _mod_src_transform(src, vel)
-                            * _mod_src_transform(asrc, vel) for amt, src, asrc in fc_mods)
-    me2 = z.me2filt   + sum(amt * _mod_src_transform(src, vel)
-                            * _mod_src_transform(asrc, vel) for amt, src, asrc in me2_mods)
-    return fc, me2
+    return z.filter_fc + _mod_sum_at(fc_mods, vel), z.me2filt + _mod_sum_at(me2_mods, vel)
 
 
 # ── SF2 modulators (velocity → attenuation) and the note-volume axis ─────────
 # A Taud note volume is LINEAR amplitude (the mixer applies vol ÷ 63), and the same
 # number is the axis an Ixmp patch's volume range selects on. A SoundFont velocity is
-# neither: FluidSynth turns it into attenuation through the default modulator below
-# (SF2.01 §8.4.1, fluid_synth.c default_vel2att_mod) — 960 cB × concave, which is
-# −40·log10(vel/127) dB, amplitude (vel/127)² — and a bank may override its amount per
-# instrument or add to it per preset. GeneralUser-GS does both on nearly every
-# instrument (800 cB is its usual amount; 0 on its velocity-insensitive patches).
+# neither: it becomes attenuation through the default modulator of §8.4.1 — 960 cB ×
+# the negative concave velocity curve, which is −40·log10(vel/127) dB, amplitude
+# (vel/127)² — whose amount a bank may replace per instrument or add to per preset.
+# GeneralUser-GS does both on nearly every instrument (800 cB is its usual amount; 0
+# on its velocity-insensitive patches).
 #
 # So velocity becomes note volume through the curve the SoundFont actually applies,
-# and so does every zone's velocity range: a note then sounds at the level FluidSynth
-# gives it AND selects the layer FluidSynth selects. Mapping velocity linearly instead
-# (the old round(vel·63/127)) played a velocity-64 note 6 dB too loud, and handed a
-# tracker volume of 32 the velocity-64 layer, which the SoundFont plays 12 dB down.
+# and so does every zone's velocity range: a note then sounds at the level the
+# SoundFont gives it AND selects the layer its velocity range selects. Mapping
+# velocity linearly instead (the old round(vel·63/127)) played a velocity-64 note
+# 6 dB too loud, and handed a tracker volume of 32 the velocity-64 layer, which the
+# SoundFont plays 12 dB down.
 
-_DEFAULT_VEL2ATT = (0x0502, GEN_INITATTEN, 960, 0, 0)   # (src, dest, amount, amtsrc, trans)
+_DEFAULT_VEL2ATT = (0x0502, GEN_INITATTEN, 960, 0, 0)   # §8.4.1 (src, dest, amount, amtsrc, trans)
 _DEFAULT_VEL2ATT_MODS = ((960, 0x0502, 0),)             # the same, as _zone_velocity_atten_mods emits it
-
-
-def _is_velocity_src(oper: int) -> bool:
-    """A modulator source operator reading note-on velocity (general controller 2)."""
-    return not (oper & 0x80) and (oper & 0x7F) == 2
-
-
-def _fluid_voice_mods(inst_glob, inst_local, pre_glob, pre_local, defaults=()):
-    """The modulators a FluidSynth voice ends up with (fluid_defsfont.c
-    fluid_defpreset_noteon_add_mod_to_voice): `defaults` first; then the instrument
-    zone's, a global modulator identical to a local one being dropped, each OVERWRITING
-    the amount of an identical one already there; then the preset zone's, deduplicated
-    the same way, each ADDING to an identical one (a zero-amount preset modulator is
-    skipped). Identity is fluid_mod_test_identity's — source, destination and amount
-    source; the transform is not part of it. Modulators are (src, dest, amt, amtsrc,
-    trans) tuples."""
-    def ident(m):
-        return (m[0], m[1], m[3])
-
-    def level(glob, local):
-        seen = {ident(m) for m in local}
-        return list(local) + [m for m in glob if ident(m) not in seen]
-
-    final, order = {}, []
-    def put(m):
-        final[ident(m)] = list(m)
-        order.append(ident(m))
-    for m in defaults:
-        put(m)
-    for m in level(inst_glob, inst_local):
-        k = ident(m)
-        if k in final:
-            final[k][2] = m[2]
-        else:
-            put(m)
-    for m in level(pre_glob, pre_local):
-        if m[2] == 0:
-            continue
-        k = ident(m)
-        if k in final:
-            final[k][2] += m[2]
-        else:
-            put(m)
-    return [tuple(final[k]) for k in order]
 
 
 def _zone_velocity_atten_mods(inst_glob, inst_local, pre_glob, pre_local) -> tuple:
     """A zone's velocity→attenuation modulators as a canonical, hashable tuple of
-    (amount, src, amtsrc): the default vel2att modulator with the zone's overrides
-    applied, plus any further note-on-velocity modulator aimed at initialAttenuation.
-    One whose amount source is neither velocity nor none cannot be evaluated per note
-    and is left out, as for the filter. The tuple doubles as the curve's identity
+    evaluable modulators (see _mod_evaluable): §8.4.1's default with the zone's
+    replacements and additions applied, plus any further note-on-velocity modulator
+    aimed at initialAttenuation. The tuple doubles as the curve's identity
     (_vel_axis, _preset_vel_axes)."""
     out = []
-    for (src, dest, amt, amtsrc, _trans) in _fluid_voice_mods(
-            inst_glob, inst_local, pre_glob, pre_local, (_DEFAULT_VEL2ATT,)):
-        if dest != GEN_INITATTEN or amt == 0:
+    for m in _zone_modulators(inst_glob, inst_local, pre_glob, pre_local,
+                              (_DEFAULT_VEL2ATT,)):
+        if m[1] != GEN_INITATTEN:
             continue
-        if not _is_velocity_src(src) or (amtsrc != 0 and not _is_velocity_src(amtsrc)):
-            continue
-        out.append((amt, src, amtsrc))
+        e = _mod_evaluable(m)
+        if e is not None:
+            out.append(e)
     return tuple(sorted(out))
 
 
-def _mod_sum_at(mods, vel: int) -> float:
-    """Σ amount × source(vel) × amount-source(vel) over (amount, src, amtsrc) mods."""
-    return sum(amt * _mod_src_transform(src, vel) * _mod_src_transform(asrc, vel)
-               for amt, src, asrc in mods)
-
-
 def _zone_atten_at(z: 'SFZone', vel: int) -> float:
-    """The attenuation (cB) FluidSynth gives zone `z` at velocity `vel`: its static
-    initialAttenuation plus its velocity modulators, clamped to [0, 1440] as a SUM
-    (fluid_voice_update_param, GEN_ATTENUATION)."""
+    """The attenuation (cB) zone `z` sounds at for velocity `vel`: its static
+    initialAttenuation plus its velocity modulators, held in initialAttenuation's
+    range [0, 1440] as a SUM — an out-of-range value "can be the result of the
+    summation" and takes the nearest realisable one (§10.5)."""
     return max(0.0, min(1440.0, z.atten_raw_cb + _mod_sum_at(z.vel_atten_mods, vel)))
 
 
-def _cc_gain(val: float) -> float:
-    """FluidSynth's default CC7 and CC11 → attenuation modulators (SF2.01 §8.4.5 and
-    §8.4.7: 960 cB, concave, negative — the velocity curve's shape) as linear gain:
+def _cc_gain(val: int) -> float:
+    """The default CC7 and CC11 → attenuation modulators (§8.4.5, §8.4.7: 960 cB,
+    the negative concave curve — the velocity default's shape) as linear gain:
     (val/127)², and −95 dB at 0."""
-    return 10.0 ** (-960.0 * _mod_src_transform(0x0500, val) / 200.0)
+    return 10.0 ** (-960.0 * _mod_map(0x0587, val) / 200.0)
 
 
 def _gain_to_v8(level: float) -> int:
@@ -1794,7 +1832,7 @@ class VelAxis:
     velocity whose level is nearest in decibels; x = 0 goes with the quietest step.
     A zone's volume range is every x whose rep lies in its velocity range (vrange), so
     velocity-adjacent zones meet without gap or overlap, and a note written at
-    fwd[vel] selects the zone FluidSynth selects — unless the velocities sharing its x
+    fwd[vel] selects the zone the SoundFont selects — unless the velocities sharing its x
     straddle a zone boundary and it is on the minority side."""
     __slots__ = ('att', 'fwd', 'fwd8', 'rep')
 
@@ -1943,7 +1981,7 @@ def parse_sf2(path: str) -> SF2:
 
     # Modulators (imod/pmod) are optional per chunk presence; default to empty so
     # banks without them parse unchanged. Used for SF2 velocity→filter modulators
-    # (see _zone_velocity_filter_mods) that FluidSynth applies but bare generators miss.
+    # (see _zone_velocity_filter_mods) that the bare generators would miss.
     imod = pdta.get('imod', b'')
     pmod = pdta.get('pmod', b'')
 
@@ -2031,9 +2069,9 @@ def parse_sf2(path: str) -> SF2:
                 # initialAttenuation: per-zone static gain in cB (preset adds to inst).
                 # Clamped to the SF2 spec range [0, 1440] so any out-of-range value can
                 # never collapse the folded vol-env to silence (see _SIGNED_GENS note).
-                # FluidSynth scales the preset+instrument initialAttenuation by 0.4
-                # (EMU_ATTENUATION_FACTOR) before clamping to the SF2 [0, 1440] cB range;
-                # match it so instrument volumes line up with FluidSynth's rendering.
+                # The preset+instrument initialAttenuation is scaled by 0.4 as the EMU
+                # hardware does (EMU_ATTENUATION_FACTOR) before it is held in the SF2
+                # [0, 1440] cB range, so the instruments balance as the bank intends.
                 z.atten_raw_cb = EMU_ATTENUATION_FACTOR * (iz.get(GEN_INITATTEN, 0)
                                                            + pz.get(GEN_INITATTEN, 0))
                 z.atten_cb = max(0, min(1440, z.atten_raw_cb))
@@ -2061,16 +2099,16 @@ def parse_sf2(path: str) -> SF2:
                                                 + pz.get(GEN_RELEASE_MODENV, 0))
                 z.me2pitch  = iz.get(GEN_MODENV2PITCH, 0) + pz.get(GEN_MODENV2PITCH, 0)
                 z.me2filt   = iz.get(GEN_MODENV2FILT,  0) + pz.get(GEN_MODENV2FILT,  0)
-                # SF2 velocity→filter modulators (FluidSynth applies them; bare generators
-                # do not). Folded per-velocity in _split_velocity_filter so each velocity band
-                # gets the cutoff / mod-env-to-filter FluidSynth would compute (the GeneralUser-GS
-                # "muffled" fix). Combined inst(overwrite)+preset(add) per SF2.04 §9.5.
+                # SF2 velocity→filter modulators (bare generators do not carry them).
+                # Folded per-velocity in _split_velocity_filter so each velocity band gets
+                # the cutoff / mod-env-to-filter its modulators give it (the GeneralUser-GS
+                # "muffled" fix). Combined inst(replace)+preset(add) per SF2.04 §9.5.1.
                 z.vel_filter_mods = _zone_velocity_filter_mods(iglob_m, iz_mods,
                                                                pglob_m, pz_mods)
                 # exclusiveClass is instrument-level and NON-additive (SF2.04 §8.1.2 #57):
-                # a new note in class C kills sounding notes of the same class on the same
-                # channel (FluidSynth fluid_synth_kill_by_exclusive_class). Drum kits use it
-                # so a closed hi-hat (42) chokes a ringing open hi-hat (46).
+                # a new note in class C rapidly terminates sounding notes of the same class
+                # in the same preset. Drum kits use it so a closed hi-hat (42) chokes a
+                # ringing open hi-hat (46).
                 z.excl_class = iz.get(GEN_EXCLUSIVECLASS, 0)
                 z.a_start = (s.start + iz.get(GEN_START_OFF, 0)
                              + 32768 * iz.get(GEN_START_COARSE, 0))
@@ -2175,14 +2213,16 @@ def merge_stereo_zones(zones: list, shdrs: list, keep_stereo: bool = False) -> l
 
 
 def apply_exclusive_class(song, sf, perc_force):
-    """SF2 exclusiveClass (gen 57): starting a note in class C kills any ringing note
-    of the same class on the same channel — FluidSynth's
-    fluid_synth_kill_by_exclusive_class (fluid_synth.c:5453). GM drum kits use it so a
-    closed hi-hat (key 42) chokes a ringing open hi-hat (key 46); without it the open
-    hi-hat's multi-second tail washes over the whole beat and buries the other hits.
+    """SF2 exclusiveClass (gen 57): "when this note is initiated, any other sounding
+    note with the same exclusive class value should be rapidly terminated", and "the
+    scope of the exclusive class is the entire preset" (SF2.04 §8.1.2 #57). GM drum kits
+    use it so a closed hi-hat (key 42) chokes a ringing open hi-hat (key 46); without it
+    the open hi-hat's multi-second tail washes over the whole beat and buries the other
+    hits.
 
     Resolve each percussion note's exclusiveClass from the SF2 zone it plays, then within
-    each (channel, class) serialise the chokes: every note is cut at the next note of the
+    each (channel, preset, class) serialise the chokes — a note sounds on one channel,
+    and a kit changed under a ringing note is another preset: every note is cut at the next note of the
     same class that starts strictly later. `emit_cells` emits a fast note-fade
     (NOTE_FASTFADE) at that point and `allocate_voices` keeps the choked voice foreground
     until then. Drum channel only — GM melodic presets do not set gen 57, and a hard choke
@@ -2206,7 +2246,7 @@ def apply_exclusive_class(song, sf, perc_force):
     for n in song.notes:
         c = excl_of(n)
         if c:
-            groups.setdefault((n.ch, c), []).append(n)
+            groups.setdefault((n.ch, n.inst_key, c), []).append(n)
 
     n_cut = 0
     for notes in groups.values():
@@ -2224,9 +2264,9 @@ def apply_exclusive_class(song, sf, perc_force):
 
 def assign_note_volumes(song, sf, perc_force) -> None:
     """Give every note its volume: its velocity through its preset's note-volume axis
-    at its key (VelAxis.fwd) — the level FluidSynth plays it at, relative to the
+    at its key (VelAxis.fwd) — the level the SoundFont plays it at, relative to the
     preset's loudest velocity there. build_presets derives the patches' volume ranges
-    from the same axes, so the note also selects the layer FluidSynth selects."""
+    from the same axes, so the note also selects the layer its velocity selects."""
     axes_of = {}
     for n in song.notes:
         axes = axes_of.get(n.inst_key)
@@ -2448,8 +2488,8 @@ class Patch:
         # time is faithful (an absent 'x' falls through to the base record's fadeout). A
         # synthesized-loop sample keeps its key-off fadeout too: the peak->0 decay vol-env
         # (no sustain wrap) only fades the HELD note to silence ~SF2_SYNTH_DECAY_SEC after
-        # note-on; on key-off the voice must still release over the SF2 release time as
-        # FluidSynth does. Forcing 0 here left key-off inert, so released notes rang for the
+        # note-on; on key-off the voice must still release over the SF2 release time
+        # (SF2.04 §9.1.7). Forcing 0 here left key-off inert, so released notes rang for the
         # whole 10 s decay (audible on piano/pizz/mallet patches in Musyng Kite & Timbres
         # of Heaven 4.00 whose long unlooped samples take the synth-loop path).
         fo_s = _zone_fadeout(z, bpm0, fadeout_override)
@@ -2604,8 +2644,8 @@ GAIN_BAND_TOL_CB = 10.0
 
 
 def _split_layer_velocity_bands(items: list, trig: dict) -> list:
-    """Give each disjoint layer item ((pitch,vol)-rect, zone, ms, axis) what FluidSynth
-    gives its zone across the velocities its volume range stands for, and return plain
+    """Give each disjoint layer item ((pitch,vol)-rect, zone, ms, axis) what the
+    SoundFont gives its zone across the velocities its volume range stands for, and return plain
     (rect, zone, ms) items.
 
     Two things vary with velocity inside one rect. The cutoff, when the zone carries
@@ -2776,8 +2816,8 @@ def _adsr_to_env(z: SFZone, tick_sec: float = None):
     SPEC.md §7.2), so a 0-node can never rise in less than a tick and costs a
     silent tick before it: FluidR3's Yamaha Grand Piano (an 8 ms attack after a
     1 ms delay) sounded nothing for 21 ms at 120 BPM and reached full level at
-    42 ms. FluidSynth ramps linearly over the attack time itself (fluid_voice.c
-    GEN_VOLENVATTACK, fluid_rvoice.c fluid_rvoice_calc_amp) — full at 9 ms. So,
+    42 ms. The SF2 attack rises over the attack time itself, linearly in amplitude
+    (SF2.04 §8.1.2 #34: "the result is linear in amplitude") — full at 9 ms. So,
     given `tick_sec` (the song's tick, 2.5 / BPM), a delay + attack that ends
     within the first tick starts at the peak: an instant onset is the nearer of
     the two shapes the engine can draw, and its own note-start ramp keeps it
@@ -2922,14 +2962,15 @@ def _filter_env_block_sf(z: SFZone, base_fc: float, amt: float, peak: int) -> di
 
 
 # The engine's Volume Fadeout is LINEAR IN AMPLITUDE (fadeoutVolume drops 1→0 by
-# fadeStep/1024 per tick — AudioAdapter.kt ~L3679), whereas FluidSynth's release ramps
-# attenuation LINEARLY IN dB (amplitude decays exponentially: −96 dB over releaseVolEnv).
+# fadeStep/1024 per tick — AudioAdapter.kt ~L3679), whereas the SF2 release ramps
+# attenuation LINEARLY IN dB — "a constant dB change for each time unit", 100 dB over
+# releaseVolEnv from full scale (SF2.04 §8.1.2 #38) — so amplitude decays exponentially.
 # Matching the two on "time to the absolute floor" makes the linear fade sound MUCH longer:
 # a linear-amplitude fade is still at −6 dB at 50 % of its length and −20 dB only at 90 %,
-# while FluidSynth is already −96 dB (silent) by then. The perceived release tail ends when
-# FluidSynth has dropped ≈22 dB; for the linear fade to land there at the same wall-clock
-# time it must complete in ≈0.25·releaseVolEnv (see the −18..−24 dB crossing band). This
-# scale brings the fadeout in line with FluidSynth's audible release length.
+# while the SF2 release is at −50 and −90 dB by then. The perceived release tail ends when
+# the SF2 release has dropped ≈22 dB; for the linear fade to land there at the same wall-
+# clock time it must complete in ≈0.25·releaseVolEnv (see the −18..−24 dB crossing band).
+# This scale brings the fadeout in line with the audible length of the SF2 release.
 _RELEASE_PERCEPTUAL_SCALE = 0.25
 
 
@@ -2938,11 +2979,11 @@ def _zone_fadeout(z: SFZone, bpm0: int, fadeout_override) -> int:
     releaseVolEnv). With NNA Note Fade the fadeout IS the release: on key-off the
     voice fades to silence over the release time.
 
-    FluidSynth's release (fluid_rvoice.c:54-55, fluid_voice.c:1092-1094) ramps the
-    volume-envelope coefficient LINEARLY from its value at key-off down to 0, where
-    amplitude = cb2amp(960·(1−volenv_val)) — i.e. the coefficient is linear in dB. The
-    release rate is fixed: a full 1.0→0 ramp takes `releaseVolEnv` seconds, so a note
-    released at coefficient v reaches silence in v·releaseVolEnv. v is HIGH whenever the
+    The SF2 release "linearly ramps toward zero from the current level, causing a
+    constant dB change for each time unit", and releaseVolEnv is the time "for a 100%
+    change" — from full scale to 100 dB down (SF2.04 §8.1.2 #38, §9.1.7). The rate is
+    fixed, so a note released at envelope value v (on that dB scale) reaches silence in
+    v·releaseVolEnv. v is HIGH whenever the
     note is still audible at key-off — which is the norm for the long-decay instruments
     (bells, organs, harpsichord, sitar, mute guitar) that Timbres of Heaven & friends
     encode with a silent sustain (sustainVolEnv≈1000 cB) and a multi-second decay: the
@@ -2952,13 +2993,13 @@ def _zone_fadeout(z: SFZone, bpm0: int, fadeout_override) -> int:
     The earlier model scaled by (1000−sus_cb)/1000 (the release time FROM the sustain
     level), which is only correct for a note held all the way to its sustain. For the
     decay instruments above (sus_cb≈1000) it collapsed to ~0 → an instant cut on key-off
-    instead of FluidSynth's seconds-long release — released organ/bell/harpsichord notes
+    instead of the SF2's seconds-long release — released organ/bell/harpsichord notes
     were chopped off. Dropping the factor leaves the common sustained instruments
     (sus_cb≈0, factor was ≈1) unchanged and gives the decay instruments a real release.
 
-    The engine's fadeout is linear in AMPLITUDE while FluidSynth's release is linear in
-    dB (see [_RELEASE_PERCEPTUAL_SCALE]); matching the floor-reaching time would make the
-    audible tail ~4× too long, so fade_sec is scaled to FluidSynth's perceived release.
+    The engine's fadeout is linear in AMPLITUDE while the SF2 release is linear in dB
+    (see [_RELEASE_PERCEPTUAL_SCALE]); matching the floor-reaching time would make the
+    audible tail ~4× too long, so fade_sec is scaled to the release's perceived length.
     fadeStep makes the fadeout complete in fade_sec at bpm0: the engine subtracts
     fadeStep/1024 of unit volume per song tick, and the tick rate is bpm0·2/5 Hz, giving
     fadeStep = 2560/(fade_sec·bpm0)."""
@@ -3408,7 +3449,7 @@ def build_sample_inst_bin(sf: SF2, pool: list, layer_insts: list, meta_records: 
         # derivation and why it is NOT sustain-scaled. A synthesized-loop sample keeps
         # its key-off fadeout too: the peak->0 decay vol-env (no sustain wrap) only fades
         # the HELD note to silence over ~SF2_SYNTH_DECAY_SEC from note-on; on key-off the
-        # voice must still release over the SF2 release time (FluidSynth does), else the
+        # voice must still release over the SF2 release time (SF2.04 §9.1.7), else the
         # released note rings for the whole decay span instead of stopping.
         fo = _zone_fadeout(c.zone, bpm0, fadeout_override)
         inst_bin[base + 171] = 0xFF                              # IGV (unit)
@@ -3716,8 +3757,7 @@ def emit_cells(song: Song, insts: dict, speed: int, rpb: int,
             pan = _curve_at(st.cc10_ft, st.cc10_val, n.start_ft + shift_ft, 64)
             c['pan'] = pcol_set(max(0, min(255, round(pan * 2))))   # 64 → 128, the centre
         if tick > 0:
-            c['eff']  = (TOP_S, 0xD000 | (tick << 8))
-            c['prio'] = PRIO_DELAY
+            c['eff2'] = (TOP_S, 0xD000 | (tick << 8))
 
     # ── Pass 2: key-offs (both MIDI idioms arrive here as note.end_ft) ──
     skipped_offs = 0
@@ -3740,13 +3780,11 @@ def emit_cells(song: Song, insts: dict, speed: int, rpb: int,
             c = _cell(cells, n.voice, row)
             c['note'] = NOTE_KEYOFF
             if tick > 0:
-                c['eff']  = (TOP_S, 0xD000 | (tick << 8))
-                c['prio'] = PRIO_DELAY
+                c['eff2'] = (TOP_S, 0xD000 | (tick << 8))
         elif c['note'] == NOTE_NOP:
             c['note'] = NOTE_KEYOFF
-            if tick > 0 and c['eff'] is None:
-                c['eff']  = (TOP_S, 0xD000 | (tick << 8))
-                c['prio'] = PRIO_DELAY
+            if tick > 0 and c.get('eff2') is None:
+                c['eff2'] = (TOP_S, 0xD000 | (tick << 8))
         else:
             skipped_offs += 1    # row taken by a retrigger — which cuts/NNAs anyway
     if skipped_offs:
@@ -3769,13 +3807,11 @@ def emit_cells(song: Song, insts: dict, speed: int, rpb: int,
             c = _cell(cells, n.voice, row)
             c['note'] = NOTE_FASTFADE
             if tick > 0:
-                c['eff']  = (TOP_S, 0xD000 | (tick << 8))
-                c['prio'] = PRIO_DELAY
+                c['eff2'] = (TOP_S, 0xD000 | (tick << 8))
         elif c['note'] in (NOTE_NOP, NOTE_KEYOFF):
             c['note'] = NOTE_FASTFADE          # choke supersedes a natural key-off
-            if tick > 0 and c['eff'] is None:
-                c['eff']  = (TOP_S, 0xD000 | (tick << 8))
-                c['prio'] = PRIO_DELAY
+            if tick > 0 and c.get('eff2') is None:
+                c['eff2'] = (TOP_S, 0xD000 | (tick << 8))
         # else: row already holds a fresh trigger — that note cuts/NNAs this one anyway.
 
     # ── Pass 3: pitch-bend portamento segments ──
@@ -3813,7 +3849,7 @@ def emit_cells(song: Song, insts: dict, speed: int, rpb: int,
     if seg_count:
         vprint(f"  bend: {seg_count} portamento segment(s) emitted")
 
-    # ── Pass 4: M lane volume (CC7 × CC11 through FluidSynth's default curves), per
+    # ── Pass 4: M lane volume (CC7 × CC11 through the SF2 default modulators), per
     #    lane chronologically ──
     by_voice = {}
     for n in notes:
@@ -3892,6 +3928,8 @@ def emit_cells(song: Song, insts: dict, speed: int, rpb: int,
         if not placed and victim is not None:
             if victim['prio'] == PRIO_PORTA:
                 victim['note'] = NOTE_NOP         # orphan G note would retrigger
+            elif victim['prio'] == PRIO_M and victim.get('eff2') is None:
+                victim['eff2'] = victim['eff']    # an M keeps its row in the second column
             victim['eff']  = (TOP_T, tempo_effarg(tb))
             victim['prio'] = PRIO_TEMPO
             placed = True

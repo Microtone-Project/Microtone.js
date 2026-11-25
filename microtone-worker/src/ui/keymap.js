@@ -260,6 +260,20 @@ export function keymapNote(spec, code, octave, preset, resolved = null, shift = 
     : noteForDegree(octave, value, preset);
 }
 
+/**
+ * How many steps of a keyboard transposition make exactly one period of the
+ * octave keys — 12 on a `semi` layout, the table's length on a degree layout —
+ * so that transposing by it plays exactly what one octave up plays. 0 where no
+ * whole number of steps does: the Raw notation (a degree is one 4096-TET unit)
+ * and an absolute table (ProTracker pitch), whose degrees do not repeat.
+ */
+export function keymapPeriod(spec, preset) {
+  const unit = UNITS.includes(spec?.unit) ? spec.unit : "deg";
+  if (unit === "semi") return 12;
+  if (!preset || !preset.table?.length || isAbsolute(preset)) return 0;
+  return preset.table.length;
+}
+
 // ── read-outs ──
 
 /** 4096-TET units → cents. One period of 0x1000 is an octave, whatever the

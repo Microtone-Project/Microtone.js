@@ -730,8 +730,9 @@ test("sf2bank: list presets + build bank + merge into a project (skips without t
   });
 
 // A Taud note volume is linear amplitude, and it is also the axis an Ixmp patch's
-// volume range selects on. A SoundFont velocity is neither: FluidSynth turns it
-// into attenuation through a concave curve the bank may re-scale. So velocity
+// volume range selects on. A SoundFont velocity is neither: the SF2 default
+// modulator (§8.4.1) turns it into attenuation through a concave curve the bank
+// may re-scale. So velocity
 // must reach note volume — and a zone's velocity range its volume range —
 // through the curve the SoundFont actually applies, or the layer a volume picks
 // is not the layer that sounds at that loudness.
@@ -767,13 +768,13 @@ json.dumps({
     "unity": atten_cb_to_octet(0),
 })`));
   assert.deepEqual(r.fwd, [63, 39, 16, 4],
-    "63 x (vel/127)^2 — FluidSynth's default 960 cB concave curve; velocity 64 is 12 dB down, not 6");
+    "63 x (vel/127)^2 — the SF2 default 960 cB concave curve; velocity 64 is 12 dB down, not 6");
   assert.deepEqual(r.gu, [63, 42, 20, 6], "GeneralUser's own 800 cB curve is shallower");
   assert.ok(r.repMonotone, "a louder note volume never stands for a softer velocity");
   assert.deepEqual(r.gaps, [], "velocity-adjacent zones meet on the axis without gap or overlap");
-  // FluidSynth's modulator rules: the instrument overwrites the default, the
+  // SF2 §9.5.1's modulator rules: the instrument replaces the default, the
   // preset adds to whatever the instrument left, and a preset-global modulator
-  // identical to a preset-local one is ignored.
+  // identical to a preset-local one is replaced by it.
   assert.deepEqual(r.none, [[960, 0x0502, 0]], "no modulators: the default curve");
   assert.deepEqual(r.inst, [[800, 0x0502, 0]], "an instrument modulator replaces the default's amount");
   assert.deepEqual(r.instThenPreset, [[900, 0x0502, 0]], "a preset modulator adds to it");
@@ -785,14 +786,14 @@ json.dumps({
   assert.equal(r.unity, 159);
 });
 
-test("midi2taud: every layer at a key keeps FluidSynth's sample and level (skips without the SF2)",
+test("midi2taud: every layer at a key keeps the SoundFont's sample and level (skips without the SF2)",
   { skip: !existsSync(sf2Path) && "GeneralUser-GS.sf2 not present in repo root" },
   () => {
     // GeneralUser's snare (kit key 40) lays a 529 cB-curve zone over a 900 cB one
     // in each velocity band, and a Taud note has ONE volume for every layer: the
     // key shares the dominant curve, and the minority layer's patches make up the
     // difference in their initial attenuation. Checked at every note volume, at the
-    // velocity it stands for, against FluidSynth's zone choice and attenuation.
+    // velocity it stands for, against the SoundFont's own zone choice and attenuation.
     py.FS.writeFile("/gu.sf2", readFileSync(sf2Path));
     try {
       const r = JSON.parse(py.runPython(`
@@ -830,7 +831,7 @@ for label, ik, key in (("snare", ('d', 0), 40), ("horns", ('m', 0, 60), 54)):
 json.dumps(out)`));
       for (const [label, s] of Object.entries(r)) {
         assert.ok(s.layers > 1, `${label}: premise — the key is layered (${s.layers} layers)`);
-        assert.equal(s.same, 63, `${label}: every note volume sounds FluidSynth's samples`);
+        assert.equal(s.same, 63, `${label}: every note volume sounds the SoundFont's samples`);
         assert.ok(s.mean < 0.3, `${label}: mean level error ${s.mean.toFixed(2)} dB`);
         assert.ok(s.max < 1.5, `${label}: worst level error ${s.max.toFixed(2)} dB`);
       }
@@ -839,7 +840,7 @@ json.dumps(out)`));
     }
   });
 
-test("midi2taud writes the volume FluidSynth plays a velocity at (skips without the SF2)",
+test("midi2taud writes the volume the SoundFont plays a velocity at (skips without the SF2)",
   { skip: !existsSync(sf2Path) && "GeneralUser-GS.sf2 not present in repo root" },
   () => {
     // Grand Piano, middle C, one note a beat at velocities 127 / 100 / 64 / 32,
@@ -1277,11 +1278,16 @@ test("midi2taud --quantise puts every onset on a row (item 168; skips without th
     // through the row", so it is the exact residue of off-grid timing: a
     // conversion quantised onto the row grid cannot need one, and an
     // unquantised conversion of the same MIDI does.
+    // (In either effect column: midi2taud writes it in the second, item 361.)
+    const sd = (op, arg) => op === 0x1c && ((arg >>> 12) & 0xf) === 0xd;
     const subRowDelays = (bytes) => triggerCells(parseTaud(bytes))
-      .filter((c) => c.op === 0x1c && ((c.arg >>> 12) & 0xf) === 0xd).length;
+      .filter((c) => sd(c.op, c.arg) || sd(c.op2, c.arg2)).length;
 
     const played = subRowDelays(convert("M_E1M1.mid"));
     assert.ok(played > 0, "premise: the unquantised import carries note delays");
+    // …all of them in the second effect column, so the first stays free.
+    assert.equal(triggerCells(parseTaud(convert("M_E1M1.mid"))).filter((c) => sd(c.op, c.arg)).length, 0,
+      "midi2taud puts every S $Dx in the second effect column (item 361)");
     assert.equal(subRowDelays(convert("M_E1M1.mid", { quantise: "row" })), 0,
       "--quantise row leaves no sub-row timing to express");
     // "auto" picks the subdivision the onsets already use, which is never finer

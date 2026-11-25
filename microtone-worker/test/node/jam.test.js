@@ -225,3 +225,40 @@ test("jam: a store with no layout plays the default, Double-Deck Piano 12", () =
   assert.equal(log.at(-1).note, MIDDLE_C + 0x1000, "q is C of the upper deck, an octave up");
   assert.equal(jam.down("KeyA", false), false, "a is a gap between black keys: not consumed");
 });
+
+test("jam: a transposition of one whole period folds into the octave", async () => {
+  const { pitchTablePresets } = await import("../../core/tuning/pitchtables.js");
+  const { keymapNote } = await import("../../src/ui/keymap.js");
+  // Semitone layout: 12 steps = an octave (Oct 3 −12 → Oct 2; Oct 3 +12 → Oct 4).
+  const { jam } = mkJam();
+  jam.octave = 3;
+  for (let i = 0; i < 11; i++) jam.transposeDelta(-1);
+  assert.deepEqual([jam.octave, jam.transpose], [3, -11]);
+  const before = keymapNote(jam.keymap, "KeyA", jam.octave, undefined, null, jam.transpose - 1);
+  jam.transposeDelta(-1);
+  assert.deepEqual([jam.octave, jam.transpose], [2, 0]);
+  assert.equal(keymapNote(jam.keymap, "KeyA", jam.octave, undefined, null, jam.transpose), before,
+    "the fold plays the note the transposition did");
+  jam.octave = 3; jam.transpose = 11;
+  jam.transposeDelta(1);
+  assert.deepEqual([jam.octave, jam.transpose], [4, 0]);
+  // At the octave's end of the range the transposition stays.
+  jam.octave = 9; jam.transpose = 11;
+  jam.transposeDelta(1);
+  assert.deepEqual([jam.octave, jam.transpose], [9, 12]);
+  jam.octave = 0; jam.transpose = -11;
+  jam.transposeDelta(-1);
+  assert.deepEqual([jam.octave, jam.transpose], [0, -12]);
+
+  // A degree layout's period is its notation's: 31 steps in 31-TET.
+  const deg = mkJam({ keymap: { ...TWO_ROW_PIANO, unit: "deg" } }).jam;
+  deg.store.pitchPreset = pitchTablePresets[310];
+  deg.octave = 4; deg.transpose = 30;
+  deg.transposeDelta(1);
+  assert.deepEqual([deg.octave, deg.transpose], [5, 0]);
+  // Raw has no whole period inside the transposition's range: nothing folds.
+  deg.store.pitchPreset = pitchTablePresets[0];
+  deg.transpose = 0;
+  for (let i = 0; i < 40; i++) deg.transposeDelta(1);
+  assert.deepEqual([deg.octave, deg.transpose], [5, 40]);
+});

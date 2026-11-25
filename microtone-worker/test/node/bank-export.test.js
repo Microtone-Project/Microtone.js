@@ -137,3 +137,32 @@ test("a project without a bank has nothing to export", () => {
   doc.sampleInstImage = null;
   assert.equal(planBankExport(doc, [1]), null);
 });
+
+test("a pack may carry its OWN name, copyright and message; a project it goes into keeps its own", async () => {
+  const { packSections, readPackStrings, packFile, packTitle } = await import("../../src/ui/instlibrary.js");
+  const { combineTpif } = await import("../../src/doc/document.js");
+  const doc = load("16uba_baion");
+  const projectName = doc.projectString("PNam");
+  const pack = { name: "Baião kit", copyright: "© 2026 Somebody", message: "Line one\r\nLine two" };
+  const { parsed } = exportAndRead(doc, doc.selectableInstrumentSlots(), { pack: packSections(pack) });
+  // §8: the bank's sections, and the three pack strings — nothing else of P.
+  const fourccs = parsed.projSections.map((s) => s.fourcc);
+  assert.ok(fourccs.every((f) => BANK_SECTIONS.includes(f) || ["PNam", "PCpr", "PMsg"].includes(f)), fourccs.join(","));
+  const bytes = new Document(planBankExport(doc, doc.selectableInstrumentSlots(), { pack: packSections(pack) })).toBytes();
+  assert.deepEqual(readPackStrings(bytes), { name: "Baião kit", copyright: "© 2026 Somebody", message: "Line one\nLine two" });
+  assert.notEqual(projectName, "Baião kit");
+  // Empty strings write nothing, and an unnamed pack reads back empty.
+  const { parsed: bare } = exportAndRead(doc, doc.selectableInstrumentSlots(), { pack: packSections({ name: "  " }) });
+  assert.ok(!bare.projSections.some((s) => s.fourcc.startsWith("P")));
+  // Every way a .tsii reaches a project takes only its bank sections.
+  const tsii = parseTaud(bytes);
+  const song = { ...parseTaud(readFileSync(demo("16uba_baion"))), kind: "tpif" };
+  const combined = combineTpif(tsii, song);
+  assert.equal(combined.projSections.filter((s) => s.fourcc === "PNam").length,
+    song.projSections.filter((s) => s.fourcc === "PNam").length);
+  assert.ok(!combined.projSections.some((s) => s.fourcc === "PMsg" && new TextDecoder().decode(s.payload).includes("Line one")));
+  // File names in the library.
+  assert.equal(packFile("My kit"), "My kit.tsii");
+  assert.equal(packFile("My kit.tsii"), "My kit.tsii");
+  assert.equal(packTitle("A.TSII"), "A");
+});

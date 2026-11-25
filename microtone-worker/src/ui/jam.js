@@ -2,7 +2,7 @@
 // jam bank, releasing a key stops the voice it took. Chording where the piano
 // auditions, last-key-wins on one voice where it ENTERS notes (item 140.1).
 
-import { DEFAULT_KEYMAP, keymapHas, keymapNote } from "./keymap.js";
+import { DEFAULT_KEYMAP, keymapHas, keymapNote, keymapPeriod } from "./keymap.js";
 import { JAM_VOICES, JAM_VOICE_BASE } from "../../core/engine/constants.js";
 
 // Hosts that deliver hardware autorepeat as a keyup+keydown PAIR (X11 without
@@ -174,8 +174,19 @@ export class JamKeyboard {
   }
 
   /** Step the keyboard transposition, clamped to two digits either way —
-   *  anything wider is what the octave keys are for. */
+   *  anything wider is what the octave keys are for. A whole period (12 on a
+   *  semitone layout, the table's length on a degree one) is folded into the
+   *  octave, which plays the same notes: Oct 3 −12 becomes Oct 2, Oct 3 +12
+   *  Oct 4. At the octave's end of the range the transposition stays. */
   transposeDelta(d) {
     this.transpose = Math.min(Math.max(this.transpose + d, -TRANSPOSE_MAX), TRANSPOSE_MAX);
+    const period = keymapPeriod(this.keymap, this.store.pitchPreset);
+    if (period > 0) {
+      const whole = Math.trunc(this.transpose / period);
+      const octave = Math.min(Math.max(this.octave + whole, OCTAVE_MIN), OCTAVE_MAX);
+      const moved = octave - this.octave;
+      this.octave = octave;
+      this.transpose -= moved * period;
+    }
   }
 }

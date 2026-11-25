@@ -41,8 +41,8 @@ const until = async (fn, ms = 4000) => {
 
   const foot = iv.listEl.querySelector(".side-foot-inst");
   check("Export… sits at the foot of the list", !!foot && iv.listEl.lastElementChild === foot);
-  const exportBtn = foot.querySelector("button");
-  check("its label", exportBtn.textContent === "Export…", exportBtn.textContent);
+  const exportBtn = [...foot.querySelectorAll("button")].find((b) => b.textContent === "Export…");
+  check("its label", !!exportBtn, [...foot.querySelectorAll("button")].map((b) => b.textContent).join("|"));
 
   // ── Cancel: nothing is saved ──
   exportBtn.click();
@@ -75,13 +75,37 @@ const until = async (fn, ms = 4000) => {
   const tally = dlg.querySelector(".import-tally").textContent;
   check("the tally counts the ticks", tally.startsWith(`2 of ${slots.length}`), tally);
   check("Export is enabled again", proceed.disabled === false);
+  // The pack's own strings, and its name in the library.
+  const fields = [...dlg.querySelectorAll(".bank-pack input, .bank-pack textarea")];
+  check("file, pack name, copyright and message fields", fields.length === 4, String(fields.length));
+  const [fileIn, nameIn, cprIn, msgIn] = fields;
+  fileIn.value = "smoke pack";
+  nameIn.value = "Smoke Kit";
+  cprIn.value = "© Smoke";
+  msgIn.value = "first line\nsecond line";
+  check("Proceed saves to the library", /library/i.test(proceed.textContent), proceed.textContent);
+  const lib = await import("../../src/ui/instlibrary.js");
+  if (await lib.packExists("smoke pack.tsii")) await lib.removePack("smoke pack.tsii");
   const before = doc.toBytes();
   proceed.click();
-  const got = await until(() => downloads[0], 20000);
-  check("a .tsii is downloaded", !!got && got.name.endsWith(".tsii"), got?.name);
-  const bytes = new Uint8Array(await (await fetch(got.href)).arrayBuffer());
+  const saved = await (async () => {
+    for (let t = 0; t < 20000; t += 100) {
+      const p = (await lib.libraryPacks()).find((x) => x.file === "smoke pack.tsii");
+      if (p) return p;
+      await sleep(100);
+    }
+    return null;
+  })();
+  check("the pack is in the library, nothing downloaded", !!saved && downloads.length === 0, saved?.file);
+  check("the index keeps the pack's name and copyright",
+    saved?.pack?.name === "Smoke Kit" && saved?.pack?.copyright === "© Smoke", JSON.stringify(saved?.pack));
+  const bytes = await lib.loadPack("smoke pack.tsii");
   const parsed = parseTaud(bytes);
   check("it is a bank with no songs", parsed.kind === "tsii" && parsed.songs.length === 0);
+  const strings = lib.readPackStrings(bytes);
+  check("it carries the pack's strings", strings.name === "Smoke Kit" && strings.message === "first line\nsecond line",
+    JSON.stringify(strings));
+  check("the project's own name is untouched", doc.projectString("PNam") !== "Smoke Kit");
   const zero = (s) => parsed.sampleInstImage.subarray(8388608 + s * 256, 8388608 + (s + 1) * 256).every((v) => v === 0);
   const want = new Set([meta, plain, ...doc.instruments[meta].sourceSlots]);
   const keptOk = [...want].every((s) => !zero(s));
@@ -91,6 +115,45 @@ const until = async (fn, ms = 4000) => {
   const after = doc.toBytes();
   check("the project is unchanged",
     before.length === after.length && before.every((v, i) => v === after[i]) && !doc.dirty);
+  const banner = await until(() => [...win.document.querySelectorAll(".banner")].find((b) => b.textContent.includes("smoke pack")));
+  check("a banner says where it went", !!banner);
+
+  // ── File › Instruments lists it; Download and Import work from there ──
+  banner.querySelector("button").click(); // Show
+  const fv = await until(() => M.filesView?.tab === "instruments" && M.filesView);
+  check("Show opens File › Instruments", !!fv);
+  const row = await until(() => [...win.document.querySelectorAll(".ipack-table tbody tr")]
+    .find((tr) => tr.textContent.includes("smoke pack")), 6000);
+  check("the tab lists the pack with its own name", !!row && row.textContent.includes("Smoke Kit"));
+  row.querySelector(".ipack-actions button:nth-child(2)").click(); // Download
+  const got = await until(() => downloads.find((d) => d.name === "smoke pack.tsii"), 6000);
+  check("Download hands over the .tsii", !!got);
+  const imp = row.querySelector(".ipack-import");
+  check("Import is there while a project is open", imp && !imp.disabled);
+  imp.click();
+  const idlg = await until(() => win.document.querySelector("dialog.import-modal[open]"), 8000);
+  check("Import opens the instrument picker on the pack", !!idlg && idlg.textContent.includes("smoke pack"));
+  idlg?.querySelector(".act-cancel")?.click();
+  await sleep(100);
+
+  // ── For the desktop app: everything, laid out as ~/Microtone ──
+  fv.setTab("projects");
+  const desk = await until(() => [...win.document.querySelectorAll(".files-bar button")]
+    .find((b) => b.textContent.includes("desktop app")), 6000);
+  check("the browser offers the archive for the desktop app", !!desk);
+  desk.click();
+  const ask = await until(() => win.document.querySelector("dialog.modal-text[open]"));
+  check("it says what to do first", !!ask && ask.textContent.includes("Microtone folder"));
+  ask.querySelector(".modal-buttons .proceed").click();
+  const zipDl = await until(() => downloads.find((d) => d.name.startsWith("microtone-for-desktop-")), 20000);
+  check("a ZIP is downloaded", !!zipDl, zipDl?.name);
+  const { unzipSync } = await import("../../core/vendor/fflate.esm.js");
+  const files = Object.keys(unzipSync(new Uint8Array(await (await fetch(zipDl.href)).arrayBuffer())));
+  check("everything sits under Microtone/", files.length > 1 && files.every((f) => f.startsWith("Microtone/")), files.slice(0, 4).join(", "));
+  check("the pack and its index are in Microtone/Instruments",
+    files.includes("Microtone/Instruments/smoke pack.tsii") && files.includes("Microtone/Instruments/index.json"));
+  check("the instructions travel with it", files.some((f) => /^Microtone\/[^/]+\.txt$/.test(f)));
+  await lib.removePack("smoke pack.tsii");
  } catch (err) {
   failures++;
   log("EXCEPTION: " + (err.stack ?? err));

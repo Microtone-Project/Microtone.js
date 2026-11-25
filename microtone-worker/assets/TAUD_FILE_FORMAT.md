@@ -1150,7 +1150,9 @@ Both are the same container with parts omitted.
 
 - The song count is 0 and there is no song table.
 - The version byte's kind bits are `10`.
-- Project Data carries only instrument- and sample-scoped sections — those whose FourCC begins with `I` or `S`.
+- Project Data carries only instrument- and sample-scoped sections — those whose FourCC begins with `I` or `S` — and, **OPTIONALLY**, `PNam`, `PCpr` and `PMsg` (§9.2).
+
+A `.tsii` that is an instrument pack in its own right **MAY** carry `PNam`, `PCpr` and `PMsg`: the pack's name, copyright notice and message, encoded as §9.2 describes. They belong to the PACK, not to any project: they are not the strings of the project the bank was taken from, and a reader that loads a `.tsii` into a project, or starts a project from one, **MUST NOT** take them as that project's. No other `P` section **MAY** appear in a `.tsii`.
 
 **`.tpif` — Taud Pattern Image.** Stores patterns and songs alone.
 

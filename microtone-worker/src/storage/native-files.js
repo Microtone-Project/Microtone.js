@@ -1,7 +1,8 @@
 // The desktop app's store (desktop-qt/src/filestore.cpp): projects,
-// soundfonts and keymaps as ordinary files in a folder of the person's own —
-// ~/Microtone/{Projects,Soundfonts,Keymaps}, %USERPROFILE%\Microtone on
-// Windows — and the autosave copies in the app's data. The same functions as
+// soundfonts, keymaps and instrument packs as ordinary files in a folder of
+// the person's own — ~/Microtone/{Projects,Soundfonts,Keymaps,Instruments},
+// %USERPROFILE%\Microtone on Windows — and the autosave copies in the app's
+// data. The same functions as
 // opfs-browser.js, over /api/files on the app's own server; opfs.js picks
 // this one wherever the shell says it has a store
 // (window.__MICROTONE_NATIVE__.files).
@@ -163,6 +164,48 @@ export async function soundfontFile(name) {
 
 export async function removeSoundfont(name) {
   try { await removePath("soundfonts", name); } catch { /* absent is fine */ }
+}
+
+// ── instrument packs ──
+
+const INSTRUMENT_INDEX = "index.json";
+
+export async function writeInstrumentPack(name, bytes) {
+  await writeBytes("instruments", name, bytes);
+}
+
+export async function readInstrumentIndex() {
+  try {
+    const index = JSON.parse(new TextDecoder().decode(await readBytes("instruments", INSTRUMENT_INDEX)));
+    return index && typeof index === "object" ? index : {};
+  } catch {
+    return {};
+  }
+}
+
+export async function writeInstrumentIndex(index) {
+  await writeInstrumentPack(INSTRUMENT_INDEX, new TextEncoder().encode(JSON.stringify(index, null, 1)));
+}
+
+export async function listInstrumentPacks() {
+  try {
+    const { files } = await listStore("instruments");
+    return files.filter((f) => !f.name.includes("/") && f.name !== INSTRUMENT_INDEX)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  } catch {
+    return [];
+  }
+}
+
+/** The stored pack, as a File. */
+export async function instrumentPackFile(name) {
+  const res = await check(await fetch(url("instruments", name)), `reading ${name}`);
+  const modified = Date.parse(res.headers.get("Last-Modified") ?? "");
+  return new File([await res.blob()], name, Number.isFinite(modified) ? { lastModified: modified } : {});
+}
+
+export async function removeInstrumentPack(name) {
+  try { await removePath("instruments", name); } catch { /* absent is fine */ }
 }
 
 // ── projects ──

@@ -56,8 +56,11 @@ export const INTERP_SHAPES = ["linear", "cosine", "concave", "convex", "hermite"
 /** The two ways a NOTE column can be interpolated (see planInterpolate). */
 export const PITCH_MODES = ["continuous", "glissando"];
 
-// SoundFont 2's own pair of curves, in the form every SF2 player implements
-// them (FluidSynth's conversion tables): with `u` the input over 0…1,
+// SoundFont 2's own pair of curves (SoundFont 2.04 §8.2.4, source types 1 and
+// 2): the concave one is the logarithm of the squared fraction of the range
+// left, spread over the 96 dB of the default modulators' 960 cB, and the
+// convex one is the same curve with its ends reversed. With `u` the input over
+// 0…1,
 //
 //     concave(u) = −(40/96)·log10(1 − u)      convex(u) = 1 + (40/96)·log10(u)
 //

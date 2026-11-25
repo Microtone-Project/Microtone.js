@@ -2400,6 +2400,25 @@ button.nota-assign { font-size: 0.85rem; }
   .sf-table th:nth-child(4), .sf-table tr:not(.sf-job) td:nth-child(4) { display: none; }
   .sf-table .sf-job progress { width: 5rem; }
 }
+/* The Instruments subtab (filesinstruments.js) borrows the table above: the
+   note is its third column, the pack's own name its second. */
+.ipack-table td:nth-child(2) { width: auto; white-space: nowrap; max-width: 16rem; overflow: hidden; text-overflow: ellipsis; }
+.ipack-table td:nth-child(3) { width: 100%; }
+.ipack-table td:nth-child(5), .ipack-table .ipack-actions { white-space: nowrap; }
+@media (max-width: 600px) {
+  .ipack-table th:nth-child(2), .ipack-table td:nth-child(2),
+  .ipack-table th:nth-child(5), .ipack-table td:nth-child(5) { display: none; }
+  .ipack-table th:nth-child(3), .ipack-table td:nth-child(3) { display: table-cell; }
+}
+/* The export dialog's pack strings: a message is prose, several lines. */
+.bank-pack { margin-top: 0.8rem; }
+.bank-pack input { font: inherit; }
+.bank-pack textarea {
+  flex: 1 1 auto; min-width: 0; resize: vertical; font: inherit;
+  background: var(--panel-2); color: var(--fg);
+  border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.25rem 0.4rem;
+}
+.bank-pack .modal-field:has(textarea) { align-items: flex-start; }
 .files-online { margin-top: 2rem; padding-top: 1rem; border-top: 8px solid var(--border); }
 .files-online-head { margin: 0 0 0.75rem; font-size: 1rem; color: var(--fg2); }
 .files-online-count { color: var(--dim); font-size: 0.9rem; font-weight: normal; }

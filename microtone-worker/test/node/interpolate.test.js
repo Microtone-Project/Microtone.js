@@ -72,7 +72,7 @@ test("easeAt: cosine is symmetric, SF2 concave hangs back and convex leads", () 
     assert.ok(Math.abs(easeAt("cosine", t) + easeAt("cosine", 1 - t) - 1) < 1e-12,
       `cosine symmetric at ${t}`);
   }
-  // FluidSynth's own tables: concave(0.5) = −(40/96)·log10(0.5) ≈ 0.1254.
+  // SF2 §8.2.4's concave curve: concave(0.5) = −(40/96)·log10(0.5) ≈ 0.1254.
   assert.ok(Math.abs(easeAt("concave", 0.5) - 0.12543) < 1e-4);
   assert.ok(Math.abs(easeAt("convex", 0.5) - 0.87457) < 1e-4);
   // …and they are each other's mirror, which is what makes them a PAIR.

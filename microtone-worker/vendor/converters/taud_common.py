@@ -136,7 +136,7 @@ NOTE_NOP    = 0x0000
 NOTE_KEYOFF = 0x0001
 NOTE_CUT    = 0x0002
 NOTE_NOTEFADE = 0x0003   # IT Note Fade ("~~~"): CHN_NOTEFADE — fade by instrument fadeout, sustain kept
-NOTE_FASTFADE = 0x0004   # ~0.3 s note-fade (SF2 exclusiveClass choke; fluid_voice_kill_excl)
+NOTE_FASTFADE = 0x0004   # ~0.3 s note-fade (SF2 exclusiveClass choke: "rapidly terminated")
 TAUD_C4     = 0x5000   # The audio engine's Middle C
 
 # Cue sheet instruction byte (cue offset 30; offset 31 = arg byte for 2-byte forms).

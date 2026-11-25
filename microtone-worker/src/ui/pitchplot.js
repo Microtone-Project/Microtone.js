@@ -25,18 +25,35 @@
 // root would say the lane holds one note where it is playing a chord.
 //
 // ── the band ──
-// The axis spans ±1 period about a BAND ROOT — an actual octave/period root,
-// so the register the tab names is an absolute one. The root only moves when
-// a note falls outside that span, and then it re-roots to the new note's own
-// period. That hysteresis is the whole design:
+// The axis spans ±1 period about a BAND ROOT. The root only moves when a note
+// falls outside that span — that hysteresis is the whole design:
 //
 //   * the axis is two periods wide, so ordinary melodic motion — which lives
 //     inside one — never touches the edges, and reads as pure contour;
 //   * a B→C step does NOT recolour the tab, because it does not leave the
 //     band. Colouring by the note's own octave would flash at every such step,
 //     which is the arbitrary place, not the musical one;
-//   * a LEAP of more than a period does re-root, and that is exactly when the
-//     tab changes colour. One event, one signal.
+//   * a LEAP out of the band does re-root, and that is exactly when the tab
+//     changes colour. One event, one signal.
+//
+// WHERE it re-roots is chosen from CONTEXT, not from the one note that left
+// (item 364). The new band is fitted to the notes that FOLLOW — as many as
+// fit inside two periods, up to FIT_ROWS rows ahead — and is an actual period
+// root (so the register the tab names is an absolute one) whenever such a
+// root shows all of them; only a passage that no period root can hold (a
+// two-octave sweep from G to G) gets a root at its own middle. Two things follow, and they are the point:
+//
+//   * a REPEATING figure is fitted whole the first time the band moves for
+//     it, so every repetition draws the same shape, unbroken. The notes just
+//     before the one that left, which both bands could show, go to whichever
+//     side of the widest leap among them they sit — the break lands where the
+//     music changed register. A walk that re-rooted on the note that left
+//     would cut a figure wider than one period at a different place each
+//     time round;
+//   * the plan never looks BEHIND it, and a long rest (more than RE_ENTRY_ROWS
+//     silent rows) starts a new PHRASE that is planned from its own notes
+//     alone. So the same passage after a rest draws the same wherever it
+//     comes in the song, whatever was played before it.
 //
 // The contour is not drawn across a re-root: the axis means something
 // different on either side of one, so joining them would draw a line nobody
@@ -69,6 +86,15 @@ const DEFAULT_PERIOD = 0x1000;
  *  a phrase, short enough that it gives up on an actual rest rather than
  *  ruling a line down half the screen. */
 export const RE_ENTRY_ROWS = 8;
+
+/** How far ahead (rows) a re-root looks for the notes it should show: the
+ *  notes that follow, up to this far, for as long as their range still fits
+ *  the band's two periods. A figure up to this long is fitted whole, at
+ *  whatever point it is entered. */
+export const FIT_ROWS = 32;
+/** Two leaps closer than this fraction of a period count as equal when the
+ *  widest is looked for (a quarter of a 12-TET semitone). */
+const LEAP_TIE = 1 / 48;
 
 /** The register ANCHOR_NOTE (middle C) sits in, and so the base the band's
  *  numbering counts from — the same numbering resolveNoteSymbol reports. The
@@ -109,7 +135,8 @@ export function plotNote(shown, sounding) {
  * @param preset the active pitch table — only its `interval` is read.
  * @returns one entry per row: null where nothing is placed, else
  *          `{ x, octave, joins, arp }` where `x` ∈ 0..1 is the position across
- *          the cell, `octave` the band's absolute octave/period number,
+ *          the cell, `octave` the band's absolute octave/period number (the
+ *          one its root sits in),
  *          `joins` whether a contour line may run up to the previous entry,
  *          and `arp` the other two pitches' positions, or null.
  */
@@ -117,40 +144,96 @@ export function plotSeries(rows, preset) {
   const period = plotPeriod(preset);
   const octaveOf = (n) => ANCHOR_OCTAVE + Math.floor((n - ANCHOR_NOTE) / period);
   const rootOf = (oct) => ANCHOR_NOTE + (oct - ANCHOR_OCTAVE) * period;
+  const isObj = (e) => typeof e === "object" && e !== null;
 
-  const out = new Array(rows.length).fill(null);
-  let octave = null;   // the band's register
-  let root = 0;        // …and the note word at its foot
-  let prevRow = -1;    // the last row that placed a tick
-
+  // The rows that place a tick, in order, each with the end of its PHRASE
+  // (the index past its last note): a gap longer than RE_ENTRY_ROWS ends one.
+  const at = [], notes = [];
   for (let row = 0; row < rows.length; row++) {
     const entry = rows[row];
-    const note = (typeof entry === "object" && entry !== null ? entry.note : entry) | 0;
-    if (!isPlottable(note)) continue;
-    // Re-root on the first note, and whenever one leaves the band. Either way
-    // the axis has moved, so the contour breaks here.
-    const reRooted = octave === null || Math.abs(note - root) > period;
-    if (reRooted) {
-      octave = octaveOf(note);
-      root = rootOf(octave);
+    const note = (isObj(entry) ? entry.note : entry) | 0;
+    if (isPlottable(note)) { at.push(row); notes.push(note); }
+  }
+  const phraseEnd = new Array(at.length);
+  for (let k = at.length - 1; k >= 0; k--) {
+    phraseEnd[k] = k + 1 < at.length && at[k + 1] - at[k] <= RE_ENTRY_ROWS ? phraseEnd[k + 1] : k + 1;
+  }
+
+  /** The band for a re-root at note k: fitted to the notes ahead of it. */
+  const fit = (k) => {
+    let lo = notes[k], hi = notes[k];
+    for (let j = k + 1; j < phraseEnd[k] && at[j] - at[k] <= FIT_ROWS; j++) {
+      const a = Math.min(lo, notes[j]), b = Math.max(hi, notes[j]);
+      if (b - a > 2 * period) break;
+      lo = a; hi = b;
     }
+    // A period root that shows the whole stretch — the one nearest its middle
+    // (the lower on a tie) — else the middle itself.
+    const mid = (lo + hi) / 2;
+    let best = null;
+    for (let oct = octaveOf(hi - period); oct <= octaveOf(lo + period); oct++) {
+      const r = rootOf(oct);
+      if (r < hi - period || r > lo + period) continue;
+      if (best === null || Math.abs(r - mid) < Math.abs(best - mid)) best = r;
+    }
+    return best ?? mid;
+  };
+
+  // Pass 1: each note's band root. A phrase's first note roots a band fitted
+  // ahead of it; a note that leaves the band roots a new one the same way.
+  // The notes just before it that BOTH bands can show could go either side of
+  // the break, so it is put at the widest leap among them (the later on a
+  // tie, which is the note that left) — where the music changed register,
+  // not wherever the old band's edge happened to be crossed. A band that can
+  // show its whole predecessor's notes simply replaces it.
+  const rootAt = new Array(at.length);
+  let root = null, segStart = 0;
+  for (let k = 0; k < at.length; k++) {
+    if (k === 0 || phraseEnd[k - 1] === k) {
+      segStart = k;
+      root = fit(k);
+    } else if (Math.abs(notes[k] - root) > period) {
+      root = fit(k);
+      let j = k;
+      while (j > segStart && Math.abs(notes[j - 1] - root) <= period) j--;
+      let b = j;
+      if (j > segStart) {
+        // Steps that differ by less than LEAP_TIE are the same size: 12-TET's
+        // semitones are 341 and 342 units on the grid.
+        let widest = -Infinity;
+        for (let c = k; c >= j; c--) {
+          const leap = Math.abs(notes[c] - notes[c - 1]);
+          if (leap > widest + period * LEAP_TIE) { widest = leap; b = c; }
+        }
+      }
+      for (let i = b; i < k; i++) rootAt[i] = root;
+      segStart = b;
+    }
+    rootAt[k] = root;
+  }
+
+  // Pass 2: placement. The contour breaks wherever the root changed (the
+  // axis moved) and at a phrase's start.
+  const out = new Array(rows.length).fill(null);
+  for (let k = 0; k < at.length; k++) {
+    const row = at[k], note = notes[k], entry = rows[row], r = rootAt[k];
+    const fresh = k === 0 || phraseEnd[k - 1] === k || rootAt[k - 1] !== r;
     // ±1 period about the root, so the root itself sits dead centre. An
     // arpeggio's other two pitches are placed on the SAME band — they belong
     // to this row, and a chord that re-rooted the band halfway through would
     // move the axis under the note it is decorating.
-    const place = (n) => Math.min(Math.max(0.5 + (n - root) / (2 * period), 0), 1);
-    const arp = (typeof entry === "object" && entry !== null ? entry.arp : null) ?? null;
+    const place = (n) => Math.min(Math.max(0.5 + (n - r) / (2 * period), 0), 1);
+    const arp = (isObj(entry) ? entry.arp : null) ?? null;
     out[row] = {
       x: place(note),
-      octave,
-      joins: !reRooted && prevRow >= 0 && row - prevRow <= RE_ENTRY_ROWS,
+      octave: octaveOf(r),
+      joins: !fresh,
       // A `J $0000` with nothing in its memory is an arpeggio of the note
       // with itself twice over: it sounds like one pitch, so it draws as one.
       arp: arp && (arp[0] !== 0 || arp[1] !== 0)
         ? [place(note + arp[0]), place(note + arp[1])]
         : null,
     };
-    prevRow = row;
   }
   return out;
 }

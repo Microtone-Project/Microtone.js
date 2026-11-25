@@ -51,6 +51,7 @@ import { showProgress } from "./popups/progress.js";
 import { fetchDemo } from "./demos.js";
 import { getSoundfont, getBundledSoundfont, pickUserSoundfont } from "./soundfont.js";
 import { setShowLibrary, librarySoundfonts, loadSoundfont, libraryChangedElsewhere } from "./sflibrary.js";
+import { setShowInstrumentLibrary } from "./instlibrary.js";
 import { resolveBanks, rememberBank } from "./adlibbank.js";
 import { decodeHandoff, handoffArmed } from "./handoff.js";
 import { presetForNotation } from "../../core/tuning/pitchtables.js";
@@ -1013,6 +1014,8 @@ const VIEW_SPEC = {
       importMidi: (folder) => importMidiInteractive({ toOpfs: true, folder }),
       editSong: (i) => editSongInteractive(i),
       openDemo: (entry) => loadDemo(entry),
+      // A stored pack imported from the File view's Instruments tab: show it.
+      showInstruments: (slot) => adoptNewInstrument(slot),
     }),
   },
   keymap: {
@@ -1200,6 +1203,11 @@ function showView(name) { split.reveal(name); }
 setShowLibrary(() => {
   showView("files");
   viewNamed("files")?.setTab("soundfonts");
+});
+// …and so does an instrument pack Export… saved into the library.
+setShowInstrumentLibrary(() => {
+  showView("files");
+  viewNamed("files")?.setTab("instruments");
 });
 
 /** One view's show/hide, per pane copy. `on` = its pane is showing it. */
