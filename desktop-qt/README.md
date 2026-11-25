@@ -2,8 +2,8 @@
 
 Microtone as a desktop application: the web app in `../microtone-worker`, in a
 QtWebEngine (Chromium) window, served by the shell itself. This is the
-successor to the Tauri build in `../desktop` (item 336 in the TODO list has
-the measurements). On Linux, WebKitGTK delivers the audio port's blocks through
+successor to the Tauri build, which lived in `../desktop` until 5.1.0
+(v5.0.6's tree has it; item 336 in the TODO list has the measurements). On Linux, WebKitGTK delivers the audio port's blocks through
 the page's main thread, so the bigger the window, the more the sound drops out.
 Chromium does not.
 
@@ -356,11 +356,10 @@ person says **Download**, and nothing is installed until the app quits:
 - **Where it asks:** `https://microtone.cc/api/desktop/update?channel=…`.
   The site redirects to the channel's manifest on GitHub
   (`server/desktop-update.js`), so the releases can move without stranding
-  installed copies. `stable` is the latest release's `desktop.json`, which no
-  release has until the switch from the Tauri build, so until then copies hear
-  "nothing new". `preview` is the `desktop-preview` pre-release's. The channel
-  is a build option (`-DMICROTONE_UPDATE_CHANNEL`, default `stable`); CI
-  builds `preview` until the switch.
+  installed copies. `stable` is the latest release's `desktop.json` (5.1.0
+  on). `preview` is the `desktop-preview` pre-release's. The channel is a
+  build option (`-DMICROTONE_UPDATE_CHANNEL`, default `stable`); CI builds
+  `stable`, and a preview run by hand asks for `preview` (or `stable`).
 - **The manifest is the Tauri updater's `latest.json` shape** (version, notes,
   pub_date, platforms → url + signature; `windows-x86_64`,
   `darwin-universal`/`-aarch64`/`-x86_64`, `linux-x86_64-appimage`/`-deb`/
@@ -410,13 +409,19 @@ person says **Download**, and nothing is installed until the app quits:
   itself, and **Get it** opens the release's page (the manifest's `page`, else
   the channel's GitHub release) in the system's browser. Nothing downloads:
   the shell refuses. `MICROTONE_UPDATE_URL=none` asks nothing at all.
+- **Releasing: raise `"version"` in `microtone-worker/package.json` and push
+  to master.** `.github/workflows/desktop-qt.yml` builds every push to
+  master, and when the version has no `v<version>` release yet it signs the
+  installer, the `.app.tar.gz`, the AppImage, the `.deb` and the `.rpm` with
+  the `TAURI_SIGNING_PRIVATE_KEY` secrets (`tauri signer sign
+  --app-version`), checks each signature with `minisign-check` against the
+  built-in key, uploads them with the `.dmg`, their `desktop.json`
+  (`tools/release-manifest.js`) and the Tauri bridge's `latest.json` (below)
+  to a draft, and publishes it as "latest" once everything is in.
 - **Publishing a preview is by hand:** run "Desktop (Qt)" with
-  *publish-preview* ticked. It signs the installer, the `.app.tar.gz`, the
-  AppImage, the `.deb` and the `.rpm` with the `TAURI_SIGNING_PRIVATE_KEY`
-  secrets (`tauri signer sign --app-version`), checks each signature with
-  `minisign-check` against the built-in key, and replaces the
-  `desktop-preview` pre-release (never "latest") with them, the `.dmg` and
-  their `desktop.json`. A push publishes nothing.
+  *publish-preview* ticked. The same, onto the `desktop-preview` pre-release
+  (never "latest"). Its *channel* is the channel the build asks: `preview`;
+  `stable` once, to move the testers' copies on to the releases.
 - `MICROTONE_UPDATE_URL`, `MICROTONE_UPDATE_KEY`, `MICROTONE_UPDATE_TEST=run`
   and `MICROTONE_UPDATE_TEST=sudo` (a package install through `sudo -n`, for
   CI) are for tests (`updater.h`).
@@ -444,9 +449,17 @@ Tested:
 - `tools/minisign-check` against Tauri-made signatures: good, a tampered file,
   another key, an edited trusted comment, a 50 MB file; and the real release.
 
-**The switch from the Tauri build** (not done yet) will be a release whose
-`latest.json` (what Tauri copies read) and `desktop.json` both point at this
-build's files, signed with the one key:
+**The switch from the Tauri build** (5.0.6 → 5.1.0). Tauri 5.0.6 asks the
+site (`/api/desktop/update?channel=stable&from=tauri`), which answers 204
+until `TAURI_MOVES` in `server/desktop-update.js` is thrown and then sends it
+this build's `desktop.json`, which the Tauri updater installs: the move is
+thrown on the site, not by a release. Tauri copies up to 5.0.5 read GitHub's
+latest release's `latest.json`, so every release carries v5.0.6's own
+(fetched by the workflow, its version checked): they update to 5.0.6 first,
+and no copy skips its checks. 5.0.6 declines the update on macOS before 13,
+and on Windows, once this build is installed beside it, says it is the old
+app (keep it until this one shows the projects, then uninstall it). How each
+system takes the update:
 - Windows: the Tauri updater runs our installer with `/UPDATE /P /R`, which
   it accepts. The Tauri app stays installed beside it, under its own uninstall
   entry.
@@ -454,10 +467,12 @@ build's files, signed with the one key:
 - Linux: an AppImage replaces the Tauri AppImage's file; the Tauri .deb and
   .rpm are upgraded by ours (`pkexec dpkg -i` / `rpm -U` — the Tauri updater's
   way too), which are named `microtone` as Tauri's are.
-- **macOS 12:** this build needs macOS 13 (Qt 6.11). A Tauri copy on macOS 12
-  must not be offered it — the update would install an app that will not
-  open. Tauri's manifest cannot say "macOS 13 and later", so the hand-over
-  release has to decline the update itself on 12 (and say why).
+- **macOS 12:** this build needs macOS 13 (Qt 6.11). Tauri's manifest cannot
+  say "macOS 13 and later", so 5.0.6 declines the update itself there, and
+  says why once per version.
+- Tried end to end on Linux (2026-11-26): Tauri 5.0.6 (a probe copy marked
+  as an AppImage) moved to this build's 5.1.0 AppImage through a locally
+  served manifest, the handed-over project in its list.
 
 ## When it goes wrong: logs, crash reports, diagnostics
 
@@ -1095,12 +1110,9 @@ carried library that no Debian package owns.
 
 ## Not yet done
 
-- The switch from the Tauri build (Updates, above): a release that serves
-  both apps (after the Tauri hand-over release, which must decline the
-  update on macOS 12: this build needs 13), and what becomes of the Tauri
-  install on Windows. The site's side is live: the sign-in's `port`
-  parameter and the update redirect (`/api/desktop/update`, both channels
-  answering 302, checked 2026-11-20).
+- The switch from the Tauri build (Updates, above): throwing `TAURI_MOVES`
+  once 5.1.0 has been checked; the move tried for real on Windows and macOS
+  (a 5.0.6 copy with `MICROTONE_UPDATE_URL=https://microtone.cc/api/desktop/update?channel=preview&from=tauri`).
 - An AppArmor profile in the .deb (Ubuntu 23.10+), which would give the
   installed app Chromium's sandbox back; the AppImage would still need to go
   without.
@@ -1108,8 +1120,8 @@ carried library that no Debian package owns.
   notarisation).
 - Moving projects over from the Tauri build is done from both sides: this
   build reads the Tauri build's storage itself ("The earlier desktop app's
-  projects"), and a Tauri release carrying `desktop/src/handover.rs` copies
-  them too while that app is still used. The WebView2 reader has run only on
+  projects"), and Tauri 5.0.6 (its `src/handover.rs`) copies them too while
+  that app is still used. The WebView2 reader has run only on
   Chromium and Edge profiles, not yet on a real Tauri install on Windows;
   the macOS path is untried.
 - The native audio host's next steps:

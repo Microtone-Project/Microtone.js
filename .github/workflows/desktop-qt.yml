@@ -22,14 +22,27 @@
 # Windows reinstalling through the NSIS installer, macOS putting a new bundle
 # in place, an AppImage replacing its file, a .deb installed over itself) and
 # a copy that does not update itself being told (Windows' portable folder,
-# Linux's bare tree); and they ask the "preview" update channel
-# (server/desktop-update.js).
-# Everything is kept as build artifacts. Nothing here releases on a push: the
-# Tauri build (desktop.yml) still does that, until the Qt build replaces it.
-# Only a run started by hand with "publish-preview" ticked signs the updates
-# with the updater key (the Tauri build's TAURI_SIGNING_PRIVATE_KEY secrets)
-# and puts them, with their desktop.json, on the desktop-preview pre-release —
-# the preview channel testers' copies update from. Never "latest".
+# Linux's bare tree).
+#
+# RELEASES. The version is microtone-worker/package.json's, and bumping it is
+# what ships: a push to master whose version has no v<version> release yet
+# builds for the "stable" update channel, signs the updates with the updater
+# key (the TAURI_SIGNING_PRIVATE_KEY secrets — the Tauri build's key, which
+# its copies trust), uploads everything to a draft release with its
+# desktop.json, and publishes it as "latest" once every platform is in.
+# Installed copies ask https://microtone.cc/api/desktop/update
+# (server/desktop-update.js), which sends them to
+#   https://github.com/<repo>/releases/latest/download/desktop.json
+# The release also carries latest.json, the BRIDGE for Tauri copies up to
+# 5.0.5: they read GitHub's latest release's latest.json (compiled into them),
+# and this one is v5.0.6's own, so they update to the last Tauri build, which
+# then moves them on through the site (desktop-qt/README.md, "Updates").
+# Every other push to master builds and tests, and keeps artifacts only.
+#
+# By hand, "publish-preview" signs the build and puts it, with its
+# desktop.json, on the desktop-preview pre-release (never "latest"), which
+# the testers' copies update from; "channel" is the channel the build itself
+# asks (preview; stable once, to move the testers' copies to the releases).
 name: Desktop (Qt)
 
 on:
@@ -39,8 +52,13 @@ on:
         description: "Publish this build to the desktop-preview pre-release (the testers' update channel)"
         type: boolean
         default: false
+      channel:
+        description: "The update channel this build asks"
+        type: choice
+        options: [preview, stable]
+        default: preview
   push:
-    branches: [qt-native]
+    branches: [master]
     paths:
       - "desktop-qt/**"
       - "core/**"
@@ -49,12 +67,47 @@ on:
       - "COPYING"
       - ".github/workflows/desktop-qt.yml"
 
+# A release must never be cancelled half-way: on master a run waits for the
+# one before it (a newer push replaces only a run still waiting, and the run
+# that does go looks for its version's release itself).
 concurrency:
   group: desktop-qt-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+
+env:
+  UPDATE_CHANNEL: ${{ github.event_name == 'workflow_dispatch' && inputs.channel || 'stable' }}
 
 jobs:
+  # Whether this run releases (a push to master with no v<version> release
+  # yet), and whether it signs (a release, or a preview published by hand).
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.read.outputs.version }}
+      release: ${{ steps.read.outputs.release }}
+      sign: ${{ steps.read.outputs.sign }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: read
+        env:
+          PREVIEW: ${{ github.event_name == 'workflow_dispatch' && inputs.publish-preview }}
+        run: |
+          version=$(node -p "require('./microtone-worker/package.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          release=false
+          if [ "$GITHUB_EVENT_NAME" = push ] && [ "$GITHUB_REF" = refs/heads/master ]; then
+            if git ls-remote --exit-code --tags origin "refs/tags/v$version" > /dev/null; then
+              echo "v$version is released already: build and test only."
+            else
+              release=true
+            fi
+          fi
+          echo "release=$release" >> "$GITHUB_OUTPUT"
+          if [ "$release" = true ] || [ "$PREVIEW" = true ]; then echo "sign=true" >> "$GITHUB_OUTPUT"; else echo "sign=false" >> "$GITHUB_OUTPUT"; fi
+          echo "version $version, release $release, channel $UPDATE_CHANNEL"
+
   windows:
+    needs: version
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
@@ -86,7 +139,7 @@ jobs:
       - uses: ilammy/msvc-dev-cmd@v1
 
       - name: Configure
-        run: cmake -S desktop-qt -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DMICROTONE_UPDATE_CHANNEL=preview
+        run: cmake -S desktop-qt -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DMICROTONE_UPDATE_CHANNEL=${{ env.UPDATE_CHANNEL }}
 
       - name: Build
         run: cmake --build build
@@ -193,10 +246,10 @@ jobs:
           "### Windows portable copy told of an update (exit $status)", "${fence}json", (Get-Content notice.json -Raw), $fence | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
           exit $status
 
-      # Signed for the preview channel, and checked against the key the app
+      # Signed (a release, or a preview), and checked against the key the app
       # trusts before anything is published.
       - name: Sign the update
-        if: github.event_name == 'workflow_dispatch' && inputs.publish-preview
+        if: needs.version.outputs.sign == 'true'
         shell: pwsh
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -224,6 +277,7 @@ jobs:
           compression-level: 0  # LZMA already
 
   macos:
+    needs: version
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v5
@@ -244,7 +298,7 @@ jobs:
 
       # One binary for both kinds of Mac (Qt's own is universal).
       - name: Configure
-        run: cmake -S desktop-qt -B build -DCMAKE_BUILD_TYPE=Release "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64" -DMICROTONE_UPDATE_CHANNEL=preview
+        run: cmake -S desktop-qt -B build -DCMAKE_BUILD_TYPE=Release "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64" -DMICROTONE_UPDATE_CHANNEL=${{ env.UPDATE_CHANNEL }}
 
       - name: Build
         run: cmake --build build --parallel 4
@@ -310,7 +364,7 @@ jobs:
           exit $status
 
       - name: Sign the update
-        if: github.event_name == 'workflow_dispatch' && inputs.publish-preview
+        if: needs.version.outputs.sign == 'true'
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -330,6 +384,7 @@ jobs:
           compression-level: 0  # the .dmg is compressed already
 
   linux:
+    needs: version
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v5
@@ -364,7 +419,7 @@ jobs:
           cache: true
 
       - name: Configure
-        run: cmake -S desktop-qt -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DMICROTONE_UPDATE_CHANNEL=preview
+        run: cmake -S desktop-qt -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DMICROTONE_UPDATE_CHANNEL=${{ env.UPDATE_CHANNEL }}
 
       - name: Build
         run: cmake --build build
@@ -446,7 +501,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Sign the update
-        if: github.event_name == 'workflow_dispatch' && inputs.publish-preview
+        if: needs.version.outputs.sign == 'true'
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -546,7 +601,7 @@ jobs:
 
   # The preview channel: only by hand, only with publish-preview ticked.
   publish-preview:
-    needs: [windows, macos, linux]
+    needs: [version, windows, macos, linux]
     if: github.event_name == 'workflow_dispatch' && inputs.publish-preview
     runs-on: ubuntu-latest
     permissions:
@@ -560,33 +615,61 @@ jobs:
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
-          version=$(node -p "require('./microtone-worker/package.json').version")
-          win="Microtone-$version-windows-x64-setup.exe"
-          mac="Microtone-$version-macos.app.tar.gz"
-          appimage="Microtone-$version-linux-x86_64.AppImage"
-          deb="Microtone-$version-linux-amd64.deb"
-          rpm="Microtone-$version-linux-x86_64.rpm"
-          # The Tauri updater's latest.json shape (desktop-qt/src/updater.h),
-          # with the page a copy that does not update itself sends people to.
-          VERSION="$version" WIN="$win" MAC="$mac" APPIMAGE="$appimage" DEB="$deb" RPM="$rpm" node -e '
-            const fs = require("fs");
-            const e = process.env;
-            const releases = `https://github.com/${e.GITHUB_REPOSITORY}/releases`;
-            const base = `${releases}/download/desktop-preview/`;
-            const entry = (f) => ({ url: base + f, signature: fs.readFileSync(`dist/${f}.sig`, "utf8").trim() });
-            const win = entry(e.WIN), mac = entry(e.MAC), appimage = entry(e.APPIMAGE);
-            fs.writeFileSync("dist/desktop.json", JSON.stringify({
-              version: e.VERSION, notes: "A preview of the next Microtone desktop app.", pub_date: new Date().toISOString(),
-              page: `${releases}/tag/desktop-preview`,
-              platforms: { "windows-x86_64": win, "windows-x86_64-nsis": win,
-                           "darwin-universal": mac, "darwin-aarch64": mac, "darwin-x86_64": mac,
-                           "linux-x86_64": appimage, "linux-x86_64-appimage": appimage,
-                           "linux-x86_64-deb": entry(e.DEB), "linux-x86_64-rpm": entry(e.RPM) },
-            }, null, 1));'
+          v="$VERSION"
+          node desktop-qt/tools/release-manifest.js dist "$v" desktop-preview "A preview of the next Microtone desktop app."
           gh release delete desktop-preview --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes 2> /dev/null || true
           gh release create desktop-preview --repo "$GITHUB_REPOSITORY" --prerelease --latest=false --target "$GITHUB_SHA" \
-            --title "Microtone $version — desktop preview" \
+            --title "Microtone $v — desktop preview" \
             --notes "A preview of the next Microtone desktop app, for testing. Copies of it update from here." \
-            "dist/$win" "dist/$win.sig" "dist/$mac" "dist/$mac.sig" "dist/Microtone-$version-macos.dmg" \
-            "dist/$appimage" "dist/$appimage.sig" "dist/$deb" "dist/$deb.sig" "dist/$rpm" "dist/$rpm.sig" dist/desktop.json
+            "dist/Microtone-$v-windows-x64-setup.exe"{,.sig} "dist/Microtone-$v-macos.app.tar.gz"{,.sig} "dist/Microtone-$v-macos.dmg" \
+            "dist/Microtone-$v-linux-x86_64.AppImage"{,.sig} "dist/Microtone-$v-linux-amd64.deb"{,.sig} \
+            "dist/Microtone-$v-linux-x86_64.rpm"{,.sig} dist/desktop.json
+
+  # The release: a push to master whose version has no release yet. A draft
+  # first, published (as "latest") only once everything is on it, so no copy
+  # sees half a release.
+  release:
+    needs: [version, windows, macos, linux]
+    if: needs.version.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: The bridge for the Tauri build's copies
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Tauri copies up to 5.0.5 read the latest release's latest.json:
+          # v5.0.6's own brings them to the last Tauri build, which moves on
+          # to this app through the site.
+          gh release download v5.0.6 --repo "$GITHUB_REPOSITORY" --pattern latest.json --dir bridge
+          node -e '
+            const m = JSON.parse(require("fs").readFileSync("bridge/latest.json", "utf8"));
+            if (m.version !== "5.0.6") throw new Error(`the bridge is ${m.version}, not 5.0.6`);
+            for (const [k, p] of Object.entries(m.platforms))
+              if (!p.url || !p.signature) throw new Error(`${k} has no file or signature`);
+            console.log("bridge: 5.0.6 for", Object.keys(m.platforms).join(", "));'
+          cp bridge/latest.json dist/latest.json
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          v="$VERSION"
+          node desktop-qt/tools/release-manifest.js dist "$v" "v$v" "Microtone $v. What changed: https://microtone.cc/docs.html#patchnotes"
+          # A draft left by a failed run is started afresh.
+          gh release delete "v$v" --repo "$GITHUB_REPOSITORY" --yes 2> /dev/null || true
+          gh release create "v$v" --repo "$GITHUB_REPOSITORY" --draft --target "$GITHUB_SHA" \
+            --title "Microtone $v" \
+            --notes "Microtone $v for Windows (installer), macOS 13 and later (.dmg) and Linux (AppImage, .deb, .rpm). Installed copies update themselves. What changed: https://microtone.cc/docs.html#patchnotes" \
+            "dist/Microtone-$v-windows-x64-setup.exe"{,.sig} "dist/Microtone-$v-macos.app.tar.gz"{,.sig} "dist/Microtone-$v-macos.dmg" \
+            "dist/Microtone-$v-linux-x86_64.AppImage"{,.sig} "dist/Microtone-$v-linux-amd64.deb"{,.sig} \
+            "dist/Microtone-$v-linux-x86_64.rpm"{,.sig} dist/desktop.json dist/latest.json
+          gh release edit "v$v" --repo "$GITHUB_REPOSITORY" --draft=false --latest

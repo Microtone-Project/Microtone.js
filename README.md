@@ -234,10 +234,13 @@ npm run serve            # python3 -m http.server 8738 — Microtone Touch
 
 ## Desktop app
 
-`desktop/`, beside `microtone-worker/` rather than in it, wraps the site in a
-[Tauri 2](https://v2.tauri.app/) window with self-updating releases. Building it,
-releasing it (raise the version in `microtone-worker/package.json`) and what the
-shell does for the page are in [`desktop/README.md`](desktop/README.md).
+`desktop-qt/`, beside `microtone-worker/` rather than in it, is the desktop
+app: the web app in a Qt WebEngine window, with the sound engine running
+natively on the audio device, and self-updating releases. Building it,
+releasing it (raise the version in `microtone-worker/package.json` and push to
+master) and how it works are in [`desktop-qt/README.md`](desktop-qt/README.md).
+It replaced a [Tauri 2](https://v2.tauri.app/) build (`desktop/`, last released
+as 5.0.6).
 
 ## Testing
 

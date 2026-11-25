@@ -17,6 +17,7 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 - A new project, or one built by Motif, carries the desktop app's own signature — MicrotoneQtWin, MicrotoneQtMac or MicrotoneQtLnx, after the system it was made on — and the Project view shows it. The website's still say Microtone.js, and a project that already has a signature keeps it when it is saved again, wherever that is.
 - Windows has an installer that asks for no administrator rights; macOS has a .dmg; Linux has an AppImage, a .deb and an .rpm. The app tells you when a newer version is out, downloads it when you say so and installs it when you quit.
 - It is not code-signed so Windows and macOS ask once before opening it. macOS 13 or later is needed.
+- The earlier desktop app (5.0.6) offers this one as an update when it is ready for you, and your projects come along. On Windows the new app installs beside the old one: keep the old one until the new one shows your projects, then uninstall it.
 - Beside the licence, the app carries the notices and licence texts of everything it is made with, Qt and the browser engine among them.
 
 **Each lane and each instrument can have its own notation**: a song no longer has to be written in one tuning system throughout, and a drum kit's notes now read as the drums they play.
@@ -104,6 +105,14 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 - Fixed: some SoundFont instruments came in far duller at low velocities than the soundfont intends — seven of GeneralUser GS's, among them Synth Strings 2, Concert Choir, Baritone Sax and Chiffer Lead — because a velocity-to-brightness setting that the soundfont replaces for those sounds was still applied on top of their own.
 - A choke group, such as the closed hi-hat cutting off the open one, now acts only within one drum kit: when a MIDI file changes kit, a cymbal from the old kit rings on instead of being cut short by the new kit's.
 - Everything else imports exactly as before: every other instrument in GeneralUser GS, and in the thirty-odd other soundfonts it was checked against, comes out the same.
+## Version 5.0.6 (2026-11-26)
+
+**The desktop app gets ready for its successor**: a new Microtone desktop app is on its way, and this version prepares your projects and your copy for the move.
+
+- The desktop app now also copies your projects, soundfonts and keymaps into a folder called Microtone in your home folder, where the new app keeps them; nothing is moved or deleted, and whatever you change is copied again while you work.
+- When the new app is ready, the update banner says so and offers to move you to it; your projects come along.
+- On Windows the new app installs beside this one: keep the old app until the new one shows your projects, then uninstall it.
+- The new app needs macOS 13 or later; on macOS 12 this version says so and keeps working, without further updates.
 
 ## Version 5.0.5 (2026-11-17)
 

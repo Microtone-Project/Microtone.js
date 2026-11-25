@@ -200,8 +200,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 endif()
 
 # The update channel this build asks for (src/updater.h, and the site's
-# server/desktop-update.js): "stable", or "preview" — CI's builds before the
-# switch from the Tauri build.
+# server/desktop-update.js): "stable" (releases), or "preview" (the testers'
+# builds, published by hand).
 set(MICROTONE_UPDATE_CHANNEL "stable" CACHE STRING "Update channel: stable or preview")
 set_property(CACHE MICROTONE_UPDATE_CHANNEL PROPERTY STRINGS stable preview)
 

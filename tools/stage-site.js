@@ -14,8 +14,9 @@
 //     symlinked directory (or not, depending on the Node version underneath
 //     it). /wrangler.toml runs this as its `[build]` command and uploads
 //     build/microtone-worker.
-//   - Tauri embeds desktop/dist, which desktop/tools/stage-frontend.js fills by
-//     calling stageSite() with its own extra exclusions. On a Windows runner
+//   - the desktop app carries the web app beside its binary, which
+//     desktop-qt/tools/stage-frontend.js lays in by calling stageSite() with
+//     its own extra exclusions. On a Windows runner
 //     git checks the link out as a one-line TEXT file, so the link is never
 //     copied as such: core/ is always staged from the real directory.
 //

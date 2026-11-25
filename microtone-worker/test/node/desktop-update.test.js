@@ -28,11 +28,17 @@ test("an unknown channel, another method, a neighbouring path", async () => {
   assert.equal((await ask("/api/desktop")).status, 404);
 });
 
+// The Tauri build's updater key, as every copy of it out there has it compiled
+// in (its tauri.conf.json, until desktop/ was retired with 5.1.0): only an
+// update signed with it moves those copies to this app, so it never changes.
+const TAURI_UPDATER_KEY =
+  "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEIxMThGMkQ0MzdEODVDNTAKUldSUVhOZzMxUElZc1VnWm0zM215SWxiNGpnSjNaWnR6cCtRR2VCWkU0Sm15SWNPQWloQytYZ0sK";
+
 test("the Qt build trusts exactly the Tauri build's updater key", async () => {
   const { readFile } = await import("node:fs/promises");
   const header = await readFile(new URL("../../../desktop-qt/src/updatekey.h", import.meta.url), "utf8");
-  const tauri = JSON.parse(await readFile(new URL("../../../desktop/tauri.conf.json", import.meta.url), "utf8"));
   const compiled = /kUpdateKey\[\] =\s*"([A-Za-z0-9+/=]+)";/.exec(header)?.[1];
   assert.ok(compiled, "updatekey.h holds the key");
-  assert.equal(compiled, tauri.plugins.updater.pubkey);
+  assert.equal(compiled, TAURI_UPDATER_KEY);
+  assert.match(Buffer.from(compiled, "base64").toString(), /minisign public key: B118F2D437D85C50\n/);
 });
