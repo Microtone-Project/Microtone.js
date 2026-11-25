@@ -33,6 +33,9 @@ microtone-worker/index_kaputt.html
 *.icls
 /design-system/fonts/build/
 
+# old Tauri build stuffs (removed since v5.1.0)
+desktop/
+
 # the Qt desktop build tree
 desktop-qt/build/
 desktop-qt/local-package.sh
