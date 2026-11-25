@@ -55,6 +55,38 @@ const STEP_EL = 2;
  */
 export const HOME_STRIP = 3;
 
+/**
+ * The jog wheel. The X-Touch One's is coarse and rate-limited: one step per
+ * message, a message per ~51 ms at most however fast it turns, and about one
+ * a second on a slow, steady turn (tsvm reference_materials/mackie-control,
+ * the CC capture). So a step is worth more the closer it follows the last:
+ * `jogGain` units of JOG_ROWS rows, kept as a fraction, and the cursor moves
+ * only by whole units, onto every JOG_ROWS-th row — so a turn back and forth
+ * comes back to where it began rather than drifting.
+ */
+export const JOG_ROWS = 2;
+const JOG_TICK_MS = 50;   // the device's fastest message rate (~51 ms apart)
+const JOG_SLOW_MS = 400;  // at least this far apart: one unit a step
+const JOG_RESET_MS = 600; // a pause this long starts the speed afresh
+
+/** Units a jog step is worth, from the (smoothed) time since the last: 1 when
+ *  slow, rising to about 4 at the device's fastest. */
+export function jogGain(gapMs) {
+  const g = Math.max(JOG_TICK_MS, gapMs);
+  return g >= JOG_SLOW_MS ? 1 : Math.pow(JOG_SLOW_MS / g, 2 / 3);
+}
+
+/** Rows to move from `row` by `units` whole jog units: onto the JOG_ROWS grid
+ *  (from between two of its rows, the first unit lands on the next one in
+ *  that direction). `row` null (no row grid: the Cues view) moves plainly. */
+export function jogRows(row, units) {
+  if (row === null || row === undefined) return units * JOG_ROWS;
+  const target = units > 0
+    ? Math.floor(row / JOG_ROWS) * JOG_ROWS + units * JOG_ROWS
+    : Math.ceil(row / JOG_ROWS) * JOG_ROWS + units * JOG_ROWS;
+  return target - row;
+}
+
 /** The function keys: the tabs, as F1…F7 are on the keyboard; F8 splits. */
 const F_KEYS = ["f1", "f2", "f3", "f4", "f5", "f6", "f7"];
 const ARROW_CODE = { up: "ArrowUp", down: "ArrowDown", left: "ArrowLeft", right: "ArrowRight" };
@@ -201,6 +233,10 @@ export class ControlSurface {
     this.written = [null, null];
     this.movedAt = [-Infinity, -Infinity];
     this.lastVpotAt = -Infinity;
+    this.jogAt = -Infinity;  // the jog wheel's speed and its fraction of a unit
+    this.jogGap = JOG_SLOW_MS;
+    this.jogDir = 0;
+    this.jogAcc = 0;
     this.held = null;     // a held arrow: {code, next}
     this.status = "";     // what the scribble strip's second line says
     this.statusUntil = 0;
@@ -327,16 +363,35 @@ export class ControlSurface {
     if (this.held && ARROW_CODE[ev.name] === this.held.code) this.held = null;
   }
 
-  // ── the jog wheel: a beat a detent (Shift+Ctrl+↑/↓) ──
+  // ── the jog wheel: rows, further the faster it turns (JOG_ROWS) ──
 
   jog(delta) {
-    const n = Math.abs(delta);
-    const dialog = this.host.dialogOpen();
-    for (let i = 0; i < n; i++) {
-      // in a menu, a row a detent
-      if (dialog) this.host.dialogKey(delta > 0 ? "ArrowDown" : "ArrowUp");
-      else this.host.key(delta > 0 ? "ArrowDown" : "ArrowUp", { shift: true, ctrl: true });
+    const h = this.host;
+    if (h.dialogOpen()) {
+      // in a menu, a row a step
+      for (let i = 0; i < Math.abs(delta); i++) h.dialogKey(delta > 0 ? "ArrowDown" : "ArrowUp");
+      return;
     }
+    const now = this.now();
+    const dir = Math.sign(delta);
+    const gap = now - this.jogAt;
+    this.jogAt = now;
+    if (dir !== this.jogDir || gap > JOG_RESET_MS) {
+      this.jogAcc = 0;
+      this.jogGap = JOG_SLOW_MS;
+    } else {
+      // smoothed: the device sometimes sends two messages a millisecond apart
+      this.jogGap = (this.jogGap + Math.max(gap, JOG_TICK_MS)) / 2;
+    }
+    this.jogDir = dir;
+    this.jogAcc += delta * jogGain(this.jogGap);
+    const units = Math.trunc(this.jogAcc);
+    if (units === 0) return;
+    this.jogAcc -= units;
+    // Plain arrows, so selection mode extends the block as it does from the
+    // keyboard.
+    const rows = jogRows(h.gridRow(), units);
+    for (let i = 0; i < Math.abs(rows); i++) h.key(rows > 0 ? "ArrowDown" : "ArrowUp", {});
   }
 
   // ── the knob: the lane's position ──

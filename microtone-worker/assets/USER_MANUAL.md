@@ -3776,11 +3776,11 @@ Mackie Control groups its faders in banks of eight strips. Microtone does not: *
 | Arrows | The arrow keys; held, they repeat. |
 | Zoom | Selection mode, as the backtick key. |
 | Scrub | Undo. |
-| Jog wheel | A beat per step, as **Shift+Ctrl+↑/↓**. |
+| Jog wheel | Moves the cursor by every other row: two rows a step when it turns slowly, further the faster it turns. As the arrow keys, it grows a block in selection mode. |
 
 The lamps follow the app: Play and Stop, Record, Zoom while selection mode is on, Marker while there is one, the transport's Solo while the view is split, the F key of the tab in front, and each strip's Mute, Solo and Rec for the lane. The display shows the position, the two-digit display the lane's number, and a scribble strip, where the surface has one, the lane and the last value written.
 
-A one-fader surface such as the X-Touch One steps through the eight strips by itself when its Channel ◀ ▶ are pressed, and says so with the next strip's Select. Microtone keeps it on the fourth strip (its Select lamp stays lit) and takes each step as a lane. The X-Touch One's jog wheel sends only a few steps per turn, so it moves in jumps rather than smoothly.
+A one-fader surface such as the X-Touch One steps through the eight strips by itself when its Channel ◀ ▶ are pressed, and says so with the next strip's Select. Microtone keeps it on the fourth strip (its Select lamp stays lit) and takes each step as a lane. The X-Touch One's jog wheel sends only a few steps per turn and at most about twenty a second, so Microtone reads how quickly the steps come and moves further for a quick turn; the cursor still lands on every other row, and turning back brings it back to where it began.
 
 ## Keyboard reference
 

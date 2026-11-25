@@ -14,7 +14,7 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 - The transport plays, stops, records and jumps from cue to cue; F1–F7 are the tabs; Cycle and Drop change the keyboard layout; Replace and Click move between panes, and the transport's Solo splits the view.
 - Marker marks a row (shown in the Timeline's trough) and Nudge goes back to it.
 - The display reads cue, row, speed and BPM, or bars, beats and subdivisions from the row highlights (BPM/Time).
-- The jog wheel steps a beat; Bank, Channel and the arrows move as the keyboard's arrows do; Zoom is selection mode, Scrub is undo, and a footswitch plays and stops.
+- The jog wheel moves by every other row, further the faster it turns; Bank, Channel and the arrows move as the keyboard's arrows do; Zoom is selection mode, Scrub is undo, and a footswitch plays and stops.
 - The user manual's new Control surface chapter has every control.
 
 **Split screens: Follow and Cells for each pane**: two Timelines side by side can now be set apart, one following the music and one held still, one in full cells and one in mini.

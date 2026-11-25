@@ -2653,6 +2653,14 @@ const surfaceHost = {
   setSelMode: (on) => { if (selView()) setSelMode(on); },
   undo() { store.undo?.undo(); },
   cursorRow: () => (store.doc ? store.cursor.row : null),
+  /** The focused grid's cursor row (the jog's grid), or null where rows are
+   *  not the grid's (the Cues view, the other views). */
+  gridRow() {
+    if (!store.doc) return null;
+    if (store.view === "timeline") return store.cursor.row;
+    if (store.view === "pattern") return viewNamed("pattern").cursor.row;
+    return null;
+  },
   marker: () => store.marker ?? null,
   setMarker(row) {
     store.marker = row;

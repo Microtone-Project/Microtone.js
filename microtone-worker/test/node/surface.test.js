@@ -12,7 +12,7 @@ import {
 } from "../../src/midi/mackie.js";
 import {
   ControlSurface, HOME_STRIP, effectFields, cellArg, panStart, panTurn, panRing, positionText,
-  nextPanels, faderLevel, levelFader,
+  nextPanels, faderLevel, levelFader, jogGain, jogRows, JOG_ROWS,
 } from "../../src/ui/surface.js";
 import { partnerOutput, looksLikeSurface } from "../../src/midi/ports.js";
 import { EffectOp } from "../../core/engine/tables.js";
@@ -200,6 +200,8 @@ function fakeHost(over = {}) {
     setSelMode: (on) => { host.sel = on; calls.push(["sel", on]); },
     undo: () => calls.push(["undo"]),
     cursorRow: () => 40,
+    row: 40,
+    gridRow: () => host.row,
     marker: () => host.mark,
     setMarker: (r) => { host.mark = r; calls.push(["marker", r]); },
     gotoMarker: () => calls.push(["goto"]),
@@ -261,12 +263,11 @@ test("navigation is the keyboard's chords; held arrows repeat", () => {
   s.attach(() => {});
   s.receive(noteOn(BUTTON.channelRight));
   s.receive(noteOn(BUTTON.bankLeft));
-  s.receive([0xb0, 60, 0x42]); // two detents back
+  s.receive([0xb0, 60, 0x42]); // two steps back, the first of a turn: a unit each
   assert.deepEqual(h.calls, [
     ["key", "ArrowRight", { shift: true, ctrl: true }],
     ["key", "ArrowLeft", { shift: true, ctrl: true, alt: true }],
-    ["key", "ArrowUp", { shift: true, ctrl: true }],
-    ["key", "ArrowUp", { shift: true, ctrl: true }],
+    ...Array(2 * JOG_ROWS).fill(["key", "ArrowUp", {}]),
   ]);
   h.calls.length = 0;
   h.view_ = "pattern"; // Bank steps through patterns there
@@ -425,4 +426,40 @@ test("a one-fader surface's Channel ◀ ▶ arrive as the next strip's Select", 
   h.dialog = true;
   s.receive(noteOn(0x1a));
   assert.deepEqual(h.calls, [["dkey", "ArrowLeft"]]);
+});
+
+test("the jog: a unit a slow step, more the faster, on a grid of every other row", () => {
+  assert.equal(JOG_ROWS, 2);
+  assert.equal(jogGain(1000), 1);
+  assert.equal(jogGain(400), 1);
+  assert.ok(jogGain(51) > 3.5 && jogGain(51) < 4.1);
+  assert.equal(jogGain(1), jogGain(50)); // two messages a millisecond apart are one tick
+  // onto the grid: from row 41, down lands on 42, up on 40
+  assert.equal(jogRows(41, 1), 1);
+  assert.equal(jogRows(41, -1), -1);
+  assert.equal(jogRows(40, 2), 4);
+  assert.equal(jogRows(null, -1), -2);
+
+  let now = 0;
+  const h = fakeHost();
+  const s = new ControlSurface(h, () => now);
+  const moved = () => h.calls.reduce((n, c) => n + (c[1] === "ArrowDown" ? 1 : c[1] === "ArrowUp" ? -1 : 0), 0);
+  // slow: one unit (two rows) a step
+  for (let i = 0; i < 4; i++) { now += 900; s.receive([0xb0, 60, 1]); }
+  assert.equal(moved(), 4 * JOG_ROWS);
+  // fast: at the device's ~51 ms the steps grow toward four units
+  h.calls.length = 0;
+  for (let i = 0; i < 20; i++) { now += 51; s.receive([0xb0, 60, 1]); }
+  const fast = moved();
+  assert.ok(fast > 20 * JOG_ROWS * 2.5, `fast moved ${fast}`);
+  assert.equal(fast % JOG_ROWS, 0);
+  // reversing starts the speed afresh: the first step back is one unit
+  h.calls.length = 0;
+  now += 51; s.receive([0xb0, 60, 65]);
+  assert.equal(moved(), -JOG_ROWS);
+  // in a menu, a row a step
+  h.calls.length = 0;
+  h.dialog = true;
+  now += 51; s.receive([0xb0, 60, 1]);
+  assert.deepEqual(h.calls, [["dkey", "ArrowDown"]]);
 });
