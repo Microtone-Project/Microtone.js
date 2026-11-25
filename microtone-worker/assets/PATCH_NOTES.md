@@ -4,7 +4,20 @@ Every entry below is one version of Microtone, newest first, with the date it wa
 
 Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone-project/Microtone.js).
 
-## Version 5.1.0 (2026-11-20)
+## Version 5.1.0 (2026-11-26)
+
+**A new desktop app, with the sound engine inside it**: Microtone for Windows, macOS and Linux is now a native app that plays through your computer's own audio system, in place of the website running in a window.
+
+- The engine runs inside the app, on the sound device's own thread, so a big window or a busy page no longer makes the sound drop out.
+- Settings (Ctrl+,) picks the audio system, the device, the sample rate and the buffer size. Windows has WASAPI, in shared, low-latency shared and exclusive modes, and ASIO; macOS has Core Audio; Linux has PulseAudio (PipeWire answers it), ALSA and JACK.
+- Settings also has Polyphony under Performance, from 64 to 2048 voices besides the lanes' own, starting at 256. It counts the notes a New Note Action leaves ringing, a layered instrument's further layers and an FM rack's operators; past it the oldest fades out. Exports from the app use the same limit, and the website keeps 64.
+- Projects, soundfonts, keymaps and instrument packs are ordinary files in a Microtone folder in your home folder, the packs in its Instruments folder, so any other program can reach them. The first start brings in the projects of the earlier desktop app, each marked "from the old app".
+- In a browser, For the desktop app… on the File view's Projects tab downloads everything it keeps — projects with their folders, soundfonts, keymaps and instrument packs, with their notes — as one ZIP laid out the way the desktop app keeps them, and says where to put it.
+- Every scrollbar widens under the pointer: the instrument lists of an import, the notation maker's degrees, the Motif editor and its Structure panel, and every list inside a dialog have the same scrollbar as the Samples list, which lingers and thickens when you reach for it.
+- A new project, or one built by Motif, carries the desktop app's own signature — MicrotoneQtWin, MicrotoneQtMac or MicrotoneQtLnx, after the system it was made on — and the Project view shows it. The website's still say Microtone.js, and a project that already has a signature keeps it when it is saved again, wherever that is.
+- Windows has an installer that asks for no administrator rights; macOS has a .dmg; Linux has an AppImage, a .deb and an .rpm. The app tells you when a newer version is out, downloads it when you say so and installs it when you quit.
+- It is not code-signed so Windows and macOS ask once before opening it. macOS 13 or later is needed.
+- Beside the licence, the app carries the notices and licence texts of everything it is made with, Qt and the browser engine among them.
 
 **Mini Mode: the whole song at a glance**: the Timeline's Cells button has a fourth step, Cells: mini, which shrinks every row to a few pixels and draws each lane as the contour of its melody.
 
@@ -12,10 +25,18 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 - It is for looking: a click moves the cursor and the wheel scrolls, and typing waits until you step back to a wider cell.
 - A right-click on the Cells button now steps back a width, as a click steps on.
 
-**OPL instruments can become FM racks**: Convert to FM rack on the OPL tab rewrites an OPL instrument as an Easy Mode FM rack of sample operators, in its own slot, so the patch can be taken further than the chip goes.
+**Lyric instruments can sing gibberish**: a syllable of the lyrics can leave its sounds to be drawn — `*` a whole syllable, `(` its onset, `)` its coda — so a voice sings words that sound like a language and are not one.
 
-- Each chip operator keeps its waveform, multiple, level, envelope and vibrato, and the connection and the feedback carry over; the instrument's own envelopes, filter and the rest move onto the rack. One undo step brings the OPL instrument back.
-- The chip's key scale level and rate are kept as they are at middle C, and its tremolo is left out; the app says so when an instrument used them. The snare, cymbal and hi-hat, which are made of noise, cannot be converted.
+- Write `*` for a syllable drawn whole, `(` for a drawn onset and vowel, `)` for a drawn vowel and coda, or put the brackets around a vowel of your own: `(a`, `ka)`, `(a)`. They mix freely with written syllables, in IPA or X-SAMPA, and are on the IPA keyboard under Drawn.
+- The draw is not a dice roll each time: the same lyrics sing the same syllables every time and on every computer. Draw shows which draw the lyrics sing, Draw again draws every mark anew, and undo brings the last draw back.
+- Editing one syllable leaves the others' draws alone, and writing a vowel into a `(` keeps the onset it drew.
+- A new lyric instrument now starts with three lines of gibberish, most of it drawn, instead of a lone [la].
+- Motif's `lyrics` read the same marks, with a `seed` for the draw.
+
+**Exported instruments have a home**: the File view has an Instruments tab, and Export… in the Instruments view now saves the chosen instruments there as a pack instead of downloading it at once.
+
+- A pack can carry a name, a copyright notice and a message of its own, filled in as you export it. They belong to the pack, not to the project it came from, and loading a pack never changes a project's own.
+- From the tab, Import opens the instrument picker on a pack for the open project, ⬇ downloads the .tsii to share, and each pack takes a note of your own, as a soundfont does. Add pack… brings in .tsii files from your disk.
 
 **A scope in every lane header**: Scope in the toolbox shows each lane's own waveform in its header, to see what a lane is really playing.
 
@@ -23,14 +44,15 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 - The trace is lined up on a rising edge, so a steady tone stands still; the small triangles mark where, and the wheel or a drag across the scope moves them.
 - A sound with several rising edges a cycle keeps to the same one from moment to moment, and the scale eases down as a note decays instead of jumping to fit; opening another song clears the scopes and puts their triangles back in the middle.
 
+**OPL instruments can become FM racks**: Convert to FM rack on the OPL tab rewrites an OPL instrument as an Easy Mode FM rack of sample operators, in its own slot, so the patch can be taken further than the chip goes.
+
+- Each chip operator keeps its waveform, multiple, level, envelope and vibrato, and the connection and the feedback carry over; the instrument's own envelopes, filter and the rest move onto the rack. One undo step brings the OPL instrument back.
+- The chip's key scale level and rate are kept as they are at middle C, and its tremolo is left out; the app says so when an instrument used them. The snare, cymbal and hi-hat, which are made of noise, cannot be converted.
+
 **Notes as Amiga periods**: a new notation, Amiga periods, shows every note as the Amiga timer period that plays it (`%1AC` is C4), the numbers a ProTracker module stores.
 
 - Type the period in hex in the note column; Ctrl+←/→ and the mouse wheel step it a period at a time. A pitch between two whole periods is yellow.
 - A song in this notation exports to .mod with its periods exactly as written.
-
-**The desktop app can sound more at once**: its Settings tab has Polyphony under Performance, from 64 to 2048 voices besides the lanes' own, starting at 256.
-
-- It counts the notes a New Note Action leaves ringing, a layered instrument's further layers and an FM rack's operators; past it the oldest fades out. Exports from the app use the same limit, and the website keeps 64.
 
 **Layered instruments sound where the pattern puts them**: a layered instrument whose layers have positions of their own no longer sweeps across the stereo field at the start of every note that the pattern pans.
 
@@ -43,14 +65,6 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 - The SoundFont cutoff slider now has an off stop past its highest frequency, as the ImpulseTracker one has always had at $FF, and its box reads off there instead of a frequency.
 - Fixed: the Advanced tab's zone map, envelope cursor and play-position marks showed nothing for an instrument sounding as a layer of a layered instrument or an operator of an FM rack; they follow every voice that plays it now.
 - The Advanced tab's per-zone overrides show their values in hex beside the boxes, as the instrument's own fields do: pan, note volume and the four vibrato settings.
-
-**Exported instruments have a home**: the File view has an Instruments tab, and Export… in the Instruments view now saves the chosen instruments there as a pack instead of downloading it at once.
-
-- A pack can carry a name, a copyright notice and a message of its own, filled in as you export it. They belong to the pack, not to the project it came from, and loading a pack never changes a project's own.
-- From the tab, Import opens the instrument picker on a pack for the open project, ⬇ downloads the .tsii to share, and each pack takes a note of your own, as a soundfont does. Add pack… brings in .tsii files from your disk.
-- The desktop app keeps the packs as files in a Microtone/Instruments folder beside its projects.
-
-**Moving from the browser to the desktop app**: in a browser, For the desktop app… on the File view's Projects tab downloads everything it keeps — projects with their folders, soundfonts, keymaps and instrument packs, with their notes — as one ZIP laid out the way the desktop app keeps them, and says where to put it.
 
 **A steadier pitch plot**: the contour behind each lane now picks where its scale sits from the notes that come next, not from the one note that left it, so a passage that repeats is drawn the same way every time round.
 
@@ -67,18 +81,6 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 - The rest of the page keeps going while one is open, the playhead and the meters included, and the browser's offer to prevent the page from creating more dialogs can no longer silence them.
 - Fixed: discarding unsaved changes with the reload button asked twice, once in the app and once more in the browser's "Leave this page?"; the app's answer now stands.
 
-**Every scrollbar in the desktop app widens under the pointer**: the instrument lists of an import, the notation maker's degrees, the Motif editor and its Structure panel, and every list inside a dialog now have the same scrollbar as the Samples list, which lingers and thickens when you reach for it, instead of a thin one that faded at once. The panel around them clipped them to its rounded corners, and the engine under the desktop app cannot follow the pointer through such a clip.
-
-- It holds for every scroller in the app, including the ones in dialogs. A browser draws its scrollbars its own way, and is unchanged.
-
-**Lyric instruments can sing gibberish**: a syllable of the lyrics can leave its sounds to be drawn — `*` a whole syllable, `(` its onset, `)` its coda — so a voice sings words that sound like a language and are not one.
-
-- Write `*` for a syllable drawn whole, `(` for a drawn onset and vowel, `)` for a drawn vowel and coda, or put the brackets around a vowel of your own: `(a`, `ka)`, `(a)`. They mix freely with written syllables, in IPA or X-SAMPA, and are on the IPA keyboard under Drawn.
-- The draw is not a dice roll each time: the same lyrics sing the same syllables every time and on every computer. Draw shows which draw the lyrics sing, Draw again draws every mark anew, and undo brings the last draw back.
-- Editing one syllable leaves the others' draws alone, and writing a vowel into a `(` keeps the onset it drew.
-- A new lyric instrument now starts with three lines of gibberish, most of it drawn, instead of a lone [la].
-- Motif's `lyrics` read the same marks, with a `seed` for the draw.
-
 **Korean text has a typeface of its own**: the interface now shows Hangul in Pretendard, which comes with Microtone, rather than in whatever font your system has — or as empty boxes where it has none.
 
 - Only the Hangul and the Korean punctuation change face; everything else looks as it did, and a page loads just the part of the font holding the syllables it shows.
@@ -87,10 +89,6 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 **Scrollbars wear the theme**: every scrollbar in the app now has a thumb in the theme's own grey, running on the panel it scrolls, instead of the system's pale rail across a dark page.
 
 - It holds everywhere: the views, lists, text boxes, dropdown lists and the documentation, in Chrome, Edge and Firefox. Safari already followed the theme.
-
-**Projects made in the desktop app say where they were made**: a new project, or one built by Motif, now carries the desktop app's own signature — MicrotoneQtWin, MicrotoneQtMac or MicrotoneQtLnx, after the system it was made on — and the Project view shows it. The website's still say Microtone.js.
-
-- A project that already has a signature keeps it when it is saved again, wherever that is.
 
 **SoundFont imports follow the SoundFont specification's own rules**: bringing instruments in from a SoundFont, or converting a MIDI file through one, now works out how velocity sets each note's loudness and brightness, and which drum notes choke which, by the rules the SoundFont specification itself lays down.
 
