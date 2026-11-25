@@ -124,6 +124,28 @@ elseif(APPLE)
   target_link_libraries(rtaudio PUBLIC "-framework CoreAudio" "-framework CoreFoundation")
 endif()
 
+# ── RtMidi (vendor/rtmidi, see vendor/VENDOR-VERSIONS.md): the control
+# surface's ports (src/nativemidi.cpp). QtWebEngine has Web MIDI compiled in
+# and refuses it (there is no MIDI permission to grant), so the shell opens
+# the ports. ALSA's sequencer, CoreMIDI, the Windows multimedia API; never
+# JACK (RtMidi would link libjack, which must stay the system's).
+add_library(rtmidi STATIC vendor/rtmidi/RtMidi.cpp)
+set_target_properties(rtmidi PROPERTIES AUTOMOC OFF)
+target_include_directories(rtmidi PUBLIC vendor/rtmidi)
+target_link_libraries(rtmidi PUBLIC Threads::Threads)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  target_compile_definitions(rtmidi PRIVATE __LINUX_ALSA__)
+  target_link_libraries(rtmidi PUBLIC ALSA::ALSA)
+elseif(WIN32)
+  # Names as the system gives them: RtMidi's own " <index>" suffix changes
+  # when another device is plugged in, and a port is remembered by name.
+  target_compile_definitions(rtmidi PRIVATE __WINDOWS_MM__ RTMIDI_DO_NOT_ENSURE_UNIQUE_PORTNAMES)
+  target_link_libraries(rtmidi PUBLIC winmm)
+elseif(APPLE)
+  target_compile_definitions(rtmidi PRIVATE __MACOSX_CORE__)
+  target_link_libraries(rtmidi PUBLIC "-framework CoreMIDI" "-framework CoreAudio" "-framework CoreFoundation")
+endif()
+
 # Monocypher (vendor/monocypher): the Ed25519 and BLAKE2b that check an
 # update's signature (src/minisign.cpp). Plain C, built as it ships.
 add_library(monocypher STATIC
@@ -137,6 +159,7 @@ qt_add_executable(microtone
   src/shell.cpp src/shell.h
   src/links.cpp src/links.h
   src/nativeaudio.cpp src/nativeaudio.h src/enginehost.h
+  src/nativemidi.cpp src/nativemidi.h
   src/resampler.cpp src/resampler.h
   src/diagnostics.cpp src/diagnostics.h src/crashlog.c src/crashlog.h
   src/filestore.cpp src/filestore.h
@@ -149,7 +172,7 @@ qt_add_executable(microtone
 target_link_libraries(microtone PRIVATE
   Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::HttpServer Qt6::WebSockets
   Qt6::WebEngineCore Qt6::WebEngineWidgets
-  taudengine rtaudio monocypher)
+  taudengine rtaudio rtmidi monocypher)
 
 # What the earlier desktop app kept, as the app reads it (src/oldapp.cpp):
 # for trying the reader on a real profile, and for diagnostics. Qt Core only.

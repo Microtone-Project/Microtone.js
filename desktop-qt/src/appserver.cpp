@@ -108,25 +108,36 @@ AppServer::AppServer(QString root, QByteArray token, QObject *parent)
   http_.setMissingHandler(this, [this](const QHttpServerRequest &request, QHttpServerResponder &responder) {
     handle(request, responder);
   });
-  // The native audio host's socket: the page's own origin, with the token
-  // the shell gave it (shell.cpp), and nothing else.
+  // The native audio host's socket (/engine) and the control surface's MIDI
+  // (/midi): the page's own origin, with the token the shell gave it
+  // (shell.cpp), and nothing else.
   http_.addWebSocketUpgradeVerifier(this, [this](const QHttpServerRequest &request) {
-    if (request.url().path() != u"/engine") return QHttpServerWebSocketUpgradeResponse::passToNext();
+    const QString path = request.url().path();
+    const bool known = (path == u"/engine" && engineSockets_) || (path == u"/midi" && midiSockets_);
+    if (path != u"/engine" && path != u"/midi") return QHttpServerWebSocketUpgradeResponse::passToNext();
     const QHttpHeaders &in = request.headers();
-    const bool ok = engineSockets_ && in.value(QHttpHeaders::WellKnownHeader::Host) == kAppHost &&
+    const bool ok = known && in.value(QHttpHeaders::WellKnownHeader::Host) == kAppHost &&
                     in.value(QHttpHeaders::WellKnownHeader::Origin) == kAppOrigin &&
                     QUrlQuery(request.url()).queryItemValue(QStringLiteral("t")).toUtf8() == token_;
     return ok ? QHttpServerWebSocketUpgradeResponse::accept() : QHttpServerWebSocketUpgradeResponse::deny();
   });
   connect(&http_, &QAbstractHttpServer::newWebSocketConnection, this, [this] {
     while (std::unique_ptr<QWebSocket> socket = http_.nextPendingWebSocketConnection()) {
-      if (engineSockets_) engineSockets_(std::move(socket));
+      if (socket->requestUrl().path() == u"/midi") {
+        if (midiSockets_) midiSockets_(std::move(socket));
+      } else if (engineSockets_) {
+        engineSockets_(std::move(socket));
+      }
     }
   });
 }
 
 void AppServer::setEngineSockets(std::function<void(std::unique_ptr<QWebSocket>)> sink) {
   engineSockets_ = std::move(sink);
+}
+
+void AppServer::setMidiSockets(std::function<void(std::unique_ptr<QWebSocket>)> sink) {
+  midiSockets_ = std::move(sink);
 }
 
 bool AppServer::start() {

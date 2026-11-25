@@ -16,17 +16,18 @@ Contents
   2. Qt WebEngine and Chromium
   3. What Qt carries inside itself
   4. RtAudio @RTAUDIO_VERSION@
+  5. RtMidi @RTMIDI_VERSION@
 {{#windows}}
-  5. Steinberg's ASIO SDK
-  6. Monocypher @MONOCYPHER_VERSION@
-  7. Microsoft's C runtime
+  6. Steinberg's ASIO SDK
+  7. Monocypher @MONOCYPHER_VERSION@
+  8. Microsoft's C runtime
 {{/windows}}
 {{#linux}}
-  5. Monocypher @MONOCYPHER_VERSION@
-  6. The libraries this package carries
+  6. Monocypher @MONOCYPHER_VERSION@
+  7. The libraries this package carries
 {{/linux}}
 {{#macos}}
-  5. Monocypher @MONOCYPHER_VERSION@
+  6. Monocypher @MONOCYPHER_VERSION@
 {{/macos}}
 
 
@@ -129,10 +130,21 @@ the ASIO backend, marked MICROTONE PATCH and recorded in
 desktop-qt/vendor/VENDOR-VERSIONS.md: a filter that keeps an ASIO driver that
 crashes out of the app, and a forwarding for a driver that calls ASIO's
 time-info callback.
+
+
+5. RtMidi @RTMIDI_VERSION@
+--------------------------
+
+A control surface (Mackie Control) reaches Microtone through RtMidi, a
+cross-platform MIDI API, © 2003–2023 Gary P. Scavone, compiled into the app.
+
+Licence: the RtMidi licence, an MIT-style licence (licences/RtMidi-LICENSE.txt).
+Source: https://github.com/thestk/rtmidi, tag @RTMIDI_VERSION@, unmodified in
+Microtone's source (desktop-qt/vendor/rtmidi).
 {{#windows}}
 
 
-5. Steinberg's ASIO SDK
+6. Steinberg's ASIO SDK
 -----------------------
 
 The ASIO driver interface is Steinberg's: ASIO SDK 2.3, © Steinberg Media
@@ -152,12 +164,12 @@ An organisation that wants to distribute a version of Microtone under other
 terms needs its own licence from Steinberg for ASIO.
 
 
-6. Monocypher @MONOCYPHER_VERSION@
+7. Monocypher @MONOCYPHER_VERSION@
 {{/windows}}
 {{#linux macos}}
 
 
-5. Monocypher @MONOCYPHER_VERSION@
+6. Monocypher @MONOCYPHER_VERSION@
 {{/linux macos}}
 ----------------------------------
 
@@ -171,7 +183,7 @@ Source: https://monocypher.org/ (version @MONOCYPHER_VERSION@).
 {{#windows}}
 
 
-7. Microsoft's C runtime
+8. Microsoft's C runtime
 ------------------------
 
 The Visual C++ runtime DLLs (the MSVC and VCRUNTIME files) beside
@@ -183,7 +195,7 @@ under Microsoft's terms for those files.
 {{#linux}}
 
 
-6. The libraries this package carries
+7. The libraries this package carries
 -------------------------------------
 
 @LINUX_LIBRARIES@

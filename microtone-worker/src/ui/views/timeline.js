@@ -54,7 +54,7 @@ import { t } from "../i18n.js";
 import { lyricContinues } from "../../doc/lyrics.js";
 import { laneNotationItems, pickLaneNotation } from "../notationpick.js";
 import { cellNotation, entryNotation } from "../notationat.js";
-import { uiDpr, localPoint } from "../zoom.js";
+import { uiDpr, localPoint, clientPoint } from "../zoom.js";
 
 /** Below this a source is silent (a muted lane's): no mark (master strip, Panner: 0.002). */
 const MIN_AUDIBLE = 0.002;
@@ -780,6 +780,20 @@ export class TimelineView {
 
   /** The \ key opens the right-click menu where the cursor is (item 190). */
   openMenuAtCursor() { return openMenuAtCursor(this); }
+
+  /** The cursor lane's HEADER menu — mute, solo, the second effect, the
+   *  lane's notation — opened as a right-click on that header would open it
+   *  (a control surface's Select, item 379). False when there is no song. */
+  openLaneMenu() {
+    if (!this.store.doc || !this.store.song) return false;
+    this.keepCursorVisible();
+    this.invalidate();
+    const strip = this.chanLayout().find((sp) => sp.ch === this.store.cursor.ch);
+    if (!strip) return false;
+    const at = clientPoint(this.canvas, strip.x + strip.w / 2, this.headerH() / 2);
+    this.onContextMenu({ clientX: at.clientX, clientY: at.clientY, preventDefault() {}, fromKeyboard: true });
+    return true;
+  }
 
   /**
    * Where the \ key's menu opens: the middle of the cursor cell's own column,
@@ -2174,6 +2188,18 @@ export class TimelineView {
       if (rowBand && absRow >= sb.r0 && absRow <= sb.r1) {
         ctx.fillStyle = C.sel;
         ctx.fillRect(0, y, GUTTER_W - 4, RH);
+      }
+      // The session's marker (item 379: a control surface's Marker / Nudge),
+      // a notch at the trough's edge pointing into the row.
+      if (absRow === store.marker) {
+        const h = Math.min(RH - 2, 10);
+        ctx.fillStyle = C.accent2;
+        ctx.beginPath();
+        ctx.moveTo(GUTTER_W - 5 - h * 0.6, y + (RH - h) / 2);
+        ctx.lineTo(GUTTER_W - 5, y + RH / 2);
+        ctx.lineTo(GUTTER_W - 5 - h * 0.6, y + (RH + h) / 2);
+        ctx.closePath();
+        ctx.fill();
       }
       // (Mini Mode labels its cues after the loop, over the rows below them.)
       if (!mini) {

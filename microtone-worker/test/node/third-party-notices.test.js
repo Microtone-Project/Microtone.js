@@ -23,14 +23,14 @@ function scratch(fn) {
 
 const vars = {
   VERSION: "1.2.3", QT_VERSION: "6.11.3", QT_SERIES: "6.11",
-  RTAUDIO_VERSION: "6.0.1", MONOCYPHER_VERSION: "4.0.2", LINUX_LIBRARIES: "(the libraries)",
+  RTAUDIO_VERSION: "6.0.1", RTMIDI_VERSION: "6.1.0", MONOCYPHER_VERSION: "4.0.2", LINUX_LIBRARIES: "(the libraries)",
 };
 
 test("each platform's notices keep their own sections and no marker or placeholder", () => {
   const text = Object.fromEntries(["windows", "macos", "linux"].map((p) => [p, render(template, vars, p)]));
   for (const [platform, t] of Object.entries(text)) {
     assert.ok(!/\{\{|\}\}|@[A-Z_]+@/.test(t), `${platform}: a marker or placeholder is left`);
-    for (const must of ["Qt 6.11.3", "RtAudio 6.0.1", "Monocypher 4.0.2", "licences/qtwebengine-third-party.txt", "LGPL-3.0.txt"]) {
+    for (const must of ["Qt 6.11.3", "RtAudio 6.0.1", "RtMidi 6.1.0", "Monocypher 4.0.2", "licences/qtwebengine-third-party.txt", "LGPL-3.0.txt"]) {
       assert.ok(t.includes(must), `${platform} names ${must}`);
     }
   }
@@ -50,7 +50,7 @@ test("each platform's notices keep their own sections and no marker or placehold
 
 test("every library vendored for the desktop app has a section", () => {
   const vendored = [...vendor.matchAll(/^## (\S+) (\S+)/gm)].map((m) => ({ name: m[1], version: m[2] }));
-  assert.ok(vendored.length >= 2, "VENDOR-VERSIONS.md names RtAudio and Monocypher");
+  assert.ok(vendored.length >= 3, "VENDOR-VERSIONS.md names RtAudio, RtMidi and Monocypher");
   for (const { name } of vendored) {
     assert.ok(template.includes(name), `desktop-qt/licences/THIRD-PARTY-NOTICES.txt says nothing of ${name}`);
   }
@@ -58,6 +58,7 @@ test("every library vendored for the desktop app has a section", () => {
   scratch((dir) => {
     collect(["--platform", "windows", "--out", dir, "--qt-version", "6.11.3"]);
     assert.equal(readFileSync(join(dir, "licences", "RtAudio-LICENSE.txt"), "utf8"), read("vendor/rtaudio/LICENSE"));
+    assert.equal(readFileSync(join(dir, "licences", "RtMidi-LICENSE.txt"), "utf8"), read("vendor/rtmidi/LICENSE"));
     assert.equal(readFileSync(join(dir, "licences", "Monocypher-LICENCE.md"), "utf8"), read("vendor/monocypher/LICENCE.md"));
     const notice = readFileSync(join(dir, "THIRD-PARTY-NOTICES.txt"), "utf8");
     for (const { name, version } of vendored) assert.ok(notice.includes(`${name} ${version}`), `${name} ${version} in the notices`);

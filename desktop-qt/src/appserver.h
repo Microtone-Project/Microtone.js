@@ -56,6 +56,9 @@ class AppServer : public QObject {
    *  ws://microtone.localhost/engine?t=<token> and hand it to `sink`. Until
    *  this is called (no device, or --web-audio) the endpoint refuses. */
   void setEngineSockets(std::function<void(std::unique_ptr<QWebSocket>)> sink);
+  /** …and the control surface's MIDI ports (nativemidi.h) at
+   *  ws://microtone.localhost/midi?t=<token>. */
+  void setMidiSockets(std::function<void(std::unique_ptr<QWebSocket>)> sink);
 
   /** Serve the file store at /api/files (filestore.h). */
   void setFileStore(const FileStore *files) { files_ = files; }
@@ -83,6 +86,7 @@ class AppServer : public QObject {
   QHttpServer http_;
   QTcpServer *tcp_ = nullptr;
   std::function<void(std::unique_ptr<QWebSocket>)> engineSockets_;
+  std::function<void(std::unique_ptr<QWebSocket>)> midiSockets_;
   const FileStore *files_ = nullptr;
   Online *online_ = nullptr;
   Updater *updater_ = nullptr;

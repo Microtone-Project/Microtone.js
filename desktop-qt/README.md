@@ -836,6 +836,18 @@ under Wine's cmd.
     - ALSA: its `default` (PipeWire's plugin) broken by killing the server:
       caught and reopened. A card plugged in or out (`/dev/snd`) and a JACK
       thread that is real-time already need hardware and a real-time JACK.
+- **`nativemidi`**: a control surface's MIDI ports (item 379). QtWebEngine
+  has Web MIDI compiled in and refuses every request (there is no MIDI
+  permission it can grant; measured on 6.11.1), so the shell opens one input
+  and one output with RtMidi (`vendor/rtmidi`: ALSA's sequencer, CoreMIDI,
+  the Windows multimedia API; never JACK) and the page reaches them over
+  `ws://microtone.localhost/midi?t=<token>`, beside the engine's socket:
+  JSON for the port lists and which pair to open, binary frames for whole
+  MIDI messages each way (`microtone-worker/src/midi/ports.js` is the page's
+  side). Ports are known by name, without ALSA's client numbers, which a
+  replug changes; the page's choice is kept, and the lists are read every
+  1.5 s while it is connected, so a surface plugged back in is opened again.
+  The shell's own ports show up in other programs as `Microtone`.
 - **`links`**: `docs.html` opens in the docs window, other pages of the app in
   the main window, `http(s):` and `mailto:` in the system browser. The window a
   link was clicked in never navigates away from an open project.

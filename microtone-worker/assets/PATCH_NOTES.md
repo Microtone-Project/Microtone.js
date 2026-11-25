@@ -6,6 +6,17 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 
 ## Version 5.2.0 (2026-11-26)
 
+**Control surfaces: a Mackie Control device as a second keyboard**: an X-Touch One, or any surface in its Mackie mode, works on the lane the cursor is in — its knob and fader write the lane's position and volume, its buttons play, record and move about, and its lamps and display follow the song.
+
+- The **surface** badge in the top bar picks the surface's ports. The choice is remembered, and the surface is opened again whenever it is plugged in. The desktop app opens it itself; a browser asks once for MIDI.
+- In record mode the knob writes `S $80xx`, `S $8xxx` or `X $eeaa` into the cursor's cell, by the song's panning model, and its push switches a spatial song's knob between azimuth and elevation. The fader writes `M $xx00` and the master fader `V $xx00`, one undo step per touch, and the motor shows the lane's volume.
+- Every strip's Mute, Solo and Rec mute, solo and show the second effect column of the cursor's lane, and Select opens the lane's menu, which the knob then walks.
+- The transport plays, stops, records and jumps from cue to cue; F1–F7 are the tabs; Cycle and Drop change the keyboard layout; Replace and Click move between panes, and the transport's Solo splits the view.
+- Marker marks a row (shown in the Timeline's trough) and Nudge goes back to it.
+- The display reads cue, row, speed and BPM, or bars, beats and subdivisions from the row highlights (BPM/Time).
+- The jog wheel steps a beat; Bank, Channel and the arrows move as the keyboard's arrows do; Zoom is selection mode, Scrub is undo, and a footswitch plays and stops.
+- The user manual's new Control surface chapter has every control.
+
 **Split screens: Follow and Cells for each pane**: two Timelines side by side can now be set apart, one following the music and one held still, one in full cells and one in mini.
 
 - Each pane has its own Follow. The follow lamp in the top bar shows and switches the Follow of the pane you are working in, so one Timeline can scroll with the music while the other stays on the part of the song you put it on.

@@ -80,6 +80,10 @@ export class Store {
      *  cell. Shared by both panes' Timelines, as the cursor is. */
     this.cellSeat = null;
     this.cursor = { row: 0, ch: 0 }; // absolute song row + lane
+    /** The session's one marker (item 379): an absolute song row, or null. A
+     *  control surface's Marker sets and clears it and Nudge goes to it; it
+     *  is never saved, and a project or song switch drops it. */
+    this.marker = null;
     this.voiceMutes = new Array(64).fill(false); // per-lane mute (UI + engine)
     // Format v3's SECOND effect column (§5.5), exposed per lane (Timeline)
     // and per pane (Patterns). Hidden by default: most songs never use it, and

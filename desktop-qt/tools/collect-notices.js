@@ -8,13 +8,13 @@
 // writes into <dir>
 //   THIRD-PARTY-NOTICES.txt   desktop-qt/licences/THIRD-PARTY-NOTICES.txt for
 //                             the platform, with the versions filled in: the
-//                             app's, Qt's (from qmake), RtAudio's and
-//                             Monocypher's (from vendor/VENDOR-VERSIONS.md),
+//                             app's, Qt's (from qmake), RtAudio's, RtMidi's
+//                             and Monocypher's (from vendor/VENDOR-VERSIONS.md),
 //                             and — Linux — the libraries the tree carries
 //   licences/                 the licence texts it points to: Qt's LGPL and
 //                             Chromium's, the Chromium credits compiled from
-//                             Qt's documentation (qtwebengine-credits.js), RtAudio's
-//                             and Monocypher's own files from vendor/, the list of
+//                             Qt's documentation (qtwebengine-credits.js), RtAudio's,
+//                             RtMidi's and Monocypher's own files from vendor/, the list of
 //                             what Qt carries inside itself (from the SBOM of
 //                             the Qt that is installed), and — Linux — each
 //                             carried library's Debian copyright file
@@ -264,6 +264,7 @@ export function collect(argv) {
     QT_VERSION: qtVersion,
     QT_SERIES: qtVersion.split(".").slice(0, 2).join("."),
     RTAUDIO_VERSION: vendorVersion("RtAudio"),
+    RTMIDI_VERSION: vendorVersion("RtMidi"),
     MONOCYPHER_VERSION: vendorVersion("Monocypher"),
     LINUX_LIBRARIES: "",
   };
@@ -274,6 +275,7 @@ export function collect(argv) {
     ["licences/texts/LGPL-2.1.txt", "LGPL-2.1.txt"],
     ["licences/qtwebengine-third-party.txt", "qtwebengine-third-party.txt"],
     ["vendor/rtaudio/LICENSE", "RtAudio-LICENSE.txt"],
+    ["vendor/rtmidi/LICENSE", "RtMidi-LICENSE.txt"],
     ["vendor/monocypher/LICENCE.md", "Monocypher-LICENCE.md"],
     // ICU 73 is a library of Qt's Linux installation (Linux's section names it).
     ...(platform === "linux" ? [["licences/texts/ICU-73.2-LICENSE.txt", "ICU-73.2-LICENSE.txt"]] : []),

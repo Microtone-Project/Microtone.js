@@ -3745,6 +3745,43 @@ those cells wears, so the plot reads as something laid over the notation rather
 than as part of it. The faint grey line down the middle of each cell is the
 centre of the scale.
 
+## Control surface (Mackie Control)
+
+A Mackie Control surface works as a second keyboard: a Behringer X-Touch One, a Mackie MCU, or anything else that speaks the protocol in its Mackie mode. Click the **surface** badge in the top bar, choose the surface's input (its output is found from the name, or choose it as well) and press **Use**. A browser asks once for access to MIDI: Chromium-based browsers ask directly, Firefox installs a site permission first, and Safari has no MIDI at all. The desktop app opens the ports itself and asks nothing. The choice is remembered, and the surface is opened again whenever it is plugged in; choose **Off** to let it go.
+
+Mackie Control groups its faders in banks of eight strips. Microtone does not: **every strip acts on the lane the cursor is in**, and every strip's lamps show that lane. The knob and the fader write into the cursor's cell, so, as with the keyboard, they write only in record mode.
+
+| Control | What it does |
+|---|---|
+| Knob | The lane's position, written into the cursor's cell: `S $80xx` in a stereo song, `S $8xxx` in a planar one, `X $eeaa` in a spatial one. It starts from the cell's own command, else from where the lane is. A quick turn goes further. |
+| Knob push | In a spatial song, switches the knob between azimuth and elevation. |
+| Fader | The lane's volume, `M $xx00`. One touch, from the moment you put a finger on it to the moment you let go, is one undo step. While nothing is under your hand the motor shows the cell's own `M $xx00`, else the lane's volume as it plays. |
+| Master fader | The song's global volume, `V $xx00`. On the X-Touch One the **Master** button switches its one fader between the lane and the master. |
+| Select | The lane's menu, as a right-click on its header opens it. While a menu (or any dialog) is open, the knob and the jog wheel walk it, the knob's push takes the highlighted item, and Select closes it. |
+| Mute, Solo | Mute or solo the lane. |
+| Rec | Show or hide the lane's second effect column. |
+| BPM/Time | The display reads cue · row · speed · BPM (cue, row and speed in hex, as the grids write them), or bar · beat · subdivision, counted from the row highlights. |
+| Global View | Walks the side panels: none → the instrument list → both → the master strip → none. |
+| F1–F7, F8 | The tabs, as the F1–F7 keys; F8 splits the view. |
+| Marker | Marks the cursor's row, shown as a notch in the Timeline's trough; on the marked row, clears it. There is one marker, and opening a project clears it. |
+| Nudge | To the marker (and plays from there if playing). |
+| Cycle, Drop | The previous and next keyboard layout. |
+| Replace, Click | The previous and next pane. |
+| Solo (transport) | Splits the view, or closes the pane you are in. |
+| Rewind, Fast forward | To the start of the previous and the next cue; Rewind from inside a cue goes to its own start first. While playing, playback follows. |
+| Stop, Play, Record | Stop; play from the cursor; record mode on or off. |
+| Footswitch | Play or stop. |
+| Bank ◀ ▶ | Four lanes at a time; in Patterns, the previous or next pattern. |
+| Channel ◀ ▶ | One lane; in Patterns, the next column. |
+| Arrows | The arrow keys; held, they repeat. |
+| Zoom | Selection mode, as the backtick key. |
+| Scrub | Undo. |
+| Jog wheel | A beat per step, as **Shift+Ctrl+↑/↓**. |
+
+The lamps follow the app: Play and Stop, Record, Zoom while selection mode is on, Marker while there is one, the transport's Solo while the view is split, the F key of the tab in front, and each strip's Mute, Solo and Rec for the lane. The display shows the position, the two-digit display the lane's number, and a scribble strip, where the surface has one, the lane and the last value written.
+
+A one-fader surface such as the X-Touch One steps through the eight strips by itself when its Channel ◀ ▶ are pressed, and says so with the next strip's Select. Microtone keeps it on the fourth strip (its Select lamp stays lit) and takes each step as a lane. The X-Touch One's jog wheel sends only a few steps per turn, so it moves in jumps rather than smoothly.
+
 ## Keyboard reference
 
 

@@ -26,7 +26,7 @@ import { MasterStrip } from "./views/masterstrip.js";
 import { SplitView, VIEWS, MAX_PANES } from "./splitview.js";
 import { JamKeyboard } from "./jam.js";
 import { InstLookup } from "./instlookup.js";
-import { SUB_NOTE } from "./edit.js";
+import { SUB_NOTE, gridStepRow } from "./edit.js";
 import { CELL_MODES } from "./narrowcell.js";
 import { CommandPalette } from "./palette.js";
 import { FindBar } from "./findbar.js";
@@ -70,6 +70,8 @@ import { withSaveProgress, saveInProgress } from "./saveprogress.js";
 import { loadCanvasFonts, refreshCanvasFont } from "./fonts.js";
 import { startControlEnhancer } from "./components/spinner.js";
 import { lampButton } from "./components/lampbutton.js";
+import { ControlSurface, nextPanels } from "./surface.js";
+import { startSurfaceLink } from "./surfacelink.js";
 
 initTheme(); // before any canvas paints (saved choice ?? OS preference)
 initZoom();  // …and before anything measures itself: the factor scales the layout
@@ -418,6 +420,7 @@ async function loadBytes(name, bytes, { sf2 = null, bank = null, saveToOpfs = fa
   store.folder = folder;
   store.songIndex = 0;
   store.cursor = { row: 0, ch: 0, sub: 0, nib: 0 };
+  store.marker = null; // the session's marker (item 379) is a row of this song
   store.pitchPreset = presetForNotation(store.doc.meta.songMeta[0]?.notation ?? 120, store.doc);
   keymapLib.applyForPreset(store.pitchPreset, store.doc.meta.songMeta[0]?.notation ?? 120);
   store.undo = new UndoStack(store.doc, (dirty) => {
@@ -641,6 +644,7 @@ async function newProject({ fromBank = null, bankName = null } = {}) {
   store.folder = "";
   store.songIndex = 0;
   store.cursor = { row: 0, ch: 0, sub: 0, nib: 0 };
+  store.marker = null; // the session's marker (item 379) is a row of this song
   store.pitchPreset = presetForNotation(result.notation, store.doc);
   keymapLib.applyForPreset(store.pitchPreset, result.notation);
   store.undo = new UndoStack(store.doc, (dirty) => {
@@ -858,6 +862,7 @@ function selectSong(index) {
   store.clearMutes(); // per-song state (taut finishLoadCommon)
   store.clearFx2();
   store.cursor = { row: 0, ch: 0, sub: 0, nib: 0 };
+  store.marker = null; // the session's marker (item 379) is a row of this song
   store.pitchPreset = presetForNotation(store.doc.meta.songMeta[store.songIndex]?.notation ?? 120, store.doc);
   keymapLib.applyForPreset(store.pitchPreset,
     store.doc.meta.songMeta[store.songIndex]?.notation ?? 120);
@@ -1825,8 +1830,8 @@ function cursorCellTarget() {
       rowLabel: String(store.cursor.row),
       wide: store.doc.wideCells === true, // format v3's columns (§5.5)
       cell: target.cell,
-      apply: (fields) => store.undo.apply(
-        setCellOp(store.songIndex, target.pat, target.rowInCue, fields)),
+      apply: (fields, gestureId = null) => store.undo.apply(
+        setCellOp(store.songIndex, target.pat, target.rowInCue, fields, gestureId)),
     };
   }
   if (store.view === "pattern") {
@@ -1840,8 +1845,8 @@ function cursorCellTarget() {
       rowLabel: String(row),
       wide: store.doc.wideCells === true,
       cell: pattern[row],
-      apply: (fields) => store.undo.apply(
-        setCellOp(store.songIndex, pat.patIdx, row, fields)),
+      apply: (fields, gestureId = null) => store.undo.apply(
+        setCellOp(store.songIndex, pat.patIdx, row, fields, gestureId)),
     };
   }
   return null;
@@ -1943,7 +1948,9 @@ function isTypingTarget(el) {
     el?.isContentEditable === true;
 }
 
-window.addEventListener("keydown", (e) => {
+/** Every key the app takes — and a control surface's arrows and chords, which
+ *  arrive here as stand-ins (surfaceKey). */
+function onKeyDown(e) {
   // Alt+←/→ are the keyboard's instrument keys, and the browser's Back and
   // Forward — which would throw the whole session away mid-edit. Refused up
   // front, before any guard below can return early, so not even an open
@@ -2289,7 +2296,8 @@ window.addEventListener("keydown", (e) => {
       if (jam.down(e.code, e.repeat)) { e.preventDefault(); return; }
     }
   }
-});
+}
+window.addEventListener("keydown", onKeyDown);
 
 /** The Timeline's navigation keys — arrows, Page, Home/End, with Shift the
  *  block-extending variants. Shared by the dispatch below and selection mode,
@@ -2443,6 +2451,7 @@ window.__microtone = {
   keymapLib, keymapBar,
   __VIEWS: VIEWS,
   get timeline() { return viewNamed("timeline"); },
+  get surface() { return surface; }, // the control surface (item 379)
   get cuesView() { return viewNamed("cues"); },
   get patternView() { return viewNamed("pattern"); },
   get samplesView() { return viewNamed("samples"); },
@@ -2480,6 +2489,183 @@ function linkCues() {
  *  replaces the text node even when the string is the same, and that restyles
  *  and re-lays-out the toolbar — and repaints the page, and wakes the control
  *  enhancer's MutationObserver — every frame, playing or not. */
+// ── control surface (item 379) ──
+// A Mackie Control surface (surface.js) drives the app through this host:
+// every strip acts on the lane the cursor is in, the arrows and the jog wheel
+// are the keyboard's own keys and chords (onKeyDown), and the knob and the
+// fader write at the cursor in record mode.
+
+/** Hand onKeyDown a key as though it had been pressed. A modal dialog still
+ *  stops it; a focused text field does not, since nobody is typing on the
+ *  surface. */
+function surfaceKey(code, { shift = false, ctrl = false, alt = false } = {}) {
+  onKeyDown({
+    code, key: code, repeat: false, shiftKey: shift, ctrlKey: ctrl, altKey: alt, metaKey: false,
+    target: document.body, preventDefault() {}, stopPropagation() {},
+  });
+}
+
+/** Where playback or the cursor stands, as the surface's display reads it. */
+function surfacePosition() {
+  const map = viewNamed("timeline")?.getMap();
+  const song = store.song;
+  if (!map || !song) return null;
+  const audio = store.audio;
+  let cue, row;
+  if (audio?.isPlaying()) {
+    cue = audio.getCuePosition();
+    row = audio.getTrackerRow();
+  } else {
+    const loc = viewNamed("timeline").locate(store.cursor.row);
+    cue = loc?.entry.cue ?? 0;
+    row = loc?.rowInCue ?? 0;
+  }
+  const { pri, sec } = store.beats();
+  let barsBefore = 0;
+  for (let c = 0; c < cue && c < map.entries.length; c++) barsBefore += Math.ceil(map.entries[c].rowLimit / sec);
+  return {
+    cue, row, pri, sec, barsBefore,
+    speed: audio?.getTickRate() || song.tickRate || 6,
+    bpm: audio?.getBPM() || song.bpm,
+  };
+}
+
+/** Move the cursor to an absolute song row; when playing, play from there. */
+function surfaceGoTo(row) {
+  const tl = viewNamed("timeline");
+  const loc = tl?.locate(row);
+  if (!loc) return;
+  store.cursor.row = row;
+  eachView("timeline", (v) => { v.keepCursorVisible(); v.invalidate(); });
+  store.emit("cursor");
+  updateStatus();
+  if (store.audio?.isPlaying()) playFrom(loc.entry.cue, loc.rowInCue);
+}
+
+const surfaceHost = {
+  ready: () => !!store.doc && !!store.song,
+  view: () => store.view,
+  viewIndex: () => VIEWS.indexOf(store.view),
+  lane: () => (store.doc ? Math.min(store.cursor.ch, store.doc.channelCount - 1) : null),
+  surroundModel: () => store.song?.surroundModel ?? 0,
+  /** The cursor's cell, writable: only in record mode unless `any`. */
+  editTarget(any = false) {
+    if (!store.doc || (!any && !store.record)) return null;
+    const target = cursorCellTarget();
+    if (!target) return null;
+    const fx2 = store.view === "pattern" ? viewNamed("pattern").active.fx2() : store.fx2Chan(target.channel);
+    return { cell: target.cell, fx2, apply: target.apply };
+  },
+  engineLane(ch) {
+    const audio = store.audio;
+    if (!audio) return { vol: 255, az: 128, el: 0 }; // full, and centre / front
+    return { vol: audio.getVoiceChannelVolume(ch), az: audio.getVoiceChannelAzimuth(ch), el: audio.getVoiceChannelElevation(ch) };
+  },
+  globalVolume: () => store.audio?.getLiveGlobalVolume() ?? store.song?.globalVolume ?? 0x80,
+  muted: (ch) => store.voiceMutes[ch] === true,
+  soloed(ch) {
+    const n = store.doc?.channelCount ?? 0;
+    if (store.voiceMutes[ch]) return false;
+    for (let i = 0; i < n; i++) if (i !== ch && !store.voiceMutes[i]) return false;
+    return n > 1;
+  },
+  toggleMute: (ch) => store.toggleMute(ch),
+  toggleSolo: (ch) => store.toggleSolo(ch),
+  // The second effect: the lane's own setting, or in the Patterns view the
+  // column's, which is where that view keeps it.
+  fx2(ch) {
+    if (store.view === "pattern") return viewNamed("pattern").active.fx2();
+    return store.fx2Chan(ch);
+  },
+  toggleFx2(ch) {
+    if (!store.wideCells()) return;
+    if (store.view === "pattern") store.toggleFx2Pane(viewNamed("pattern").active.fx2Slot());
+    else store.toggleFx2Chan(ch);
+    refreshToolbox();
+  },
+  laneMenu() {
+    if (store.view === "timeline") viewNamed("timeline").openLaneMenu();
+    else if (store.view === "pattern") viewNamed("pattern").openMenuAtCursor();
+  },
+  showView(i) {
+    const name = VIEWS[i];
+    if (name && viewEnabled(name)) showView(name);
+  },
+  splitToggle() {
+    if (split.isSplit) split.close(split.focus);
+    else split.split();
+  },
+  isSplit: () => split.isSplit,
+  paneStep: (dir) => split.focusNext(dir),
+  cyclePanels() {
+    const next = nextPanels({ inst: instLookup.visible, master: masterStrip.visible });
+    if (instLookup.visible !== next.inst) $("tbInstList").classList.toggle("active", instLookup.toggle());
+    if (masterStrip.visible !== next.master) masterStrip.setVisible(next.master);
+    refreshToolbox();
+  },
+  record: () => store.record,
+  setRecord: (on) => setRecord(on),
+  playing: () => !!store.audio?.isPlaying(),
+  play() {
+    if (!store.doc) return;
+    const p = playCursor();
+    playFrom(p.cue, p.row);
+  },
+  stop: () => store.audio?.stop(0),
+  togglePlay() {
+    if (store.audio?.isPlaying()) store.audio.stop(0);
+    else surfaceHost.play();
+  },
+  seekCue(dir) {
+    const map = viewNamed("timeline")?.getMap();
+    if (!map || map.entries.length === 0) return;
+    const audio = store.audio;
+    let from = store.cursor.row;
+    if (audio?.isPlaying()) {
+      const e = map.entries[audio.getCuePosition()];
+      if (e) from = e.startRow + Math.min(audio.getTrackerRow(), e.rowLimit - 1);
+    }
+    surfaceGoTo(gridStepRow(map.entries, from, dir, Infinity));
+  },
+  key: surfaceKey,
+  // An open dialog or menu (the lane menu Select opens, a notice): its own
+  // keys, its focused control, its own way out.
+  dialogOpen: () => document.querySelector("dialog:modal") !== null,
+  dialogKey(code) {
+    const dlg = document.querySelector("dialog:modal");
+    if (!dlg) return;
+    const at = dlg.contains(document.activeElement) ? document.activeElement : dlg;
+    at.dispatchEvent(new KeyboardEvent("keydown", { code, key: code, bubbles: true, cancelable: true }));
+  },
+  dialogTake() {
+    const dlg = document.querySelector("dialog:modal");
+    const at = document.activeElement;
+    if (dlg && at && at !== dlg && dlg.contains(at)) at.click();
+  },
+  dialogCancel() {
+    const dlg = document.querySelector("dialog:modal");
+    if (!dlg) return;
+    const out = dlg.querySelector(".act-cancel, .act-dismiss");
+    if (out) out.click();
+    else dlg.dispatchEvent(new Event("cancel", { cancelable: true }));
+  },
+  selMode: () => store.selMode,
+  setSelMode: (on) => { if (selView()) setSelMode(on); },
+  undo() { store.undo?.undo(); },
+  cursorRow: () => (store.doc ? store.cursor.row : null),
+  marker: () => store.marker ?? null,
+  setMarker(row) {
+    store.marker = row;
+    store.emit("marker");
+    eachView("timeline", (v) => v.invalidate());
+  },
+  gotoMarker() { if (store.marker !== null && store.marker !== undefined) surfaceGoTo(store.marker); },
+  keymapStep: (dir) => stepKeymap(dir),
+  position: surfacePosition,
+};
+const surface = new ControlSurface(surfaceHost);
+const surfaceLink = startSurfaceLink(surface, $("surfaceBadge"));
+
 function showText(id, text) {
   const el = $(id);
   if (el.textContent !== text) el.textContent = text;
@@ -2509,6 +2695,7 @@ function frame() {
   }
   if (store.viewOpen("timeline")) masterStrip.frame();
   instLookup.frame(); // play-indicator lamps (item 169); no-ops while hidden
+  surfaceLink.frame(); // the control surface's lamps, motor fader and displays (item 379)
   keymapBar.frame();  // held-key highlight (item 187); no-ops while hidden
   requestAnimationFrame(frame);
 }

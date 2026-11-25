@@ -2125,7 +2125,7 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   font-weight: var(--weight-button);
 }
 .profiler-detail { margin: 0.25rem 0 0; line-height: 1.4; }
-#audioBadge[role="button"] { cursor: pointer; }
+#audioBadge[role="button"], #surfaceBadge { cursor: pointer; }
 #audioBadge[aria-pressed="true"] { outline: 1px solid var(--accent); outline-offset: 1px; }
 .ctx-grid { display: flex; flex-direction: column; gap: 0.3rem; }
 /* One row per group; the second one (the column tools) is ruled off from the

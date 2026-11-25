@@ -1,0 +1,533 @@
+// A Mackie Control surface as the tracker's second keyboard (item 379).
+//
+// What each control does is the app's, reached through a HOST the shell
+// builds (app.js) — so this file knows the protocol's names and the editing
+// rules, and nothing of the views. The rules:
+//
+//   - Mackie Control groups faders in banks of eight strips. That is ignored:
+//     every strip's buttons, knob and fader act on the lane being edited, and
+//     every strip's lamps show that lane.
+//   - The knob and the fader WRITE: `S $8xxx` / `X $eeaa` and `M $xx00` into
+//     the cursor's cell, in record mode only, as the keyboard does. The master
+//     fader writes `V $xx00`. A touch-to-release movement is ONE undo step.
+//   - Lamps, the motor fader, the knob's ring and the displays are sent only
+//     when they change (`frame()`, from the app's animation frame).
+//
+// The protocol itself is ../midi/mackie.js.
+
+import {
+  decode, BUTTON, STRIP_BUTTON, LED, FADER_MAX, RING,
+  ledMessage, faderMessage, ringMessage, segmentCells, timecodeMessages,
+  assignmentMessages, lcdMessage, TIMECODE_DIGITS,
+} from "../midi/mackie.js";
+import { EffectOp } from "../../core/engine/tables.js";
+import { SURROUND_STEREO, SURROUND_SPATIAL } from "../../core/engine/spatial.js";
+
+/** Held arrows repeat as a held key does. */
+const REPEAT_DELAY_MS = 400;
+const REPEAT_EVERY_MS = 60;
+/** A fader with no touch sensing moves in bursts; a pause this long ends the
+ *  burst's undo step. */
+const UNTOUCHED_GESTURE_MS = 400;
+/** …and a touch this soon after the last movement continues it. */
+const TOUCH_GRACE_MS = 400;
+/** After a move, the motor leaves the fader alone this long. */
+const MOTOR_HOLD_MS = 300;
+/** How long a written value stays on the scribble strip. */
+const STATUS_MS = 1500;
+
+/** One knob detent, in each command's own units: a stereo pan byte, a 512-unit
+ *  azimuth (`S $8xxx`), X's 256-unit azimuth and its signed elevation. All
+ *  about 2.8° of turn, or a 64th of the stereo field. */
+const STEP_PAN = 4;
+const STEP_AZ9 = 4;
+const STEP_AZ8 = 2;
+const STEP_EL = 2;
+
+/**
+ * The strip the surface is kept on. A one-fader surface (the X-Touch One)
+ * walks the eight strips ITSELF with its Channel ◀ ▶ and says so with the next
+ * strip's Select, and it follows the strip whose Select the host lights. So
+ * the host lights strip 4's and puts it back there after every step: a Select
+ * from strip 4 is the Select button, one from another strip is a step of that
+ * many lanes. (On an eight-strip surface: strip k's Select goes to the lane
+ * k − 4 from the cursor's.)
+ */
+export const HOME_STRIP = 3;
+
+/** The function keys: the tabs, as F1…F7 are on the keyboard; F8 splits. */
+const F_KEYS = ["f1", "f2", "f3", "f4", "f5", "f6", "f7"];
+const ARROW_CODE = { up: "ArrowUp", down: "ArrowDown", left: "ArrowLeft", right: "ArrowRight" };
+
+const isS8 = (op, arg) => op === EffectOp.OP_S && (arg & 0xf000) === 0x8000;
+const isX = (op) => op === EffectOp.OP_X;
+const isM = (op) => op === EffectOp.OP_M;
+const isV = (op) => op === EffectOp.OP_V;
+
+/**
+ * Where an effect goes in a cell: over the same command if the cell has one
+ * (either slot, the second only where it is shown), else the first empty
+ * slot, else over the first slot. Returns the fields to write.
+ */
+export function effectFields(cell, match, effect, effectArg, slot2Shown) {
+  if (match(cell.effect, cell.effectArg)) return { effect, effectArg };
+  if (slot2Shown && match(cell.effect2, cell.effectArg2)) return { effect2: effect, effectArg2: effectArg };
+  if (cell.effect === EffectOp.OP_NONE && cell.effectArg === 0) return { effect, effectArg };
+  if (slot2Shown && cell.effect2 === EffectOp.OP_NONE && cell.effectArg2 === 0) {
+    return { effect2: effect, effectArg2: effectArg };
+  }
+  return { effect, effectArg };
+}
+
+/** The argument of the command `match` finds in a cell (the second slot is
+ *  applied after the first, so it wins), or null. */
+export function cellArg(cell, match) {
+  if (!cell) return null;
+  if (match(cell.effect2, cell.effectArg2)) return { effect: cell.effect2, arg: cell.effectArg2 };
+  if (match(cell.effect, cell.effectArg)) return { effect: cell.effect, arg: cell.effectArg };
+  return null;
+}
+
+/**
+ * The lane's position as the knob edits it, for `model`: {az, el} with az in
+ * the units the model's command writes (stereo pan byte, 512-unit azimuth, or
+ * X's 256-unit one). A command in the cell itself wins over the lane's live
+ * state, because the cell is what is being edited.
+ */
+export function panStart(model, cell, live) {
+  if (model === SURROUND_STEREO) {
+    const c = cellArg(cell, isS8);
+    return { az: c ? c.arg & 0xff : Math.max(0, Math.min(255, Math.round(live.az))), el: 0 };
+  }
+  const c = cellArg(cell, (op, arg) => isS8(op, arg) || isX(op));
+  let az9 = live.az, el = live.el;
+  if (c && isX(c.effect)) { az9 = (c.arg & 0xff) * 2; el = (c.arg << 16) >> 24; }
+  else if (c) az9 = c.arg & 0x1ff;
+  if (model === SURROUND_SPATIAL) return { az: Math.round(az9 / 2) & 0xff, el: Math.max(-128, Math.min(127, Math.round(el))) };
+  return { az: Math.round(az9) & 0x1ff, el: 0 };
+}
+
+/** Turn the knob `delta` detents: the new {az, el} and the cell's command. */
+export function panTurn(model, start, delta, axis) {
+  if (model === SURROUND_STEREO) {
+    const az = Math.max(0, Math.min(255, start.az + delta * STEP_PAN));
+    return { az, el: 0, effect: EffectOp.OP_S, arg: 0x8000 | az };
+  }
+  if (model !== SURROUND_SPATIAL) {
+    const az = (((start.az + delta * STEP_AZ9) % 512) + 512) % 512;
+    return { az, el: 0, effect: EffectOp.OP_S, arg: 0x8000 | az };
+  }
+  let { az, el } = start;
+  if (axis === "elevation") el = Math.max(-128, Math.min(127, el + delta * STEP_EL));
+  else az = (((az + delta * STEP_AZ8) % 256) + 256) % 256;
+  return { az, el, effect: EffectOp.OP_X, arg: ((el & 0xff) << 8) | az };
+}
+
+/** The knob's ring for a position: {mode, pos 1…11, centre}. Stereo and the
+ *  azimuths read as a dot that is in the middle at the centre / front and at
+ *  the ends at the far left/right (stereo) or behind (azimuth); elevation
+ *  reads boost/cut from the horizon. */
+export function panRing(model, p, axis) {
+  if (model === SURROUND_SPATIAL && axis === "elevation") {
+    return { mode: RING.boostCut, pos: 6 + Math.round((p.el / 128) * 5), centre: p.el === 0 };
+  }
+  let frac; // −1 … 1, 0 at the centre / front
+  if (model === SURROUND_STEREO) frac = (p.az - 128) / 128;
+  else {
+    const units = model === SURROUND_SPATIAL ? 256 : 512;
+    let d = p.az - units / 4; // front is a quarter turn from left
+    if (d > units / 2) d -= units;
+    if (d <= -units / 2) d += units;
+    frac = d / (units / 2);
+  }
+  frac = Math.max(-1, Math.min(1, frac));
+  return { mode: RING.dot, pos: 6 + Math.round(frac * 5), centre: Math.abs(frac) < 1 / 64 };
+}
+
+/** A fader's 14 bits as a 0…255 level, and back. */
+export const faderLevel = (v) => Math.round((v * 255) / FADER_MAX);
+export const levelFader = (l) => Math.round((l * FADER_MAX) / 255);
+
+/** The two readings of the timecode display, ten characters each (3-2-2-3).
+ *  `pos` is {cue, row (in the cue), speed, bpm, barsBefore (whole bars of the
+ *  cues before), pri, sec}. */
+export function positionText(pos, beats) {
+  const pad = (v, n, radix = 10) => {
+    const s = Math.max(0, Math.floor(v)).toString(radix).toUpperCase();
+    return s.length > n ? s.slice(-n) : s.padStart(n, " ");
+  };
+  if (beats) {
+    // bars / beats / subdivision, from the row highlights: a bar is `sec`
+    // rows, a beat `pri`, a subdivision one row. All counted from 1.
+    // rows per bar, `pri` per beat, a subdivision one row — restarting with
+    // every cue as the grid's banding does, so a bar is counted the way the
+    // grid draws it. All counted from 1.
+    const bar = pos.barsBefore + Math.floor(pos.row / pos.sec) + 1;
+    const inBar = pos.row % pos.sec;
+    const beat = Math.floor(inBar / pos.pri) + 1;
+    const sub = (inBar % pos.pri) + 1;
+    return pad(bar, 3) + pad(beat, 2) + pad(sub, 2) + "   ";
+  }
+  // cue / row / speed in hex, as the grids and A / B / C write them; BPM in
+  // decimal, as the top bar shows it.
+  const zero = (v, n) => pad(v, n, 16).replaceAll(" ", "0");
+  return pad(pos.cue, 3, 16) + zero(pos.row, 2) + zero(pos.speed, 2) + pad(pos.bpm, 3);
+}
+
+/** The panels Global View walks: neither → instruments → both → master. */
+export function nextPanels({ inst, master }) {
+  if (!inst && !master) return { inst: true, master: false };
+  if (inst && !master) return { inst: true, master: true };
+  if (inst && master) return { inst: false, master: true };
+  return { inst: false, master: false };
+}
+
+let gestureSerial = 0;
+const newGesture = () => `surface:${++gestureSerial}`;
+
+export class ControlSurface {
+  /** `host`: see app.js `surfaceHost`. `now` is injectable for the tests. */
+  constructor(host, now = () => performance.now()) {
+    this.host = host;
+    this.now = now;
+    this.send = null;
+    /** The timecode display: false cue/row/speed/BPM, true bars/beats. */
+    this.beats = false;
+    /** The knob's axis in a spatial song. */
+    this.axis = "azimuth";
+    // Per fader, 0 the strip's and 1 the master's.
+    this.touched = [false, false];
+    this.gesture = [null, null];
+    this.written = [null, null];
+    this.movedAt = [-Infinity, -Infinity];
+    this.lastVpotAt = -Infinity;
+    this.held = null;     // a held arrow: {code, next}
+    this.status = "";     // what the scribble strip's second line says
+    this.statusUntil = 0;
+    this.sent = new Map(); // feedback key → what was last sent
+    this.prevCells = null;
+  }
+
+  /** Connected (`send(bytes)`) or disconnected (null). Everything the surface
+   *  shows is sent afresh on the next frame. */
+  attach(send) {
+    this.send = send;
+    this.sent.clear();
+    this.prevCells = null;
+    this.touched = [false, false];
+    this.gesture = [null, null];
+    this.held = null;
+  }
+
+  /** One message from the surface. */
+  receive(bytes) {
+    const ev = decode(bytes);
+    if (!ev) return;
+    switch (ev.type) {
+      case "button": ev.down ? this.press(ev) : this.release(ev); break;
+      case "touch": this.touch(ev); break;
+      case "fader": this.fader(ev); break;
+      case "vpot": this.vpot(ev.delta); break;
+      case "jog": this.jog(ev.delta); break;
+    }
+  }
+
+  say(text) {
+    this.status = text;
+    this.statusUntil = this.now() + STATUS_MS;
+  }
+
+  // ── buttons ──
+
+  press(ev) {
+    const h = this.host;
+    const ch = h.lane();
+    if (ev.name === "select" && ev.strip !== HOME_STRIP) {
+      const d = ev.strip - HOME_STRIP;
+      this.goHome();
+      const code = d > 0 ? "ArrowRight" : "ArrowLeft";
+      for (let i = 0; i < Math.abs(d); i++) {
+        if (h.dialogOpen()) h.dialogKey(code);
+        else h.key(code, { shift: true, ctrl: true });
+      }
+      return;
+    }
+    // An open dialog or menu has the keyboard, and so has the surface: the
+    // arrows walk it, the knob's push (or Enter) takes what is highlighted,
+    // Select (or Cancel) closes it. The transport carries on.
+    if (h.dialogOpen()) {
+      switch (ev.name) {
+        case "up": case "down": case "left": case "right": h.dialogKey(ARROW_CODE[ev.name]); return;
+        case "vpotPush": case "enter": h.dialogTake(); return;
+        case "select": case "cancel": h.dialogCancel(); return;
+        case "stop": case "play": case "record": case "userA": case "userB": case "timecodeBeats": break;
+        default: return;
+      }
+    }
+    switch (ev.name) {
+      // a strip's buttons: the lane being edited, whichever strip
+      case "mute": if (ch !== null) h.toggleMute(ch); return;
+      case "solo": if (ch !== null) h.toggleSolo(ch); return;
+      case "rec": if (ch !== null) h.toggleFx2(ch); return;
+      case "select": h.laneMenu(); return;
+      case "vpotPush":
+        if (h.surroundModel() === SURROUND_SPATIAL) {
+          this.axis = this.axis === "azimuth" ? "elevation" : "azimuth";
+          this.say(this.axis === "azimuth" ? "Azimuth" : "Elevatn");
+        }
+        return;
+      // display
+      case "timecodeBeats": this.beats = !this.beats; return;
+      case "globalView": h.cyclePanels(); return;
+      // transport
+      case "rewind": h.seekCue(-1); return;
+      case "fastForward": h.seekCue(1); return;
+      case "stop": h.stop(); return;
+      case "play": if (!h.playing()) h.play(); return;
+      case "record": h.setRecord(!h.record()); return;
+      case "userA": case "userB": h.togglePlay(); return; // the foot pedal
+      case "marker": {
+        const row = h.cursorRow();
+        if (row === null) return;
+        h.setMarker(h.marker() === row ? null : row);
+        return;
+      }
+      case "nudge": h.gotoMarker(); return;
+      case "cycle": h.keymapStep(-1); return;
+      case "drop": h.keymapStep(1); return;
+      case "replace": h.paneStep(-1); return;
+      case "click": h.paneStep(1); return;
+      case "transportSolo": h.splitToggle(); return;
+      // navigation: the keyboard's own chords (app.js arrowChord)
+      case "channelLeft": case "channelRight":
+        h.key(ev.name === "channelLeft" ? "ArrowLeft" : "ArrowRight", { shift: true, ctrl: true });
+        return;
+      case "bankLeft": case "bankRight": {
+        const back = ev.name === "bankLeft";
+        // the Patterns view steps through patterns; elsewhere four lanes
+        if (h.view() === "pattern") h.key(back ? "ArrowUp" : "ArrowDown", { shift: true, ctrl: true, alt: true });
+        else h.key(back ? "ArrowLeft" : "ArrowRight", { shift: true, ctrl: true, alt: true });
+        return;
+      }
+      case "up": case "down": case "left": case "right": {
+        const code = ARROW_CODE[ev.name];
+        h.key(code, {});
+        this.held = { code, next: this.now() + REPEAT_DELAY_MS };
+        return;
+      }
+      case "zoom": h.setSelMode(!h.selMode()); return;
+      case "scrub": h.undo(); return;
+      case "f8": h.splitToggle(); return;
+    }
+    const f = F_KEYS.indexOf(ev.name);
+    if (f >= 0) h.showView(f);
+  }
+
+  release(ev) {
+    if (this.held && ARROW_CODE[ev.name] === this.held.code) this.held = null;
+  }
+
+  // ── the jog wheel: a beat a detent (Shift+Ctrl+↑/↓) ──
+
+  jog(delta) {
+    const n = Math.abs(delta);
+    const dialog = this.host.dialogOpen();
+    for (let i = 0; i < n; i++) {
+      // in a menu, a row a detent
+      if (dialog) this.host.dialogKey(delta > 0 ? "ArrowDown" : "ArrowUp");
+      else this.host.key(delta > 0 ? "ArrowDown" : "ArrowUp", { shift: true, ctrl: true });
+    }
+  }
+
+  // ── the knob: the lane's position ──
+
+  vpot(delta) {
+    const h = this.host;
+    const now = this.now();
+    // A quick turn goes further: detents closer than 25 ms count four times,
+    // closer than 50 ms twice.
+    const gap = now - this.lastVpotAt;
+    this.lastVpotAt = now;
+    const accel = gap < 25 ? 4 : gap < 50 ? 2 : 1;
+    if (h.dialogOpen()) {
+      // in a menu, an item a detent
+      for (let i = 0; i < Math.abs(delta); i++) h.dialogKey(delta > 0 ? "ArrowRight" : "ArrowLeft");
+      return;
+    }
+    const ch = h.lane();
+    if (ch === null) return;
+    const target = h.editTarget();
+    if (!target) { this.say("Rec off"); return; }
+    const model = h.surroundModel();
+    const start = panStart(model, target.cell, h.engineLane(ch));
+    const p = panTurn(model, start, delta * accel, this.axis);
+    const match = model === SURROUND_STEREO ? isS8 : (op, arg) => isS8(op, arg) || isX(op);
+    target.apply(effectFields(target.cell, match, p.effect, p.arg, target.fx2), null);
+    this.say(panLabel(model, p, this.axis));
+  }
+
+  // ── the faders: the lane's volume (M), the master's the song's (V) ──
+
+  touch(ev) {
+    const i = ev.master ? 1 : 0;
+    const now = this.now();
+    if (ev.down) {
+      // A touch sensor bounces (on, off, on within a few milliseconds — the
+      // X-Touch One does), and a fader may report a move just before its
+      // touch: a touch that follows the last movement this closely carries
+      // on the same undo step.
+      if (!this.gesture[i] || now - this.movedAt[i] > TOUCH_GRACE_MS) {
+        this.gesture[i] = newGesture();
+        this.written[i] = null;
+      }
+    }
+    this.touched[i] = ev.down;
+    this.movedAt[i] = now;
+  }
+
+  fader(ev) {
+    const i = ev.master ? 1 : 0;
+    const now = this.now();
+    if (!this.gesture[i] || (!this.touched[i] && now - this.movedAt[i] > UNTOUCHED_GESTURE_MS)) {
+      this.gesture[i] = newGesture();
+      this.written[i] = null;
+    }
+    this.movedAt[i] = now;
+    const target = this.host.editTarget();
+    if (!target) { this.say("Rec off"); return; }
+    const level = faderLevel(ev.value);
+    if (level === this.written[i]) return;
+    this.written[i] = level;
+    const op = i ? EffectOp.OP_V : EffectOp.OP_M;
+    target.apply(effectFields(target.cell, i ? isV : isM, op, level << 8, target.fx2),
+      this.gesture[i]);
+    this.say(`${i ? "V" : "M"} $${level.toString(16).toUpperCase().padStart(2, "0")}`);
+  }
+
+  // ── what the surface shows ──
+
+  frame() {
+    if (!this.send) return;
+    const h = this.host;
+    const now = this.now();
+    if (this.held && now >= this.held.next) {
+      h.key(this.held.code, {});
+      this.held.next = now + REPEAT_EVERY_MS;
+    }
+    const ready = h.ready();
+    const ch = ready ? h.lane() : null;
+    const on = (b) => (b ? "on" : "off");
+
+    // the strips' lamps: all eight show the lane being edited
+    const muted = ch !== null && h.muted(ch), soloed = ch !== null && h.soloed(ch);
+    const fx2 = ch !== null && h.fx2(ch);
+    for (let s = 0; s < 8; s++) {
+      this.led(STRIP_BUTTON.mute + s, on(muted));
+      this.led(STRIP_BUTTON.solo + s, on(soloed));
+      this.led(STRIP_BUTTON.rec + s, on(fx2));
+      this.led(STRIP_BUTTON.select + s, on(s === HOME_STRIP));
+    }
+    const playing = ready && h.playing();
+    this.led(BUTTON.play, on(playing));
+    this.led(BUTTON.stop, on(ready && !playing));
+    this.led(BUTTON.record, on(h.record()));
+    this.led(BUTTON.zoom, on(h.selMode()));
+    this.led(BUTTON.marker, on(ready && h.marker() !== null));
+    this.led(BUTTON.transportSolo, on(h.isSplit()));
+    this.led(LED.smpte, on(!this.beats));
+    this.led(LED.beats, on(this.beats));
+    const viewIndex = h.viewIndex();
+    F_KEYS.forEach((k, i) => this.led(BUTTON[k], on(i === viewIndex)));
+
+    // the motor faders: where the lane and the song stand, unless a hand is
+    // on them or just was
+    const target = ready ? h.editTarget(true) : null;
+    if (ch !== null && !this.touched[0] && now - this.movedAt[0] > MOTOR_HOLD_MS) {
+      const own = cellArg(target?.cell, isM);
+      const level = own ? own.arg >> 8 : h.engineLane(ch).vol;
+      const v = levelFader(level);
+      for (let s = 0; s < 8; s++) this.out(`fader${s}`, v, () => faderMessage(s, v));
+    }
+    if (ready && !this.touched[1] && now - this.movedAt[1] > MOTOR_HOLD_MS) {
+      const own = cellArg(target?.cell, isV);
+      const v = levelFader(own ? own.arg >> 8 : h.globalVolume());
+      this.out("faderM", v, () => faderMessage(null, v));
+    }
+
+    // the knob's ring
+    const model = ready ? h.surroundModel() : SURROUND_STEREO;
+    if (model !== SURROUND_SPATIAL) this.axis = "azimuth";
+    let ring = { mode: RING.dot, pos: 0, centre: false };
+    let p = null;
+    if (ch !== null) {
+      p = panStart(model, target?.cell ?? null, h.engineLane(ch));
+      ring = panRing(model, p, this.axis);
+    }
+    for (let s = 0; s < 8; s++) {
+      const key = `${ring.mode},${ring.pos},${ring.centre}`;
+      this.out(`ring${s}`, key, () => ringMessage(s, ring.mode, ring.pos, ring.centre));
+    }
+
+    // the displays
+    let text = " ".repeat(TIMECODE_DIGITS);
+    if (ready) {
+      const pos = h.position();
+      if (pos) text = positionText(pos, this.beats);
+    }
+    const cells = segmentCells(text, TIMECODE_DIGITS);
+    const msgs = timecodeMessages(cells, this.prevCells);
+    if (msgs.length) { for (const m of msgs) this.send(m); this.prevCells = cells; }
+    const lane = ch === null ? "  " : String(ch + 1).padStart(2, "0").slice(-2);
+    this.out("assign", lane, () => assignmentMessages(segmentCells(lane, 2)));
+    const line1 = ch === null ? "" : `Lane ${String(ch + 1).padStart(2, "0")}`;
+    let line2 = "";
+    if (now < this.statusUntil) line2 = this.status;
+    else if (ch !== null && !h.record()) line2 = "Rec off";
+    else if (p) line2 = panLabel(model, p, this.axis);
+    for (let s = 0; s < 8; s++) {
+      this.out(`lcd${s}a`, line1, () => lcdMessage(s, 0, line1));
+      this.out(`lcd${s}b`, line2, () => lcdMessage(s, 1, line2));
+    }
+  }
+
+  /** Put out every lamp this lit and blank the displays: the surface is
+   *  being let go of. */
+  goodbye() {
+    if (!this.send) return;
+    for (const [key, value] of this.sent) {
+      if (key.startsWith("led") && value !== "off") this.send(ledMessage(Number(key.slice(3)), "off"));
+      if (key.startsWith("ring")) this.send(ringMessage(Number(key.slice(4)), RING.dot, 0));
+      if (key.startsWith("lcd")) this.send(lcdMessage(Number(key[3]), key[4] === "a" ? 0 : 1, ""));
+    }
+    for (const m of timecodeMessages(segmentCells("", TIMECODE_DIGITS), this.prevCells)) this.send(m);
+    for (const m of assignmentMessages(segmentCells("", 2))) this.send(m);
+    this.attach(null);
+  }
+
+  /** Light the home strip's Select again on the next frame, which brings a
+   *  one-fader surface back to it. */
+  goHome() {
+    for (let s = 0; s < 8; s++) this.sent.delete(`led${STRIP_BUTTON.select + s}`);
+  }
+
+  led(note, state) { this.out(`led${note}`, state, () => ledMessage(note, state)); }
+
+  /** Send what `make()` gives (one message or a list) when `key`'s value
+   *  differs from the last one sent. */
+  out(key, value, make) {
+    if (this.sent.get(key) === value) return;
+    this.sent.set(key, value);
+    const m = make();
+    if (Array.isArray(m[0])) for (const one of m) this.send(one);
+    else this.send(m);
+  }
+}
+
+/** The knob's value as the scribble strip shows it (seven characters). */
+function panLabel(model, p, axis) {
+  const hex = (v, n) => v.toString(16).toUpperCase().padStart(n, "0");
+  if (model === SURROUND_STEREO) return `Pan $${hex(p.az, 2)}`;
+  if (model !== SURROUND_SPATIAL) return `Az $${hex(p.az, 3)}`;
+  if (axis === "elevation") return `El ${p.el >= 0 ? "+" : "-"}${hex(Math.abs(p.el), 2)}`;
+  return `Az $${hex(p.az, 2)}`;
+}

@@ -114,6 +114,24 @@ Steinberg's own GPLv3 download (sdk.steinberg.net); the names match.
 | `iasiothiscallresolver.cpp` | `1110eaa016c4b781dcb2ec5800fdbf94354e40c240cb62b01f3332906eafada1` |
 | `iasiothiscallresolver.h` | `9c4c229356003af61dbf191bcfe2140d7eab9b8d090d3ffbe879155fe040c807` |
 
+## RtMidi 6.1.0 — `rtmidi/`
+
+- Source: https://github.com/thestk/rtmidi, release `6.1.0`
+  (`https://github.com/thestk/rtmidi/releases/download/6.1.0/rtmidi-6.1.0.tar.gz`,
+  sha256 `83c4bb79ae813020873b87e09de8dad979ff0994597cfd33f4a6c416e8c7fcd5`).
+- Files: `RtMidi.h`, `RtMidi.cpp`, `LICENSE` (MIT-style, like RtAudio's; its
+  request to send changes upstream is explicitly not binding). Unpatched.
+  - `RtMidi.h`   sha256 `d350813b155af65328593ecdede98ba6da527599bb2a7175dd875a7009dea847`
+  - `RtMidi.cpp` sha256 `2586f5c38ce53814badf2784a38c11e02176f7e87f6792a017fb1aa36715e0d1`
+- Backends chosen by CMakeLists.txt: ALSA's sequencer on Linux, CoreMIDI on
+  macOS, the Windows multimedia API (with `RTMIDI_DO_NOT_ENSURE_UNIQUE_PORTNAMES`:
+  the shell remembers a port by its name, and RtMidi's index suffix moves).
+  Never JACK: RtMidi's JACK backend links libjack, which must stay the
+  system's.
+- Used by `src/nativemidi.cpp` only: the control surface's ports (item 379),
+  because QtWebEngine refuses Web MIDI. RtMidi 6 puts its classes in
+  `rt::midi` (forward declarations go there).
+
 ## Monocypher 4.0.2 — `monocypher/`
 
 - Source: https://monocypher.org/download/monocypher-4.0.2.tar.gz, sha512
