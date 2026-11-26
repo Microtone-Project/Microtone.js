@@ -338,12 +338,13 @@ export class ControlSurface {
       return;
     }
     // An open dialog or menu has the keyboard, and so has the surface: the
-    // arrows walk it, the knob's push (or Enter) takes what is highlighted,
+    // arrows walk it, the knob's push (Enter, Zoom) takes what is highlighted,
     // Select (or Cancel) closes it. The transport carries on.
     if (h.dialogOpen()) {
       switch (ev.name) {
         case "up": case "down": case "left": case "right": h.dialogKey(ARROW_CODE[ev.name]); return;
-        case "vpotPush": case "enter": h.dialogTake(); return;
+        // Zoom is the Enter: it takes what is highlighted
+        case "enter": case "zoom": h.dialogTake(); return;
         case "select": case "cancel": h.dialogCancel(); return;
         case "stop": case "play": case "record": case "userA": case "userB": case "timecodeBeats": break;
         default: return;

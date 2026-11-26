@@ -380,7 +380,7 @@ test("with a dialog or menu open, the surface walks it", () => {
   s.receive([0xb0, 60, 1]);     // jog: a row
   now = 100;
   s.receive([0xb0, 16, 0x41]);  // knob: back an item
-  s.receive(noteOn(32));        // knob push: take it
+  s.receive(noteOn(BUTTON.zoom)); // Zoom: Enter, take it
   s.receive(noteOn(0x1b));      // Select: close
   s.receive(noteOn(0x10));      // a strip's Mute does nothing meanwhile
   s.receive(noteOn(BUTTON.stop)); // the transport still works
