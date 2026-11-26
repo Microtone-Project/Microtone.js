@@ -9988,6 +9988,7 @@ const CMD = {
   SET_MONITOR: "monitor",  // {mode} 0 = fold, 1 = binaural (surround songs)
   SET_TEMPO: "tempo",      // {scale, glideSec} — the host's tempo scale (item 373)
   SET_FADER: "fader",      // {voice, value, samples} — value 0..255, ramped over `samples`
+  STOP_AT_BAR: "stopAtBar", // {rowsPerBar} — halt at the next bar line (0 = don't)
   SNAPSHOT_RETURN: "snapRet", // {buffer} — hand a snapshot buffer back for reuse
 };
 
@@ -10017,6 +10018,11 @@ const SNAP_INT_COUNT = 16;
  *  playhead between rows. */
 const SNAP_TEMPO_SCALE = 24;
 const SNAP_TICK = 25;
+/** Item 373: the song's written level now (level.js; −1 = no lane sounds),
+ *  and the seconds of song rendered since the previous snapshot — what the
+ *  radio's watch counts time and hears fade-outs by. */
+const SNAP_LEVEL = 26;
+const SNAP_SPAN = 27;
 const SNAP_HEADER = 28;       // voice block starts here
 
 /** Per-lane block: the two probes plus the gate that says whether to believe
@@ -10118,6 +10124,34 @@ function faderToGain(fader) {
   return (255 - fader) / 255;
 }
 
+// ══ src/taudplay/level.js ══
+// The song's WRITTEN level (item 373): how loud the song itself asks to be
+// right now — the global volume (V, W) × the loudest sounding lane's note
+// volume (the volume column, D, K, L, Q) × its lane volume (M, N), 0…1. It is
+// what a composer's fade-out moves, and nothing else: envelopes, instrument
+// volumes, the host's faders and the listener's volume are left out on
+// purpose, so a note decaying into a rest, or a listener turning the sound
+// down, is not a fade. −1 while no lane sounds at all (a rest says nothing
+// about how loud the song is).
+//
+// The Microtone Player's radio reads it off taudplay's snapshot, and the
+// Music Hub's catalogue walk off its own engine — the same function, so the
+// two agree on which songs fade out (src/player/radio.js).
+
+/** `engine`: a TaudEngine (core/engine/engine.js — the one with views). */
+function writtenLevel(engine) {
+  const ph = engine.playheads[0];
+  const voices = ph.trackerState.voices;
+  const lanes = engine.channelCount();
+  let loudest = -1;
+  for (let vi = 0; vi < lanes; vi++) {
+    const v = voices[vi];
+    if (v.active && v.currentMixVolume > loudest) loudest = v.currentMixVolume;
+  }
+  if (loudest < 0) return -1;
+  return (ph.globalVolume / 255) * Math.min(1, loudest);
+}
+
 // ══ src/taudplay/worklet.js ══
 // taudplay's AudioWorkletProcessor — the whole audio side of the library.
 //
@@ -10145,7 +10179,11 @@ function faderToGain(fader) {
 
 
 
+
 const RING_FRAMES = 4096; // power of two
+/** While a bar-line halt is pending, the engine renders in spans this short,
+ *  so the line is found within 1.3 ms and not a whole 10.7 ms chunk late. */
+const BAR_STOP_SPAN = 64;
 
 class TaudPlayProcessor extends AudioWorkletProcessor {
   constructor(options) {
@@ -10164,6 +10202,13 @@ class TaudPlayProcessor extends AudioWorkletProcessor {
     this.rs = this.step === 1.0 ? null : kaiserKernel(SAMPLING_RATE, sampleRate);
 
     this.faders = new FaderBank();
+    /** A pending halt at the next bar line: {rpb, cue, bar}, or null. */
+    this.barStop = null;
+    /** The ring holds a bar-line halt's eased-out tail and then silence:
+     *  nothing in it is stale, so a flush (the next song's load, its play)
+     *  leaves it to finish rather than cut it off with a click. */
+    this.ringSettled = false;
+    this.spanSec = 0; // song time rendered since the last snapshot
 
     const opts = options?.processorOptions ?? {};
     this.snapshotIntervalFrames =
@@ -10180,6 +10225,9 @@ class TaudPlayProcessor extends AudioWorkletProcessor {
 
   onCommand(m) {
     const eng = this.engine;
+    // Anything that moves the transport by hand calls off a bar-line halt.
+    if (m.t === CMD.LOAD || m.t === CMD.SELECT_SONG || m.t === CMD.PLAY ||
+        m.t === CMD.STOP || m.t === CMD.SEEK_CUE) this.barStop = null;
     switch (m.t) {
       case CMD.LOAD:
         this.doc = m.doc;
@@ -10217,6 +10265,14 @@ class TaudPlayProcessor extends AudioWorkletProcessor {
         this.faders.set(m.voice | 0, m.value, m.samples | 0);
         this.faders.writeInto(eng.playheads[0].trackerState);
         break;
+      case CMD.STOP_AT_BAR: {
+        // The radio's seam (item 373): play to the next bar line — a new cue,
+        // or a new group of `rowsPerBar` rows — and halt exactly there.
+        const rpb = m.rowsPerBar | 0;
+        const ts = eng.playheads[0].trackerState;
+        this.barStop = rpb > 0 ? { rpb, cue: ts.cuePos, bar: Math.floor(ts.rowIndex / rpb) } : null;
+        break;
+      }
       case CMD.SNAPSHOT_RETURN:
         if (this.snapshotPool.length < 2) this.snapshotPool.push(m.buffer);
         break;
@@ -10242,34 +10298,55 @@ class TaudPlayProcessor extends AudioWorkletProcessor {
 
   /** Drop look-ahead rendered against the pre-seek tracker state. */
   flushRing() {
+    if (this.ringSettled) return;
     this.ringReadPos = this.ringWrite;
     this.ringFloor = this.ringWrite;
   }
 
   renderIntoRing() {
-    this.faders.advance(TRACKER_CHUNK);
+    const span = this.barStop ? BAR_STOP_SPAN : TRACKER_CHUNK;
+    this.faders.advance(span);
     this.faders.writeInto(this.engine.playheads[0].trackerState);
-    const out = this.engine.renderChunk(0, this.chunk);
+    const out = span === TRACKER_CHUNK
+      ? this.engine.renderChunk(0, this.chunk)
+      : this.engine.renderFrames(0, span, this.chunk);
     const mask = RING_FRAMES - 1;
     if (out === null) {
-      for (let n = 0; n < TRACKER_CHUNK; n++) {
+      for (let n = 0; n < span; n++) {
         const w = (this.ringWrite + n) & mask;
         this.ringL[w] = 0;
         this.ringR[w] = 0;
       }
-    } else {
-      // The pre-dither Float32 mix bus, not the dithered U8 the device would
-      // emit: the 8-bit character belongs to the hardware, not to a web player.
-      const ts = this.engine.playheads[0].trackerState;
-      const mL = ts.mixLeft;
-      const mR = ts.mixRight;
-      for (let n = 0; n < TRACKER_CHUNK; n++) {
-        const w = (this.ringWrite + n) & mask;
-        this.ringL[w] = mL[n];
-        this.ringR[w] = mR[n];
-      }
+      this.ringWrite += span;
+      return;
     }
-    this.ringWrite += TRACKER_CHUNK;
+    // The pre-dither Float32 mix bus, not the dithered U8 the device would
+    // emit: the 8-bit character belongs to the hardware, not to a web player.
+    const frames = out.length >> 1;
+    this.ringSettled = false;
+    const ts = this.engine.playheads[0].trackerState;
+    const mL = ts.mixLeft;
+    const mR = ts.mixRight;
+    for (let n = 0; n < frames; n++) {
+      const w = (this.ringWrite + n) & mask;
+      this.ringL[w] = mL[n];
+      this.ringR[w] = mR[n];
+    }
+    const b = this.barStop;
+    if (b !== null && (ts.cuePos !== b.cue || Math.floor(ts.rowIndex / b.rpb) !== b.bar)) {
+      // The bar line fell inside this span: ease the span out, and halt.
+      for (let n = 0; n < frames; n++) {
+        const w = (this.ringWrite + n) & mask;
+        const g = 1 - (n + 1) / frames;
+        this.ringL[w] *= g;
+        this.ringR[w] *= g;
+      }
+      this.engine.stop(0);
+      this.barStop = null;
+      this.ringSettled = true;
+    }
+    this.ringWrite += frames;
+    this.spanSec += frames / SAMPLING_RATE;
   }
 
   assembleSnapshot() {
@@ -10287,6 +10364,9 @@ class TaudPlayProcessor extends AudioWorkletProcessor {
     f[SNAP_SONG_INDEX] = this.songIndex;
     f[SNAP_TEMPO_SCALE] = this.engine.getTempoScale();
     f[SNAP_TICK] = ts.tickInRow;
+    f[SNAP_LEVEL] = writtenLevel(this.engine);
+    f[SNAP_SPAN] = this.spanSec;
+    this.spanSec = 0;
     // Interrupts (item 181): drain the latch into the snapshot the main thread
     // is about to get. Read-to-acknowledge, so every fire is reported exactly
     // once — and the drain sits AFTER the pool check above on purpose: a

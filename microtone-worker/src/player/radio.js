@@ -2,12 +2,27 @@
 // tracker song is a decision, because most of them never end: their last cue
 // jumps back and they play forever.
 //
-// LoopWatch decides it from the cues a playhead passes through. A jump BACK
+// RadioWatch decides it from what a playhead passes through. A jump BACK
 // across a stretch of the song it has already played (at least `minSpan`
-// cues, or back to the song's first cue) is the loop; the cue it lands on is
-// played once more, so the listener hears the song turn round, and the
-// moment that cue gives way is the SEAM where the next song begins. A song
-// that stops by itself (a halt) is a seam at once.
+// cues, or back to the song's first cue) is the loop. A song that has looped
+// plays on — round again if it must — until it has played `minSeconds`
+// (170 s), and then to the next 4-bar line: that line is the SEAM where the
+// next song begins, beat-matched. Bars are counted as they are played, from
+// the song's first row (a bar is `rowsPerBar` rows, sMet's secondary beat;
+// a new cue starts a new one), so the outgoing song always leaves at the
+// start of its (4n)th bar, n > 0, and the incoming one starts at its first —
+// both on the same 4-bar grid. The loop's own jump is never the seam: the
+// listener hears the song come round.
+//
+// A song that FADES OUT is over where it fades: if it has faded when it loops
+// or stops, the watch says "fade", and the next song starts from its
+// beginning at its own tempo, not matched to a silence. The fade is read off
+// the song's written level (taudplay level.js — global volume × the loudest
+// lane's note and lane volume, i.e. V/W, the volume column and D, M and N),
+// as it was just BEFORE the loop or the stop: under FADE_RATIO of the
+// loudest the song has been. Envelopes are not in that level, so a note
+// decaying into a rest is not a fade. A song that stops by itself without
+// fading is an "end", and the next one is matched to it.
 //
 // The same watch drives the Microtone Player's radio and the Music Hub's
 // catalogue walk (how long a song plays before the radio moves on), so the
@@ -19,51 +34,108 @@
 // the engine's tempo scale (taudplay `setTempoScale`). Pure: no DOM, no audio.
 
 export const LOOP_MIN_SPAN = 4;
+/** A looping song plays at least this long before the radio moves on. */
+export const RADIO_MIN_SECONDS = 170;
+/** The grid the radio mixes on, in bars. */
+export const MIX_BARS = 4;
+/** Faded: the written level just before the end is under this share of the
+ *  loudest it has been (1/8, −18 dB). */
+export const FADE_RATIO = 1 / 8;
 
-export class LoopWatch {
-  constructor({ minSpan = LOOP_MIN_SPAN } = {}) {
+export class RadioWatch {
+  constructor({ minSpan = LOOP_MIN_SPAN, minSeconds = RADIO_MIN_SECONDS, mixBars = MIX_BARS, rowsPerBar = 16 } = {}) {
     this.minSpan = minSpan;
+    this.minSeconds = minSeconds;
+    this.mixBars = mixBars;
+    this.rowsPerBar = rowsPerBar;
     this.reset();
   }
 
   /** Forget everything: a new song starts at `firstCue`. */
-  reset(firstCue = 0) {
+  reset(firstCue = 0, rowsPerBar = this.rowsPerBar) {
     this.firstCue = firstCue;
+    this.rowsPerBar = Math.max(1, rowsPerBar | 0 || 16);
     this.visited = new Set();
     this.lastCue = -1;
+    this.lastRow = 0;
     this.started = false;
     this.looped = false;
     this.loopFrom = -1;
     this.loopTo = -1;
+    this.seconds = 0;   // song time played since the start
+    this.bar = 0;       // bars begun since the start, the first one is 0
+    this.armed = false; // the next bar line is the seam
+    this.level = -1;    // the written level last seen while a lane sounded
+    this.peak = 0;      // the loudest it has been
+  }
+
+  /** The song has faded out, by what it was last heard at. */
+  get faded() {
+    return this.peak > 0 && this.level >= 0 && this.level < this.peak * FADE_RATIO;
   }
 
   /**
-   * Feed one observation of the playhead. Returns null while the song goes
-   * on, "loop" the moment the loop is recognised, "seam" when the cue after
-   * the loop has been played (or a song that has looped once moves on in any
-   * way), and "end" when the song stopped by itself after having started.
+   * Feed one observation of the playhead: where it is (`cue`, `row`),
+   * whether it plays, the song time `dt` (seconds) since the previous
+   * observation, and the written `level` now (−1 while no lane sounds).
+   * Returns null while the song goes on, "loop" the moment the loop is
+   * recognised, "seam" at the bar line where the beat-matched next song
+   * begins, "fade" when a song that has faded out loops or stops (the next
+   * one starts as written), and "end" when it stopped by itself unfaded.
+   *
+   * `armed` turns true while the bar BEFORE the seam plays: a host that
+   * halts its engine at the next bar line then (taudplay `stopAtBarLine`)
+   * cuts exactly on it, and the halt is read as the seam.
    */
-  observe(cue, playing) {
-    if (!playing) return this.started ? "end" : null;
+  observe({ cue, row = 0, playing, dt = 0, level = -1 }) {
+    if (!playing) {
+      if (!this.started) return null;
+      return this.faded ? "fade" : this.armed ? "seam" : "end";
+    }
     if (!this.started) {
       this.started = true;
       this.lastCue = cue;
+      this.lastRow = row;
       this.visited.add(cue);
+      this._hear(level);
       return null;
     }
-    if (cue === this.lastCue) return null;
-    const from = this.lastCue;
-    this.lastCue = cue;
-    if (this.looped) return "seam";
-    if (cue < from && this.visited.has(cue) &&
-        (from - cue + 1 >= this.minSpan || cue <= this.firstCue)) {
-      this.looped = true;
-      this.loopFrom = from;
-      this.loopTo = cue;
-      return "loop";
+    this.seconds += dt;
+    let ev = null;
+    const rpb = this.rowsPerBar;
+    const crossed = cue !== this.lastCue || Math.floor(row / rpb) !== Math.floor(this.lastRow / rpb);
+    if (cue !== this.lastCue && !this.looped) {
+      const from = this.lastCue;
+      if (cue < from && this.visited.has(cue) &&
+          (from - cue + 1 >= this.minSpan || cue <= this.firstCue)) {
+        this.looped = true;
+        this.loopFrom = from;
+        this.loopTo = cue;
+        // Judged on the level BEFORE this observation: the jump has already
+        // struck the song's first notes again.
+        ev = this.faded ? "fade" : "loop";
+      } else {
+        this.visited.add(cue);
+      }
     }
-    this.visited.add(cue);
-    return null;
+    this.lastCue = cue;
+    this.lastRow = row;
+    if (crossed) {
+      this.bar++;
+      if (this.armed) return "seam";
+    }
+    this._hear(level);
+    if (!this.armed && this.looped && ev !== "fade" && this.seconds >= this.minSeconds &&
+        (this.bar + 1) % this.mixBars === 0) {
+      this.armed = true;
+    }
+    return ev;
+  }
+
+  _hear(level) {
+    if (!(level >= 0)) return; // nothing sounds: keep what was last heard
+    this.level = level;
+    if (level > this.peak) this.peak = level;
   }
 }
 

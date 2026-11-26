@@ -20,7 +20,7 @@ import { startControlEnhancer } from "./components/spinner.js";
 import { holdBrowserZoom } from "./zoom.js";
 import { loadCanvasFonts } from "./fonts.js";
 import { songFacts, displayTempo, tempoOf } from "../player/songfacts.js";
-import { LoopWatch, matchScale, glideSeconds, pickNext } from "../player/radio.js";
+import { RadioWatch, matchScale, glideSeconds, pickNext } from "../player/radio.js";
 import { RowMarch } from "../player/marching.js";
 
 const $ = (id) => document.getElementById(id);
@@ -104,15 +104,17 @@ function makeEntry(name, bytes, extra = {}) {
   return { id: extra.id ?? `local-${++serial}`, name, bytes, parsed, doc, facts: songFacts(doc, 0), hub: extra.hub ?? null };
 }
 
-const watch = new LoopWatch();
+const watch = new RadioWatch();
 let watchArmed = false;   // false between a load and the worklet's LOADED
+let barStopSent = false;  // the worklet was asked to halt on the seam's bar line
 let pendingPlay = null;   // what to do once the worklet says it has the song
 let startedId = null;     // the entry a "started" was reported for
 
 /**
- * Put `entry` on the player. `how` is "manual" (the listener chose it: the
- * song as written) or "radio" (the seam of a radio mix: it starts at the
- * outgoing song's tempo and glides to its own). `play` starts it.
+ * Put `entry` on the player. `how` is "manual" (the listener chose it, or
+ * the last song faded out: the song as written) or "radio" (the seam of a
+ * radio mix: it starts at the outgoing song's tempo and glides to its own).
+ * `play` starts it.
  */
 async function openEntry(entry, { how = "manual", play = false } = {}) {
   const outTempo = how === "radio" && current
@@ -146,9 +148,15 @@ function remember(id) {
   while (recent.length > Math.max(1, Math.floor(queue.length / 2))) recent.shift();
 }
 
+/** Start watching the song from its top, bars counted in its own rows. */
+function rewatch(firstCue = 0) {
+  watch.reset(firstCue, current?.facts.rowsPerBar);
+  barStopSent = false;
+}
+
 /** The worklet has the song: play it if asked to, and start watching. */
 function onLoaded() {
-  watch.reset(0);
+  rewatch(0);
   watchArmed = true;
   if (pendingPlay) {
     pendingPlay = false;
@@ -164,24 +172,32 @@ function onSnapshot() {
     startedId = current.id;
     embed.post("started", { id: current.id });
   }
-  const ev = watch.observe(player.cue, player.playing);
-  if (ev === "loop") {
-    if (!$("radio").checked) {
-      // Radio off: the song plays as it was written — round and round.
-      watch.reset(player.cue);
+  const ev = watch.observe({
+    cue: player.cue, row: player.row, playing: player.playing, dt: player.span, level: player.level,
+  });
+  if ((ev === "loop" || ev === "fade") && player.playing && !$("radio").checked) {
+    // Radio off: the song plays as it was written — round and round.
+    rewatch(player.cue);
+  } else {
+    if (watch.armed && !barStopSent) {
+      // The bar now playing ends on the seam: the worklet halts on its line,
+      // to the sample, and the watch reads the halt as the seam.
+      barStopSent = true;
+      player.stopAtBarLine(watch.rowsPerBar);
     }
-  } else if (ev === "seam" || ev === "end") {
-    seam(ev);
+    if (ev === "seam" || ev === "fade" || ev === "end") seam(ev);
   }
   if (ev) embed.post("state", { playing: player.playing, event: ev });
 }
 
-/** The song is over (it looped and played one more cue, or it stopped). */
+/** The song is over: it looped, played its 170 s and reached a 4-bar line
+ *  ("seam"), it faded out ("fade": the next song is not matched to a
+ *  silence), or it stopped ("end"). */
 function seam(ev) {
   const next = nextEntry();
   watchArmed = false;
   if (next) {
-    openEntry(next, { how: "radio", play: true }).then(() => {
+    openEntry(next, { how: ev === "fade" ? "manual" : "radio", play: true }).then(() => {
       if (EMBEDDED) embed.post("changed", { id: next.id });
       upcoming = null;
     });
@@ -333,7 +349,7 @@ $("song").addEventListener("change", (e) => {
     current.facts = songFacts(current.doc, parseInt(e.target.value, 10));
     march.setSong(current.doc, parseInt(e.target.value, 10), current.facts);
   }
-  watch.reset(0);
+  rewatch(0);
   refreshBinaural(); // …and the next song may not be surround
 });
 
@@ -344,13 +360,20 @@ $("play").addEventListener("click", async () => {
   $("phoneNote").hidden = true;
   try { sessionStorage.removeItem("microtone-phone-redirect"); } catch { /* private mode */ }
   await ensureAudio();
-  watch.reset(0);
+  rewatch(0);
   watchArmed = !!current;
   player.play();
 });
 $("stopBtn").addEventListener("click", () => { player.stop(); watchArmed = false; });
-$("prevCue").addEventListener("click", () => player.seekCue(Math.max(0, player.cue - 1)));
-$("nextCue").addEventListener("click", () => player.seekCue(player.cue + 1));
+// A seek is the listener's move, not the song's: watch afresh from there.
+$("prevCue").addEventListener("click", () => { player.seekCue(Math.max(0, player.cue - 1)); rewatch(Math.max(0, player.cue - 1)); });
+$("nextCue").addEventListener("click", () => { player.seekCue(player.cue + 1); rewatch(player.cue + 1); });
+// Radio off: the song goes on round, as written — even if its seam was near.
+$("radio").addEventListener("change", () => {
+  if ($("radio").checked || !current) return;
+  if (barStopSent) player.stopAtBarLine(0);
+  rewatch(player.cue);
+});
 $("nextSong").addEventListener("click", () => {
   const next = EMBEDDED ? upcoming : pickNext(queue, current?.id, recent);
   if (!next) { if (EMBEDDED) embed.post("wantNext", { id: current?.id ?? null, now: true }); return; }
@@ -440,9 +463,12 @@ if (EMBEDDED) {
         case "stop": player.stop(); break;
         case "toggle":
           await ensureAudio();
-          if (player.playing) player.stop(); else { watch.reset(0); watchArmed = !!current; player.play(); }
+          if (player.playing) player.stop(); else { rewatch(0); watchArmed = !!current; player.play(); }
           break;
-        case "radio": $("radio").checked = !!m.on; break;
+        case "radio":
+          $("radio").checked = !!m.on;
+          $("radio").dispatchEvent(new Event("change"));
+          break;
         case "layout": document.documentElement.dataset.layout = m.layout === "bar" ? "bar" : "full"; break;
         case "theme":
           if (["dark", "dim", "light"].includes(m.theme)) document.documentElement.dataset.theme = m.theme;

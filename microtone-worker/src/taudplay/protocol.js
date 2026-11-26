@@ -22,6 +22,7 @@ export const CMD = {
   SET_MONITOR: "monitor",  // {mode} 0 = fold, 1 = binaural (surround songs)
   SET_TEMPO: "tempo",      // {scale, glideSec} — the host's tempo scale (item 373)
   SET_FADER: "fader",      // {voice, value, samples} — value 0..255, ramped over `samples`
+  STOP_AT_BAR: "stopAtBar", // {rowsPerBar} — halt at the next bar line (0 = don't)
   SNAPSHOT_RETURN: "snapRet", // {buffer} — hand a snapshot buffer back for reuse
 };
 
@@ -51,6 +52,11 @@ export const SNAP_INT_COUNT = 16;
  *  playhead between rows. */
 export const SNAP_TEMPO_SCALE = 24;
 export const SNAP_TICK = 25;
+/** Item 373: the song's written level now (level.js; −1 = no lane sounds),
+ *  and the seconds of song rendered since the previous snapshot — what the
+ *  radio's watch counts time and hears fade-outs by. */
+export const SNAP_LEVEL = 26;
+export const SNAP_SPAN = 27;
 export const SNAP_HEADER = 28;       // voice block starts here
 
 /** Per-lane block: the two probes plus the gate that says whether to believe

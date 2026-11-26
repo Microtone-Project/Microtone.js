@@ -14,7 +14,7 @@ import {
   CMD, MSG,
   SNAP_PLAYING, SNAP_CUE, SNAP_ROW, SNAP_BPM, SNAP_TICK_RATE, SNAP_CHANNELS,
   SNAP_INT_MASK, SNAP_INT_ARGS,
-  SNAP_HEADER, SNAP_TEMPO_SCALE, SNAP_TICK, SNAP_V_ACTIVE, SNAP_V_VOLUME, SNAP_V_PAN, SNAP_V_STRIDE,
+  SNAP_HEADER, SNAP_TEMPO_SCALE, SNAP_TICK, SNAP_LEVEL, SNAP_SPAN, SNAP_V_ACTIVE, SNAP_V_VOLUME, SNAP_V_PAN, SNAP_V_STRIDE,
   SNAP_VOICES, SNAP_FLOATS,
 } from "./protocol.js";
 import { makeInterruptBank, setInterruptIn, dispatchInterrupts } from "./interrupts.js";
@@ -194,6 +194,10 @@ export class TaudPlayer {
   play() { this._post({ t: CMD.PLAY }); }
   stop() { this._post({ t: CMD.STOP }); }
   seekCue(cue) { this._post({ t: CMD.SEEK_CUE, cue }); }
+  /** Play on to the next bar line — a new cue, or a new group of
+   *  `rowsPerBar` rows — and halt exactly there (within 1.3 ms, eased out).
+   *  0 calls it off; so does any play, stop, seek or load. */
+  stopAtBarLine(rowsPerBar) { this._post({ t: CMD.STOP_AT_BAR, rowsPerBar: rowsPerBar | 0 }); }
 
   /** The tempo scale (song-level, not per-lane): every tick lasts 1/scale of
    *  what the song's BPM says, so its own tempo changes still apply, scaled —
@@ -297,6 +301,11 @@ export class TaudPlayer {
   /** The tempo scale in force (a glide moves it), and the tick of the row. */
   get tempoScale() { return this.snapshot[SNAP_TEMPO_SCALE] || 1; }
   get tick() { return this.snapshot[SNAP_TICK] | 0; }
+  /** The song's written level (level.js): global × note × lane volume of
+   *  the loudest lane, 0…1, or −1 while no lane sounds. */
+  get level() { return this.snapshot[SNAP_LEVEL]; }
+  /** Seconds of song rendered between the previous snapshot and this one. */
+  get span() { return this.snapshot[SNAP_SPAN]; }
 
   // ── internals ──
 

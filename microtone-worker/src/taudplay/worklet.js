@@ -22,16 +22,20 @@ import { SAMPLING_RATE, TRACKER_CHUNK } from "../../core/engine/constants.js";
 import { displayPanByte } from "../../core/engine/spatial.js";
 import { loadIntoEngine } from "../../core/audio/offline-render.js";
 import { FaderBank } from "./faders.js";
+import { writtenLevel } from "./level.js";
 import { kaiserKernel } from "../../core/audio/resampler.js";
 import {
   CMD, MSG,
   SNAP_PLAYING, SNAP_CUE, SNAP_ROW, SNAP_BPM, SNAP_TICK_RATE, SNAP_CHANNELS,
-  SNAP_SONG_INDEX, SNAP_TEMPO_SCALE, SNAP_TICK, SNAP_INT_MASK, SNAP_INT_ARGS, SNAP_INT_COUNT, SNAP_HEADER,
+  SNAP_SONG_INDEX, SNAP_TEMPO_SCALE, SNAP_TICK, SNAP_LEVEL, SNAP_SPAN, SNAP_INT_MASK, SNAP_INT_ARGS, SNAP_INT_COUNT, SNAP_HEADER,
   SNAP_V_ACTIVE, SNAP_V_VOLUME, SNAP_V_PAN, SNAP_V_STRIDE,
   SNAP_VOICES, SNAP_FLOATS,
 } from "./protocol.js";
 
 const RING_FRAMES = 4096; // power of two
+/** While a bar-line halt is pending, the engine renders in spans this short,
+ *  so the line is found within 1.3 ms and not a whole 10.7 ms chunk late. */
+const BAR_STOP_SPAN = 64;
 
 class TaudPlayProcessor extends AudioWorkletProcessor {
   constructor(options) {
@@ -50,6 +54,13 @@ class TaudPlayProcessor extends AudioWorkletProcessor {
     this.rs = this.step === 1.0 ? null : kaiserKernel(SAMPLING_RATE, sampleRate);
 
     this.faders = new FaderBank();
+    /** A pending halt at the next bar line: {rpb, cue, bar}, or null. */
+    this.barStop = null;
+    /** The ring holds a bar-line halt's eased-out tail and then silence:
+     *  nothing in it is stale, so a flush (the next song's load, its play)
+     *  leaves it to finish rather than cut it off with a click. */
+    this.ringSettled = false;
+    this.spanSec = 0; // song time rendered since the last snapshot
 
     const opts = options?.processorOptions ?? {};
     this.snapshotIntervalFrames =
@@ -66,6 +77,9 @@ class TaudPlayProcessor extends AudioWorkletProcessor {
 
   onCommand(m) {
     const eng = this.engine;
+    // Anything that moves the transport by hand calls off a bar-line halt.
+    if (m.t === CMD.LOAD || m.t === CMD.SELECT_SONG || m.t === CMD.PLAY ||
+        m.t === CMD.STOP || m.t === CMD.SEEK_CUE) this.barStop = null;
     switch (m.t) {
       case CMD.LOAD:
         this.doc = m.doc;
@@ -103,6 +117,14 @@ class TaudPlayProcessor extends AudioWorkletProcessor {
         this.faders.set(m.voice | 0, m.value, m.samples | 0);
         this.faders.writeInto(eng.playheads[0].trackerState);
         break;
+      case CMD.STOP_AT_BAR: {
+        // The radio's seam (item 373): play to the next bar line — a new cue,
+        // or a new group of `rowsPerBar` rows — and halt exactly there.
+        const rpb = m.rowsPerBar | 0;
+        const ts = eng.playheads[0].trackerState;
+        this.barStop = rpb > 0 ? { rpb, cue: ts.cuePos, bar: Math.floor(ts.rowIndex / rpb) } : null;
+        break;
+      }
       case CMD.SNAPSHOT_RETURN:
         if (this.snapshotPool.length < 2) this.snapshotPool.push(m.buffer);
         break;
@@ -128,34 +150,55 @@ class TaudPlayProcessor extends AudioWorkletProcessor {
 
   /** Drop look-ahead rendered against the pre-seek tracker state. */
   flushRing() {
+    if (this.ringSettled) return;
     this.ringReadPos = this.ringWrite;
     this.ringFloor = this.ringWrite;
   }
 
   renderIntoRing() {
-    this.faders.advance(TRACKER_CHUNK);
+    const span = this.barStop ? BAR_STOP_SPAN : TRACKER_CHUNK;
+    this.faders.advance(span);
     this.faders.writeInto(this.engine.playheads[0].trackerState);
-    const out = this.engine.renderChunk(0, this.chunk);
+    const out = span === TRACKER_CHUNK
+      ? this.engine.renderChunk(0, this.chunk)
+      : this.engine.renderFrames(0, span, this.chunk);
     const mask = RING_FRAMES - 1;
     if (out === null) {
-      for (let n = 0; n < TRACKER_CHUNK; n++) {
+      for (let n = 0; n < span; n++) {
         const w = (this.ringWrite + n) & mask;
         this.ringL[w] = 0;
         this.ringR[w] = 0;
       }
-    } else {
-      // The pre-dither Float32 mix bus, not the dithered U8 the device would
-      // emit: the 8-bit character belongs to the hardware, not to a web player.
-      const ts = this.engine.playheads[0].trackerState;
-      const mL = ts.mixLeft;
-      const mR = ts.mixRight;
-      for (let n = 0; n < TRACKER_CHUNK; n++) {
-        const w = (this.ringWrite + n) & mask;
-        this.ringL[w] = mL[n];
-        this.ringR[w] = mR[n];
-      }
+      this.ringWrite += span;
+      return;
     }
-    this.ringWrite += TRACKER_CHUNK;
+    // The pre-dither Float32 mix bus, not the dithered U8 the device would
+    // emit: the 8-bit character belongs to the hardware, not to a web player.
+    const frames = out.length >> 1;
+    this.ringSettled = false;
+    const ts = this.engine.playheads[0].trackerState;
+    const mL = ts.mixLeft;
+    const mR = ts.mixRight;
+    for (let n = 0; n < frames; n++) {
+      const w = (this.ringWrite + n) & mask;
+      this.ringL[w] = mL[n];
+      this.ringR[w] = mR[n];
+    }
+    const b = this.barStop;
+    if (b !== null && (ts.cuePos !== b.cue || Math.floor(ts.rowIndex / b.rpb) !== b.bar)) {
+      // The bar line fell inside this span: ease the span out, and halt.
+      for (let n = 0; n < frames; n++) {
+        const w = (this.ringWrite + n) & mask;
+        const g = 1 - (n + 1) / frames;
+        this.ringL[w] *= g;
+        this.ringR[w] *= g;
+      }
+      this.engine.stop(0);
+      this.barStop = null;
+      this.ringSettled = true;
+    }
+    this.ringWrite += frames;
+    this.spanSec += frames / SAMPLING_RATE;
   }
 
   assembleSnapshot() {
@@ -173,6 +216,9 @@ class TaudPlayProcessor extends AudioWorkletProcessor {
     f[SNAP_SONG_INDEX] = this.songIndex;
     f[SNAP_TEMPO_SCALE] = this.engine.getTempoScale();
     f[SNAP_TICK] = ts.tickInRow;
+    f[SNAP_LEVEL] = writtenLevel(this.engine);
+    f[SNAP_SPAN] = this.spanSec;
+    this.spanSec = 0;
     // Interrupts (item 181): drain the latch into the snapshot the main thread
     // is about to get. Read-to-acknowledge, so every fire is reported exactly
     // once — and the drain sits AFTER the pool check above on purpose: a

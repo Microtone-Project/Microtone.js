@@ -72,6 +72,7 @@ const WORKLET_BUNDLE = [
   "core/audio/offline-render.js", // loadIntoEngine: the one upload sequence
   "src/taudplay/protocol.js",
   "src/taudplay/faders.js",
+  "src/taudplay/level.js",
   "src/taudplay/worklet.js",
 ];
 
@@ -87,6 +88,7 @@ const REPO_FILES = [
   "src/taudplay/protocol.js",
   "src/taudplay/faders.js",
   "src/taudplay/interrupts.js",
+  "src/taudplay/level.js",
   "src/taudplay/worklet.js",
   "src/taudplay/player.js",
   "src/taudplay/render.js",
