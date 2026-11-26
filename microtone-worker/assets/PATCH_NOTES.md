@@ -9,9 +9,9 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 **Control surfaces: a Mackie Control device as a second keyboard**: an X-Touch One, or any surface in its Mackie mode, works on the lane the cursor is in — its knob and fader write the lane's position and volume, its buttons play, record and move about, and its lamps and display follow the song.
 
 - The **surface** badge in the top bar picks the surface's ports. The choice is remembered, and the surface is opened again whenever it is plugged in. The desktop app opens it itself; a browser asks once for MIDI.
-- In record mode the knob writes `S $80xx`, `S $8xxx` or `X $eeaa` into the cursor's cell, by the song's panning model, and its push switches a spatial song's knob between azimuth and elevation. The fader writes `M $xx00` and the master fader `V $xx00`, one undo step per touch, and the motor shows the lane's volume.
+- In record mode the knob writes `S $80xx`, `S $8xxx` or `X $eeaa` into the cursor's cell, by the song's panning model, and its push switches a spatial song's knob between azimuth and elevation. The fader writes `M $xx00` and the master fader `V $xx00`, one undo step per touch or knob turn, and the motor shows the lane's volume. Out of record mode the master fader sets the project's global volume, as the master strip's fader does.
 - Every strip's Mute, Solo and Rec mute, solo and show the second effect column of the cursor's lane, and Select opens the lane's menu, which the knob then walks.
-- The transport plays, stops, records and jumps from cue to cue; F1–F7 are the tabs; Cycle and Drop change the keyboard layout; Replace and Click move between panes, and the transport's Solo splits the view.
+- The transport plays, stops, records and jumps from cue to cue; Stop pressed while stopped brings the view back to the cursor, and once more takes the cursor to the top of the song; F1–F7 are the tabs; Cycle and Drop change the keyboard layout; Click moves to the next pane, Replace (or Global View) shows and hides the instrument list and the master strip, and the transport's Solo splits the view.
 - The surface's level meter shows the cursor lane's level in decibels, with its top light for a lane that goes over full scale.
 - Marker marks a row (shown in the Timeline's trough) and Nudge goes back to it.
 - The display reads cue, row, speed and BPM, or bars, beats and subdivisions from the row highlights (BPM/Time).
@@ -23,6 +23,7 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 - Each pane has its own Follow. The follow lamp in the top bar shows and switches the Follow of the pane you are working in, so one Timeline can scroll with the music while the other stays on the part of the song you put it on.
 - Each Timeline has its own Cells width. The Cells button shows and steps the width of the Timeline you are working in, and a new Timeline starts on the width you chose last.
 - Go to (Ctrl+G) takes only the Timeline you are working in to the cue and row you ask for, and the other stays where it was.
+- F1–F7, F9, Shift+F7 and Shift+F9 (and a control surface's F1–F7) now change the tab of the pane you are working in, even when another pane already shows that view. They used to move you to that other pane instead.
 
 ## Version 5.1.0 (2026-11-26)
 

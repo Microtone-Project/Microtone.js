@@ -293,7 +293,8 @@ export class SplitView {
     addEventListener("pointercancel", done, true);
   }
 
-  /** Put `name` in pane `i` (a tab click). The other panes are left alone
+  /** Put `name` in pane `i` (a tab click, or a tab key in the focused pane).
+   *  The other panes are left alone
    *  even when one is showing the same view — two Timelines scrolled to
    *  different bars is a thing you are allowed to want (item 148.1). */
   setView(i, name) {
@@ -303,7 +304,9 @@ export class SplitView {
     this.onChange();
   }
 
-  /** "Go to this view" (F-keys, and the shell's own showView calls): if a pane
+  /** "Go to this view" (the shell's own showView calls — opening an
+   *  instrument, a loaded project; NOT the tab keys, which switch the focused
+   *  pane's tab like a click): if a pane
    *  already has it, that pane gets the keyboard; otherwise the focused pane
    *  switches to it. Nothing ever moves between panes behind your back, and
    *  nothing opens a second copy of what you can already see. */

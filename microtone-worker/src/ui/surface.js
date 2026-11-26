@@ -29,6 +29,9 @@ const REPEAT_EVERY_MS = 60;
 /** A fader with no touch sensing moves in bursts; a pause this long ends the
  *  burst's undo step. */
 const UNTOUCHED_GESTURE_MS = 400;
+/** The knob has no touch: detents this close together are one turn, and one
+ *  undo step (on one cell — another cell is another step anyway). */
+const KNOB_GESTURE_MS = 1000;
 /** …and a touch this soon after the last movement continues it. */
 const TOUCH_GRACE_MS = 400;
 /** After a move, the motor leaves the fader alone this long. */
@@ -266,6 +269,10 @@ export class ControlSurface {
     this.written = [null, null];
     this.movedAt = [-Infinity, -Infinity];
     this.lastVpotAt = -Infinity;
+    this.knobGesture = null;
+    /** Stop pressed while stopped: 0 = playback just stopped (or never
+     *  cleared), 1 = the playback position was cleared (see stop()). */
+    this.stopStage = 0;
     this.jogAt = -Infinity;  // the jog wheel's speed and its fraction of a unit
     this.jogGap = JOG_SLOW_MS;
     this.jogDir = 0;
@@ -351,16 +358,19 @@ export class ControlSurface {
       case "vpotPush":
         if (h.surroundModel() === SURROUND_SPATIAL) {
           this.axis = this.axis === "azimuth" ? "elevation" : "azimuth";
+          this.knobGesture = null; // the other axis is another step
           this.say(this.axis === "azimuth" ? "Azimuth" : "Elevatn");
         }
         return;
       // display
       case "timecodeBeats": this.beats = !this.beats; return;
-      case "globalView": h.cyclePanels(); return;
+      // Replace is a second Global View: a one-fader surface (the X-Touch One)
+      // has no Global View button.
+      case "globalView": case "replace": h.cyclePanels(); return;
       // transport
       case "rewind": h.seekCue(-1); return;
       case "fastForward": h.seekCue(1); return;
-      case "stop": h.stop(); return;
+      case "stop": this.stop(); return;
       case "play": if (!h.playing()) h.play(); return;
       case "record": h.setRecord(!h.record()); return;
       case "userA": case "userB": h.togglePlay(); return; // the foot pedal
@@ -373,7 +383,7 @@ export class ControlSurface {
       case "nudge": h.gotoMarker(); return;
       case "cycle": h.keymapStep(-1); return;
       case "drop": h.keymapStep(1); return;
-      case "replace": h.paneStep(-1); return;
+      // Click walks the panes, one way round.
       case "click": h.paneStep(1); return;
       case "transportSolo": h.splitToggle(); return;
       // navigation: the keyboard's own chords (app.js arrowChord)
@@ -399,6 +409,16 @@ export class ControlSurface {
     }
     const f = F_KEYS.indexOf(ev.name);
     if (f >= 0) h.showView(f);
+  }
+
+  /** Stop, three ways: playing, it stops; stopped, it clears the playback
+   *  position (onto the editor cursor) and brings the view to the cursor;
+   *  pressed again, the cursor goes to cue 0, row 0. */
+  stop() {
+    const h = this.host;
+    if (h.playing()) { h.stop(); this.stopStage = 0; return; }
+    if (this.stopStage === 0) { h.clearPlayhead(); this.stopStage = 1; return; }
+    h.returnToZero();
   }
 
   release(ev) {
@@ -446,6 +466,7 @@ export class ControlSurface {
     const gap = now - this.lastVpotAt;
     this.lastVpotAt = now;
     const accel = gap < 25 ? 4 : gap < 50 ? 2 : 1;
+    if (this.knobGesture === null || gap > KNOB_GESTURE_MS) this.knobGesture = newGesture();
     if (h.dialogOpen()) {
       // in a menu, an item a detent
       for (let i = 0; i < Math.abs(delta); i++) h.dialogKey(delta > 0 ? "ArrowRight" : "ArrowLeft");
@@ -459,7 +480,7 @@ export class ControlSurface {
     const start = panStart(model, target.cell, h.engineLane(ch));
     const p = panTurn(model, start, delta * accel, this.axis);
     const match = model === SURROUND_STEREO ? isS8 : (op, arg) => isS8(op, arg) || isX(op);
-    target.apply(effectFields(target.cell, match, p.effect, p.arg, target.fx2), null);
+    target.apply(effectFields(target.cell, match, p.effect, p.arg, target.fx2), this.knobGesture);
     this.say(panLabel(model, p, this.axis));
   }
 
@@ -490,9 +511,18 @@ export class ControlSurface {
       this.written[i] = null;
     }
     this.movedAt[i] = now;
+    const level = faderLevel(ev.value);
+    // Out of record mode the master fader is the project's own global volume,
+    // as the master strip's fader is (one undo step a touch).
+    if (i === 1 && !this.host.record()) {
+      if (level === this.written[i]) return;
+      this.written[i] = level;
+      this.host.setGlobalVolume(level, this.gesture[i]);
+      this.say(`GV $${level.toString(16).toUpperCase().padStart(2, "0")}`);
+      return;
+    }
     const target = this.host.editTarget();
     if (!target) { this.say("Rec off"); return; }
-    const level = faderLevel(ev.value);
     if (level === this.written[i]) return;
     this.written[i] = level;
     const op = i ? EffectOp.OP_V : EffectOp.OP_M;
@@ -526,6 +556,7 @@ export class ControlSurface {
       this.out(`meterOn${s}`, true, () => meterEnableMessage(s, true));
     }
     const playing = ready && h.playing();
+    if (playing) this.stopStage = 0; // a new play: the next Stop stops it
     this.led(BUTTON.play, on(playing));
     this.led(BUTTON.stop, on(ready && !playing));
     this.led(BUTTON.record, on(h.record()));

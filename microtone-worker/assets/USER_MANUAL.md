@@ -234,7 +234,7 @@ for three panes or four.
 - **Splitting a half**: once the screen is split, each pane that has its half to itself shows a second **⊞** beside its **✕**; it (or **Ctrl+Shift+F8**) divides that half the other way. Side-by-side halves divide top and bottom, stacked halves left and right — so splitting both makes a two-by-two grid.
 - **Drag a seam** between panes to give one more room; double-click it to even them up again. The seam inside a half moves only that half's two panes.
 - The pane you last clicked in has the keyboard — its active tab is the one in the accent colour. **Shift+F8** moves to the next pane, going through one half and then the other.
-- **Any number of panes can show the same view**: two Timelines scrolled to different bars of the song, two Patterns views, two of anything. Each is a copy of its own, with its own scroll position and its own selection, and all of them edit the one document — a change in one shows up in the others at once. (**F1**–**F7** and **F9** never open a second copy of something already on screen: they take you to the pane that has it. Clicking the tab is how you ask for a second one.)
+- **Any number of panes can show the same view**: two Timelines scrolled to different bars of the song, two Patterns views, two of anything. Each is a copy of its own, with its own scroll position and its own selection, and all of them edit the one document — a change in one shows up in the others at once. (**F1**–**F7** and **F9** change the tab of the pane you are working in, just as clicking its tab does — even when another pane already shows that view.)
 - **Each pane has its own Follow.** The **follow** lamp in the top bar shows and switches the Follow of the pane that has the keyboard, so with two Timelines on screen you can switch it off in one and leave it on in the other: one scrolls with the music, the other stays on the place you put it, whichever one you are working in. A new pane starts with Follow on.
 - **Each Timeline has its own Cells width**: one can show full cells while another shows the whole song in mini. The **Cells** button shows and steps the width of the Timeline you are working in (while the keyboard is in another view, the Timeline you used last); a new Timeline starts on the width you chose last.
 - **Ctrl+G** (Go to) moves only the Timeline you are working in; another Timeline stays where it was.
@@ -3753,24 +3753,25 @@ Mackie Control groups its faders in banks of eight strips. Microtone does not: *
 
 | Control | What it does |
 |---|---|
-| Knob | The lane's position, written into the cursor's cell: `S $80xx` in a stereo song, `S $8xxx` in a planar one, `X $eeaa` in a spatial one. It starts from the cell's own command, else from where the lane is. A quick turn goes further. |
+| Knob | The lane's position, written into the cursor's cell: `S $80xx` in a stereo song, `S $8xxx` in a planar one, `X $eeaa` in a spatial one. It starts from the cell's own command, else from where the lane is. A quick turn goes further, and one turn is one undo step. |
 | Knob push | In a spatial song, switches the knob between azimuth and elevation. |
 | Level meter | The lane's level as it reaches the mix, in decibels of full scale: about −60 dB at the bottom, 0 dB at the top. The top light means the lane went over full scale, and stays on for a second so you see it. |
 | Fader | The lane's volume, `M $xx00`. One touch, from the moment you put a finger on it to the moment you let go, is one undo step. While nothing is under your hand the motor shows the cell's own `M $xx00`, else the lane's volume as it plays. |
-| Master fader | The song's global volume, `V $xx00`. On the X-Touch One the **Master** button switches its one fader between the lane and the master. |
+| Master fader | In record mode, `V $xx00` into the cursor's cell; otherwise the project's own global volume, as the master strip's fader sets it. Either way one touch is one undo step. On the X-Touch One the **Master** button switches its one fader between the lane and the master. |
 | Select | The lane's menu, as a right-click on its header opens it. While a menu (or any dialog) is open, the knob and the jog wheel walk it, the knob's push takes the highlighted item, and Select closes it. |
 | Mute, Solo | Mute or solo the lane. |
 | Rec | Show or hide the lane's second effect column. |
 | BPM/Time | The display reads cue · row · speed · BPM (cue, row and speed in hex, as the grids write them), or bar · beat · subdivision, counted from the row highlights. |
-| Global View | Walks the side panels: none → the instrument list → both → the master strip → none. |
+| Global View, Replace | Walks the side panels: none → the instrument list → both → the master strip → none. Replace does the same, for a surface without Global View (the X-Touch One). |
 | F1–F7, F8 | The tabs, as the F1–F7 keys; F8 splits the view. |
 | Marker | Marks the cursor's row, shown as a notch in the Timeline's trough; on the marked row, clears it. There is one marker, and opening a project clears it. |
 | Nudge | To the marker (and plays from there if playing). |
 | Cycle, Drop | The previous and next keyboard layout. |
-| Replace, Click | The previous and next pane. |
+| Click | Moves to the next pane, round and round. |
 | Solo (transport) | Splits the view, or closes the pane you are in. |
 | Rewind, Fast forward | To the start of the previous and the next cue; Rewind from inside a cue goes to its own start first. While playing, playback follows. |
-| Stop, Play, Record | Stop; play from the cursor; record mode on or off. |
+| Stop | Stops playback. Pressed while stopped, it forgets where playback stopped (the position goes to the cursor) and brings the view back to the cursor; pressed again, the cursor goes to the top of the song. |
+| Play, Record | Play from the cursor; record mode on or off. |
 | Footswitch | Play or stop. |
 | Bank ◀ ▶ | Four lanes at a time; in Patterns, the previous or next pattern. |
 | Channel ◀ ▶ | One lane; in Patterns, the next column. |

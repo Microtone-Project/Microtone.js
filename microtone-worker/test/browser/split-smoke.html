@@ -368,6 +368,28 @@ const check = (ok, name, extra = "") => { if (!ok) fails++; log(`${ok ? "PASS" :
   key("F8");
   await sleep(250);
   check(!split.isSplit, "F8 again closes the pane it is in", store.views.join());
+  // A tab key changes the tab of the pane with the keyboard, even when the
+  // other pane already shows that view — it never jumps to that pane.
+  const tabKept = split.paneView(0);
+  const tabOther = tabKept === "timeline" ? "pattern" : "timeline";
+  const fOf = (v) => `F${["timeline", "cues", "pattern"].indexOf(v) + 1}`;
+  key("F8");
+  await sleep(250);
+  tab(1, tabOther).click();
+  await sleep(250);
+  check(split.focus === 1 && split.paneView(1) === tabOther, `pane 1 on ${tabOther}, with the keyboard`,
+    `${store.views.join()} focus ${split.focus}`);
+  key(fOf(tabKept));
+  await sleep(250);
+  check(split.focus === 1 && split.paneView(1) === tabKept && split.paneView(0) === tabKept,
+    `${fOf(tabKept)} turns the focused pane to ${tabKept} though pane 0 shows it`, `${store.views.join()} focus ${split.focus}`);
+  key(fOf(tabOther));
+  await sleep(250);
+  check(split.focus === 1 && split.paneView(1) === tabOther && split.paneView(0) === tabKept,
+    `…and ${fOf(tabOther)} turns it back, pane 0 untouched`, `${store.views.join()} focus ${split.focus}`);
+  key("F8");
+  await sleep(250);
+  check(!split.isSplit && store.views.join() === tabKept, "F8 closes it again", store.views.join());
   // ── 8b. Enter / Space never reach a control left behind (item 337) ───────
   // A pointer click: the browser's mousedown focuses the button, then the
   // click lands on the icon INSIDE it — which the pane button's own handler

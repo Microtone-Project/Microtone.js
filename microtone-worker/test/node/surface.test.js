@@ -178,6 +178,7 @@ function fakeHost(over = {}) {
     } : null),
     engineLane: () => ({ vol: 200, az: 128, el: 0 }),
     globalVolume: () => 0x80,
+    setGlobalVolume: (v, g) => calls.push(["gvol", v, g]),
     peak: null,
     lanePeak: () => host.peak,
     peakOn: false,
@@ -197,6 +198,8 @@ function fakeHost(over = {}) {
     playing: () => host.playingNow,
     play: () => calls.push(["play"]),
     stop: () => calls.push(["stop"]),
+    clearPlayhead: () => calls.push(["clear"]),
+    returnToZero: () => calls.push(["zero"]),
     togglePlay: () => calls.push(["toggle"]),
     seekCue: (d) => calls.push(["seek", d]),
     key: (code, mods) => calls.push(["key", code, mods]),
@@ -240,8 +243,8 @@ test("the transport and the function keys", () => {
     s.receive(noteOn(n));
   }
   assert.deepEqual(h.calls, [
-    ["view", 2], ["seek", -1], ["seek", 1], ["stop"], ["play"], ["rec", false], ["toggle"],
-    ["keymap", -1], ["keymap", 1], ["pane", -1], ["pane", 1], ["split"], ["sel", true], ["undo"],
+    ["view", 2], ["seek", -1], ["seek", 1], ["clear"], ["play"], ["rec", false], ["toggle"],
+    ["keymap", -1], ["keymap", 1], ["panels"], ["pane", 1], ["split"], ["sel", true], ["undo"],
     ["panels"], ["goto"],
   ]);
   // Play while playing does nothing
@@ -382,7 +385,7 @@ test("with a dialog or menu open, the surface walks it", () => {
   s.receive(noteOn(0x10));      // a strip's Mute does nothing meanwhile
   s.receive(noteOn(BUTTON.stop)); // the transport still works
   assert.deepEqual(h.calls, [["dkey", "ArrowRight"], ["dkey", "ArrowDown"], ["dkey", "ArrowLeft"],
-    ["take"], ["cancel"], ["stop"]]);
+    ["take"], ["cancel"], ["clear"]]); // stopped already: Stop clears
 });
 
 test("a touch that bounces, or follows its own movement, is one undo step", () => {
@@ -519,4 +522,60 @@ test("the meter: the cursor lane's peak, every strip, eased down, clip held", ()
   s.goodbye();
   assert.ok(meters().length === 8 && meters().every((m) => (m[1] & 15) === 0));
   assert.equal(h.peakOn, false);
+});
+
+test("a knob turn is one undo step: detents close together share a gesture", () => {
+  let now = 1000;
+  const h = fakeHost();
+  const s = new ControlSurface(h, () => now);
+  for (let i = 0; i < 5; i++) { now += 120; s.receive([0xb0, 16, 1]); }
+  now += 2000; s.receive([0xb0, 16, 1]); // a new turn
+  const g = h.calls.filter((c) => c[0] === "apply").map((c) => c[2]);
+  assert.equal(g.length, 6);
+  assert.ok(g[0]);
+  assert.equal(new Set(g.slice(0, 5)).size, 1);
+  assert.notEqual(g[5], g[0]);
+});
+
+test("out of record mode the master fader writes the project's global volume", () => {
+  let now = 0;
+  const h = fakeHost();
+  h.rec = false;
+  const s = new ControlSurface(h, () => now);
+  s.receive(noteOn(112));
+  s.receive([0xe8, 0x00, 0x40]);   // half way: $80
+  now = 10; s.receive([0xe8, 0x7f, 0x7f]);
+  s.receive(noteOff(112));
+  const gv = h.calls.filter((c) => c[0] === "gvol");
+  assert.deepEqual(gv.map((c) => c[1]), [0x80, 0xff]);
+  assert.equal(gv[0][2], gv[1][2]); // one undo step
+  assert.ok(!h.calls.some((c) => c[0] === "apply"));
+  // the strip fader still writes nothing out of record mode
+  h.calls.length = 0;
+  s.receive([0xe0, 0x00, 0x40]);
+  assert.deepEqual(h.calls, []);
+  // in record mode the master fader writes V into the cell again
+  h.rec = true;
+  now = 2000; s.receive([0xe8, 0x00, 0x20]);
+  assert.equal(h.calls.filter((c) => c[0] === "apply")[0][1].effect, EffectOp.OP_V);
+});
+
+test("Stop: stops; stopped, clears the playback position; again, goes to the top", () => {
+  const h = fakeHost();
+  const s = new ControlSurface(h, () => 0);
+  s.attach(() => {});
+  h.playingNow = true;
+  s.receive(noteOn(BUTTON.stop));
+  h.playingNow = false;
+  s.receive(noteOn(BUTTON.stop));
+  s.receive(noteOn(BUTTON.stop));
+  s.receive(noteOn(BUTTON.stop));
+  assert.deepEqual(h.calls, [["stop"], ["clear"], ["zero"], ["zero"]]);
+  // a new play starts the sequence over
+  h.calls.length = 0;
+  h.playingNow = true;
+  s.frame();
+  h.playingNow = false;
+  s.receive(noteOn(BUTTON.stop));
+  assert.deepEqual(h.calls, [["clear"]]);
 });

@@ -1225,6 +1225,13 @@ for (const name of VIEWS) ensureView(0, name);
  *  will happily give both panes the same view.) */
 function showView(name) { split.reveal(name); }
 
+/** A tab key (F1…F7, Shift+F7, F9, Shift+F9, Ctrl+, and a control surface's
+ *  function keys): the FOCUSED pane switches to that tab, as clicking the tab
+ *  in it would — even when another pane already shows the view. Jumping to
+ *  that other pane instead (showView) took the keyboard away from the pane
+ *  you were working in. */
+function showTab(name) { split.setView(split.focus, name); }
+
 // A soundfont converted in the background says so in a banner; its Show
 // button comes here.
 setShowLibrary(() => {
@@ -1994,7 +2001,7 @@ function onKeyDown(e) {
     if ((e.code === "F1" || e.code === "F9" || (e.code === "F7" && e.shiftKey)) && !e.ctrlKey && !e.metaKey && !e.altKey &&
         !isTypingTarget(e.target) && !inDialog(e)) {
       e.preventDefault();
-      showView(e.code === "F1" ? "timeline" : e.code === "F7" ? "motif" : "files");
+      showTab(e.code === "F1" ? "timeline" : e.code === "F7" ? "motif" : "files");
     }
     return;
   }
@@ -2115,7 +2122,7 @@ function onKeyDown(e) {
   // programs keep for their preferences. The website has no such tab.
   if (e.code === "Comma" && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && SETTINGS_TAB) {
     e.preventDefault();
-    showView("settings");
+    showTab("settings");
     return;
   }
   // \ — the context menu at the cursor (item 190). The three grids' menus have
@@ -2191,8 +2198,8 @@ function onKeyDown(e) {
     case "F1": case "F2": case "F3": case "F4": case "F5": case "F6": case "F7": {
       e.preventDefault();
       // Shift+F7 is the Motif tab, beside Project: both are about the whole project
-      if (e.code === "F7" && e.shiftKey) showView("motif");
-      else showView(VIEWS[parseInt(e.code.slice(1), 10) - 1]);
+      if (e.code === "F7" && e.shiftKey) showTab("motif");
+      else showTab(VIEWS[parseInt(e.code.slice(1), 10) - 1]);
       return;
     }
     // F8 — split the view area in two / close the pane the keyboard is in
@@ -2210,7 +2217,7 @@ function onKeyDown(e) {
     // on Shift+F9 beside the other tab that configures rather than composes.
     case "F9": {
       e.preventDefault();
-      showView(e.shiftKey ? "keymap" : "files");
+      showTab(e.shiftKey ? "keymap" : "files");
       return;
     }
   }
@@ -2562,7 +2569,11 @@ const surfaceHost = {
     if (!audio) return { vol: 255, az: 128, el: 0 }; // full, and centre / front
     return { vol: audio.getVoiceChannelVolume(ch), az: audio.getVoiceChannelAzimuth(ch), el: audio.getVoiceChannelElevation(ch) };
   },
-  globalVolume: () => store.audio?.getLiveGlobalVolume() ?? store.song?.globalVolume ?? 0x80,
+  /** Where the master fader stands: the engine's live global volume while
+   *  playing, the project's own when stopped (as the master strip shows it). */
+  globalVolume: () => masterStrip.volumeValue(),
+  /** The project's global volume, written as the master strip's fader writes it. */
+  setGlobalVolume: (v, gestureId) => masterStrip.writeVolume(v, gestureId),
   /** The lane's peak over the latest snapshot (linear, 1.0 = full scale), or
    *  null while nothing is measuring. */
   lanePeak: (ch) => store.audio?.getLanePeak(ch) ?? null,
@@ -2597,7 +2608,7 @@ const surfaceHost = {
   },
   showView(i) {
     const name = VIEWS[i];
-    if (name && viewEnabled(name)) showView(name);
+    if (name && viewEnabled(name)) showTab(name);
   },
   splitToggle() {
     if (split.isSplit) split.close(split.focus);
@@ -2620,6 +2631,24 @@ const surfaceHost = {
     playFrom(p.cue, p.row);
   },
   stop: () => store.audio?.stop(0),
+  /** Stopped: the engine's position goes onto the editor cursor (so nothing
+   *  shows where playback stopped) and every Timeline centres on the cursor. */
+  clearPlayhead() {
+    const tl = viewNamed("timeline");
+    const loc = tl?.locate(store.cursor.row);
+    if (!loc) return;
+    store.audio?.setCuePosition(0, loc.entry.cue);
+    store.audio?.setTrackerRow(0, loc.rowInCue);
+    eachView("timeline", (v) => v.centreRow(store.cursor.row));
+    store.emit("cursor");
+    updateStatus();
+  },
+  /** …and again: the editor cursor to cue 0, row 0, the playback position with it. */
+  returnToZero() {
+    if (!store.doc) return;
+    store.cursor.row = 0;
+    surfaceHost.clearPlayhead();
+  },
   togglePlay() {
     if (store.audio?.isPlaying()) store.audio.stop(0);
     else surfaceHost.play();
