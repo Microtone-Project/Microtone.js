@@ -1,0 +1,244 @@
+/* The Microtone Player (item 373) — player.html, on its own or framed by the
+ * Music Hub.
+ *
+ * Swiss and editorial, as the about page is: flush left, one heavy rule over
+ * each section and hairlines inside it, labels in Motif Mono capitals, the
+ * title in Geist. Every colour is one of the app's tokens (microtone.css, all
+ * four themes); nothing here has a colour of its own.
+ *
+ * Landscape is two halves — what you read and touch on the left, the song's
+ * rows on the right — symmetric about the page centre, so a folding screen's
+ * crease falls between them, and a device that reports a hinge gets the
+ * gutter put into it. Portrait stacks the same two in the same order.
+ *
+ * Embedded (`html.pl-embedded`) the page loses its own header and the file
+ * drop; in the Hub's bottom bar (`data-layout="bar"`) it is a single strip. */
+
+.player-page {
+  --pl-gutter: clamp(12px, calc(3vw / var(--ui-zoom, 1)), 32px);
+  --pl-title: clamp(1.7rem, 1rem + calc(2.6vw / var(--ui-zoom, 1)), 3rem);
+  --pl-small: 0.74rem;
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--ui-font);
+  line-height: 1.45;
+}
+html.pl-embedded, html.pl-embedded .player-page { background: transparent; }
+
+.pl {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1.2rem;
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 0.6rem var(--pl-gutter) 1.2rem;
+}
+.pl-side { display: flex; flex-direction: column; gap: 1.1rem; min-width: 0; }
+.pl-side > section { border-top: 3px solid var(--fg); padding-top: 0.6rem; }
+.pl-side > section[hidden] { display: none; }
+
+/* ── header ── */
+.pl-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.4rem 1rem;
+  flex-wrap: wrap;
+  padding: 0.4rem 0 0;
+}
+.pl-brand { text-decoration: none; color: var(--fg); display: inline-flex; align-items: baseline; gap: 0.5rem; }
+.pl-brand-sub {
+  font-family: var(--mono-font);
+  font-size: var(--pl-small);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+.pl-quiet-link { color: var(--accent-2); text-decoration: none; font-size: 0.9rem; white-space: nowrap; }
+.pl-quiet-link:hover { color: var(--accent); }
+
+/* ── type ── */
+.pl-label, .pl-kicker {
+  margin: 0 0 0.5rem;
+  font-family: var(--mono-font);
+  font-size: var(--pl-small);
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+.pl-kicker { color: var(--brand); }
+.pl-title {
+  margin: 0 0 0.25rem;
+  font-family: "Geist", var(--ui-font);
+  font-weight: 800;
+  font-size: var(--pl-title);
+  line-height: 1.02;
+  letter-spacing: -0.035em;
+  overflow-wrap: anywhere;
+}
+.pl-author { margin: 0 0 0.8rem; font-size: 1.1rem; color: var(--fg2); }
+.pl-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
+  gap: 0;
+  margin: 0;
+  border-top: 1px solid var(--border);
+}
+.pl-facts dt, .pl-facts dd { margin: 0; }
+.pl-facts dt {
+  font-family: var(--mono-font);
+  font-size: var(--pl-small);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dim);
+  padding-top: 0.45rem;
+}
+.pl-facts dd { font-family: var(--mono-font); padding-bottom: 0.45rem; overflow-wrap: anywhere; }
+/* each dt + dd pair is one cell of the grid */
+.pl-facts > div { border-bottom: 1px solid var(--border); padding-right: 0.8rem; }
+.pl-facts > div.wide { grid-column: 1 / -1; }
+.pl-facts dd { border-bottom: 0; }
+
+/* ── transport ── */
+.pl-buttons, .pl-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.6rem; }
+.pl-controls { margin-top: 0.7rem; }
+.pl-controls label { display: inline-flex; align-items: center; gap: 0.4rem; }
+.pl-controls label[hidden] { display: none; }
+.pl-play { min-width: 6.5rem; }
+.pl-status { margin-top: 0.7rem; display: flex; flex-wrap: wrap; gap: 0.3rem 1rem; font-size: 0.85rem; }
+.pl-status b { font-family: var(--mono-font); font-weight: 400; }
+
+/* ── the message, as the file has it ── */
+.pl-message-text {
+  white-space: pre-wrap;
+  font-family: var(--mono-font);
+  font-size: 0.88rem;
+  line-height: 1.5;
+  max-height: 22rem;
+  overflow: auto;
+  color: var(--fg2);
+}
+
+/* ── the queue ── */
+.pl-queue-list { list-style: none; margin: 0; padding: 0; counter-reset: q; }
+.pl-queue-list li { counter-increment: q; border-bottom: 1px solid var(--border); }
+.pl-queue-item {
+  all: unset;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: 2.2rem minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  width: 100%;
+  padding: 0.45rem 0;
+  cursor: pointer;
+}
+.pl-queue-item::before {
+  content: counter(q, decimal-leading-zero);
+  grid-row: 1 / 3;
+  font-family: var(--mono-font);
+  font-size: var(--pl-small);
+  color: var(--dim);
+  padding-top: 0.2rem;
+}
+.pl-queue-item:hover .pl-q-title { color: var(--accent); }
+.pl-queue-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.pl-queue-item.current .pl-q-title { color: var(--brand); }
+.pl-q-title { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl-q-meta { font-size: 0.8rem; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.pl-side > .pl-drop { border-top: 2px dashed var(--border); padding-top: 1rem; }
+.pl-drop p { margin: 0.35rem 0; }
+
+/* ── the march ── */
+.pl-vis { min-width: 0; display: grid; }
+.pl-vis[hidden] { display: none; }
+#meters {
+  display: block;
+  width: 100%;
+  height: min(calc(70vh / var(--ui-zoom, 1)), 640px);
+  min-height: 260px;
+  background: var(--cv-bg);
+  border-top: 3px solid var(--fg);
+}
+
+/* ── landscape: the two halves ── */
+@media (orientation: landscape) and (min-width: 640px) {
+  .player-page { height: calc(100vh / var(--ui-zoom, 1)); height: calc(100dvh / var(--ui-zoom, 1)); overflow: hidden; }
+  .pl {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 0 calc(var(--pl-gutter) * 1.5);
+    height: 100%;
+    box-sizing: border-box;
+    padding-bottom: 0.8rem;
+  }
+  .pl-side { min-height: 0; overflow-y: auto; padding-right: 2px; }
+  .pl-vis { min-height: 0; }
+  #meters { height: 100%; min-height: 0; }
+  .pl:has(> .pl-vis[hidden]) { grid-template-columns: minmax(0, 1fr); max-width: 1060px; }
+}
+/* Real hardware between two viewport segments (a hinge with a gap): the
+   gutter goes into it, and the max-width goes, so the halves line up with it. */
+@media (orientation: landscape) and (min-width: 640px) and (horizontal-viewport-segments: 2) {
+  .pl {
+    max-width: none;
+    gap: 0 max(1rem, calc(env(viewport-segment-left 1 0, 50%) - env(viewport-segment-right 0 0, 50%)));
+  }
+}
+/* A book-style fold held upright (two segments one above the other): the
+   controls above the hinge, the song below it. */
+@media (vertical-viewport-segments: 2) {
+  .player-page { height: calc(100dvh / var(--ui-zoom, 1)); overflow: hidden; }
+  .pl {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: env(viewport-segment-height 0 0, 50%) minmax(0, 1fr);
+    gap: max(0px, calc(env(viewport-segment-top 0 1, 50%) - env(viewport-segment-bottom 0 0, 50%))) 0;
+    height: 100%;
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+  .pl-side { overflow-y: auto; min-height: 0; }
+  #meters { height: 100%; min-height: 0; }
+}
+
+/* ── embedded ── */
+.pl-embedded .pl-head,
+.pl-embedded .pl-drop,
+.pl-embedded .pl-queue,
+.pl-embedded .phone-note { display: none !important; }
+.pl-embedded .pl { padding-top: 0; }
+
+/* The Hub's bottom bar: one strip, the march squeezed beside the title. */
+[data-layout="bar"] .player-page { height: 100%; overflow: hidden; }
+[data-layout="bar"] .pl {
+  display: flex;
+  align-items: stretch;
+  gap: 0.8rem;
+  height: calc(100vh / var(--ui-zoom, 1));
+  max-width: none;
+  padding: 0 0.6rem;
+  box-sizing: border-box;
+}
+[data-layout="bar"] .pl-side {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.8rem;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+[data-layout="bar"] .pl-side > section { border-top: 0; padding-top: 0; }
+[data-layout="bar"] .pl-message,
+[data-layout="bar"] .pl-facts,
+[data-layout="bar"] .pl-kicker,
+[data-layout="bar"] .pl-controls,
+[data-layout="bar"] .pl-status,
+[data-layout="bar"] #prevCue,
+[data-layout="bar"] #nextCue { display: none !important; }
+[data-layout="bar"] .pl-transport { order: -1; }
+[data-layout="bar"] .pl-now { min-width: 0; max-width: calc(32vw / var(--ui-zoom, 1)); }
+[data-layout="bar"] .pl-title { font-size: 1.05rem; letter-spacing: -0.01em; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+[data-layout="bar"] .pl-author { font-size: 0.85rem; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+[data-layout="bar"] .pl-vis { flex: 1 1 auto; min-width: 0; }
+[data-layout="bar"] #meters { height: 100%; min-height: 0; border-top: 0; }

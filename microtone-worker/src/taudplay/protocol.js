@@ -20,6 +20,7 @@ export const CMD = {
   SEEK_CUE: "seekCue",     // {cue}
   SET_VOLUME: "volume",    // {volume} 0..255 master
   SET_MONITOR: "monitor",  // {mode} 0 = fold, 1 = binaural (surround songs)
+  SET_TEMPO: "tempo",      // {scale, glideSec} — the host's tempo scale (item 373)
   SET_FADER: "fader",      // {voice, value, samples} — value 0..255, ramped over `samples`
   SNAPSHOT_RETURN: "snapRet", // {buffer} — hand a snapshot buffer back for reuse
 };
@@ -45,7 +46,12 @@ export const SNAP_SONG_INDEX = 6;
 export const SNAP_INT_MASK = 7;
 export const SNAP_INT_ARGS = 8;      // 16 words, Int0..IntF
 export const SNAP_INT_COUNT = 16;
-export const SNAP_HEADER = 24;       // voice block starts here
+/** Item 373: the tempo scale in force (a glide moves it), and the tick the
+ *  row has reached — with BPM, speed and the scale, enough to place the
+ *  playhead between rows. */
+export const SNAP_TEMPO_SCALE = 24;
+export const SNAP_TICK = 25;
+export const SNAP_HEADER = 28;       // voice block starts here
 
 /** Per-lane block: the two probes plus the gate that says whether to believe
  *  them. `active` is not a third probe — it is what tells a meter to fall to

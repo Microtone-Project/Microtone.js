@@ -739,6 +739,13 @@ export class WasmTaudEngine {
   setPolyphony(limit) { this._x.tw_set_polyphony(this._e, limit | 0); }
   getPolyphony() { return this._x.tw_get_polyphony(this._e); }
 
+  /** The tempo scale (item 373, the Music Hub's radio mix): every tick lasts
+   *  1/scale of what the song's BPM says (0.25…4, clamped; 1 until set). With
+   *  `glideSec` > 0 it travels there exponentially over that many seconds of
+   *  the song's ticks. A host setting: no reset touches it. */
+  setTempoScale(scale, glideSec = 0) { this._x.tw_set_tempo_scale(this._e, +scale, +glideSec); }
+  getTempoScale() { return this._x.tw_get_tempo_scale(this._e); }
+
   /** The lane wavescopes' tap (item 358): while on, the snapshot carries each
    *  lane's latest SNAP_LS_FRAMES frames, mono (protocol.js SNAP_LS_*). */
   setLaneScope(on) { this._x.tw_set_lane_scope(this._e, on ? 1 : 0); }

@@ -471,11 +471,28 @@ void te_apply_tick_events(TaudEngine *e)
     }
 }
 
+/* One tick's worth of the host's tempo glide (te_set_tempo_scale). */
+static void tempo_glide_step(TaudEngine *e, double tickSec)
+{
+    double t;
+    if (e->tempoGlideSec <= 0.0) return;
+    e->tempoGlideAt += tickSec;
+    t = e->tempoGlideAt / e->tempoGlideSec;
+    if (t >= 1.0) {
+        e->tempoScale = e->tempoTo;
+        e->tempoGlideSec = 0.0;
+    } else {
+        e->tempoScale = e->tempoFrom * js_exp(js_log(e->tempoTo / e->tempoFrom) * t);
+    }
+}
+
 void te_apply_tracker_tick(TaudEngine *e)
 {
-    double tickSec = 2.5 / e->bpm;
+    double tickSec = 2.5 / TE_TICK_BPM(e);
     double spt = e->rate * tickSec;
     int vi, i;
+
+    tempo_glide_step(e, tickSec);
 
     for (vi = 0; vi < TOTAL_VOICES; vi++) {
         TaudVoice *voice = &e->voices[vi];

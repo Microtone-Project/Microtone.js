@@ -74,6 +74,8 @@ samples_per_tick = rate × 2.5 / bpm
 
 so BPM 125 gives a 50 Hz tick and, at speed 6, a 120 ms row. BPM is a 10-bit value, 25…1048; the engine **MUST** clamp to that range.
 
+A host **MAY** play the song faster or slower than written by a **tempo scale** `s`, a property of the host and not of the song (a file cannot set one, and no reset changes it): every tick then lasts `2.5 / (bpm × s)` seconds, in `samples_per_tick` and wherever a tick's length in seconds is used (envelopes, the fast fade), so the song's own tempo changes still apply, scaled, and pitch is untouched. `s` is held to 0.25…4 and is 1 unless a host sets it; at 1 the timing above is unchanged to the bit. A host may glide it: from its value to a target over `g` seconds of the song's own ticks, exponentially (equal ratios in equal times), advancing once per tick before the tick pass. Tempo-synced chain pieces (§12.4) keep reading the song's BPM. Microtone's player uses it to start a song at the tempo the one before it ended (its radio).
+
 Timing is accumulated **per output sample**, not per block: the engine adds 1 to a sample counter for every frame it emits, and fires a tick whenever the counter reaches `samples_per_tick`, subtracting rather than resetting so fractional remainders carry. `samples_per_tick` **MUST** be recomputed every frame, because `T` and the tempo slide can change BPM in the middle of a row. Block size is therefore not observable in the output, and an implementation **MAY** choose any block length.
 
 ### 2.2 Order of events

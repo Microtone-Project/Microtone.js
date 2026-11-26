@@ -170,6 +170,9 @@ export class FilesView {
     modBtn.title = t("files.exportModTitle");
     const itBtn = mkBtn(t("files.exportIt"), () => this.exportIt());
     itBtn.title = t("files.exportItTitle");
+    // Item 373: the open project to the Music Hub, for its curator.
+    const hubBtn = mkBtn(t("files.sendHub"), () => this.sendToHub());
+    hubBtn.title = t("files.sendHubTitle");
     // …and the one action that is about the DISK rather than the document
     // (item 198.2): every project in this browser, in one archive. Enabled
     // below, once the listing says there is something to put in it.
@@ -181,8 +184,8 @@ export class FilesView {
     allBtn.title = where ? t("files.downloadAllTitleNative", { folder: where }) : t("files.downloadAllTitle");
     allBtn.disabled = true;
     // doc-scoped actions grey out until something is loaded
-    for (const b of [saveBtn, saveAsBtn, exportBtn, wavBtn, stemsBtn, modBtn, itBtn]) b.disabled = !doc;
-    bar.append(saveBtn, saveAsBtn, importBtn, importMidiBtn, demoBtn, exportBtn, wavBtn, stemsBtn, modBtn, itBtn, allBtn);
+    for (const b of [saveBtn, saveAsBtn, exportBtn, wavBtn, stemsBtn, modBtn, itBtn, hubBtn]) b.disabled = !doc;
+    bar.append(saveBtn, saveAsBtn, importBtn, importMidiBtn, demoBtn, exportBtn, wavBtn, stemsBtn, modBtn, itBtn, hubBtn, allBtn);
     // In a browser: everything it keeps, laid out as the desktop app keeps
     // it, for someone moving over (item 363). The desktop has nothing to move.
     if (!where && opfs.backend === "browser") {
@@ -1032,6 +1035,14 @@ export class FilesView {
    * when there is more than one — through the same findings dialog as the
    * .MOD export: only a surround project or a linear-frequency song stops it.
    */
+  /** Item 373: send the open project to the Music Hub (popups/sendhub.js). */
+  async sendToHub() {
+    const { doc } = this.cb.currentDoc();
+    if (!doc) return;
+    const { showSendToHub } = await import("../popups/sendhub.js");
+    await showSendToHub(doc, this.store);
+  }
+
   async exportIt() {
     const { doc, fileName } = this.cb.currentDoc();
     if (!doc) return;

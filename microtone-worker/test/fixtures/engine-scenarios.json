@@ -216,6 +216,14 @@
       "u8": "204db9e2b71b60921d4e3860d4003ffbbb880d4aab31960ee35c728ea05c86ab",
       "notes": "e2a97df43ba372f997a04f1754aea7d8c8ffe837a268f72f54b55d462489aafc",
       "peak": 0.403
+    },
+    "the tempo scale: set, glided under playback, kept over a restart, clamped": {
+      "file": "assets/demo_projects/Zeta_valley.taud",
+      "chunks": 1100,
+      "f32": "7357a660559d9a24eb675a91b906f47c0e5b9bb9c07ebe1f240886e3b879af9f",
+      "u8": "c83d262134673870ee2cf3fb84434ba9bcaa5c6aa07b6a5ba4e6d9e871ff2e77",
+      "notes": "e6cbeacee94ce2f28544a871816f1b7f4b00220d4ae1572b1ad71c601abfd41a",
+      "peak": 0.642
     }
   }
 }

@@ -3025,6 +3025,7 @@ your account remains active.
   - **SoundFont instruments**: their filters are converted to Impulse Tracker's by the frequencies they mean, and where a SoundFont gives each zone its own envelopes, fadeout or filter, the zone the song plays most speaks for the whole instrument.
   - **Left out**: mixing chains, the mastering chain, sample modifications, bitcrushers, overdrive and the spatial commands. A row with a volume, a pan and an effect keeps two of them; the dialog counts the rest.
   - **Too many samples**: a module numbers its samples and instruments up to 255. A song that needs more first leaves out the instruments it never plays, then plays every volume layer at its loudest, then rounds its microtones in steps, and the dialog says how far.
+- **Send to Music Hub…** — put the open project on the Microtone Music Hub, music.microtone.cc, where anyone can listen to it, download it and open it in Microtone. The Hub shows what the file says about itself, so give the project a title and an author (and, if you like, a message) on the Project tab first. The dialog asks whether the song is your own or a cover (and of what), a genre, and a note for the person who listens to it before it goes up. Two things have to be agreed to: anyone may download, change and remix the song, its samples and instruments included; and once it is up it cannot be changed or taken down, because the Hub keeps nothing about who sent it. A cover can be taken down if the rights holder of the original asks.
 
 ### Soundfonts
 
@@ -3844,9 +3845,10 @@ A one-fader surface such as the X-Touch One steps through the eight strips by it
 
 - **No sound?** Click anywhere or press a key — browsers keep audio suspended until a user gesture. The top-bar badge shows the running sample rate.
 - **Interface language and theme** — the globe and theme buttons in the top bar; both persist. The theme button cycles dark → dim → light — dim is the default — and `?theme=dark` / `?theme=dim` / `?theme=light` in the URL forces one.
-- **Deep links** — `index.html?load=<url>` opens a `.taud` from a URL, and `player.html` is a minimal stand-alone player.
+- **Deep links** — `index.html?load=<url>` opens a `.taud` from a URL, and `player.html?load=<url>` plays one in the stand-alone player.
+- **The player** — `player.html` shows the song's title, author, tuning system, tempo and message, and its rows marching past the playhead, a column per lane with each lane's level and pan above it. Drop several songs on it and it becomes a radio: when a song comes round to its start, it plays one more cue and goes on to another at random, starting at the tempo the last one ended on and gliding to its own. The Radio switch turns that off.
 - **On a phone** — the tracker wants a keyboard and a wide screen, so a phone opens the stand-alone player instead, carrying the query string across. The player's **Open the tracker** link overrides that and the choice is remembered, and `index.html?tracker=1` does the same from a link; tablets are never redirected.
-- **The player turned sideways** — in landscape the player splits into two equal halves, controls on the left and lane meters on the right, so on a folding screen the crease falls between them rather than through either. The meters follow the shape of their half: lanes across a wide one, lanes down a tall one.
+- **The player turned sideways** — in landscape the player splits into two equal halves, the song's details and controls on the left and its rows on the right, so on a folding screen the crease falls between them rather than through either; a screen that reports its hinge gets the gap put there.
 - **Everything is local.** Clearing the browser's site data deletes your OPFS projects — export `.taud` files of anything you care about.
 
 ## About

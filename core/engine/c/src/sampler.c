@@ -419,7 +419,7 @@ void te_start_fast_fade(TaudEngine *e, TaudVoice *v)
     double ticks;
     if (!v->active) return;
     v->noteFading = true;
-    ticks = dmax(FAST_FADE_SEC * e->bpm * 0.4, 1.0);
+    ticks = dmax(FAST_FADE_SEC * TE_TICK_BPM(e) * 0.4, 1.0);
     v->activeFadeoutStep = (int)dmin(dmax(js_round(1024.0 / ticks), 1), 0xfff);
     v->fadeoutOwn = false;
 }

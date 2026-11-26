@@ -672,12 +672,6 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-.player {
-  max-width: 1060px;
-  margin: 2rem auto;
-  padding: 0 1rem;
-}
-
 h1 { font-size: 1.4rem; }
 h1 .sub { color: var(--dim); font-weight: normal; font-size: 1rem; }
 
@@ -761,32 +755,6 @@ select, input[type="range"] {
   font-size: 0.85rem;
 }
 
-#meters {
-  width: 100%;
-  /* Portrait keeps the shape the meters have always had. There is no width/
-     height attribute on the element any more — player.js owns the backing
-     store — so CSS has to state BOTH axes here, or sizing the canvas from its
-     own box would feed back into its own height. */
-  aspect-ratio: 1024 / 260;
-  display: block;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-}
-
-.player-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 0.3rem 1rem;
-  padding: 0.7rem 0;
-}
-.player-head .sub { color: var(--dim); }
-
-.tracker-link { color: var(--accent-2); text-decoration: none; font-size: 0.9rem; white-space: nowrap; }
-.tracker-link:hover { color: var(--accent); }
-
 /* index.html's phone redirect, explaining itself — shown by player.js only
    when it actually fired, so it reads as an account of what happened rather
    than as advice nobody asked for. */
@@ -802,78 +770,6 @@ select, input[type="range"] {
   line-height: 1.45;
 }
 .phone-note a { color: var(--accent-2); }
-
-/* ── player: two halves in landscape ───────────────────────────────────
- * A phone on its side, a Samsung fold opened out, an iPhone Duo: wide and
- * SHORT. Stacked, the meters fall below the fold and the transport scrolls
- * away exactly while a song is playing. Side by side, the half you touch and
- * the half you watch are both on screen at once.
- *
- * The split is 1fr 1fr and the whole layout is symmetric about the page
- * centre, so on a folding screen the divider lands ON THE CREASE: the hinge
- * separates the controls from the visualiser instead of running through the
- * middle of one of them. Devices that report a real hinge GAP get the gutter
- * widened to it in the block below; a Fold's creased-but-continuous screen
- * needs nothing beyond the symmetry.
- *
- * Full height, because the visualiser is the thing that wants the pixels: the
- * page stops scrolling and the left half takes a scrollbar of its own if the
- * controls do not fit. dvh, not vh — a phone's URL bar is part of vh and is
- * not part of the screen you can actually draw on.
- *
- * Keyed on orientation, so a portrait phone (and a portrait window on any
- * screen) keeps the single column; the width floor is there because a
- * landscape phone is ~667 px at its narrowest (iPhone SE) and anything under
- * that is a narrow window, not a device turned sideways.
- *
- * While nothing is loaded the visualiser is `hidden` and its half would be
- * blank, so :has() collapses the page back to one column — the drop target
- * should never be a half-width box beside nothing. Without :has() support the
- * layout is merely wide-and-empty until a file arrives. */
-@media (orientation: landscape) and (min-width: 640px) {
-  .player-page { height: calc(100vh / var(--ui-zoom, 1)); height: calc(100dvh / var(--ui-zoom, 1)); overflow: hidden; }
-  .player {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0 1.5rem;
-    align-items: stretch;
-    height: 100%;
-    max-width: 1400px;
-    margin: 0 auto;
-    padding: 0.4rem 1rem 0.8rem;
-  }
-  .player-col { min-height: 0; overflow-y: auto; }
-  .player-vis { min-height: 0; min-width: 0; display: grid; }
-  .player .transport { margin-top: 0.6rem; }
-  /* A landscape phone is ~340 px of usable height once the browser chrome is
-     off it, and the readouts at the bottom of the transport are the ones you
-     want WHILE something is playing — so the half that scrolls is tightened
-     until it does not have to. Portrait has the room and keeps its spacing. */
-  .player .player-head { padding: 0.3rem 0; }
-  .player .drop { padding: 0.55rem 0.9rem; }
-  .player .drop p { margin: 0.3rem 0; }
-  .player .phone-note { margin-bottom: 0.5rem; }
-  #meters { aspect-ratio: auto; width: 100%; height: 100%; min-height: 0; }
-  .player:has(> .player-vis[hidden]) {
-    grid-template-columns: minmax(0, 1fr);
-    max-width: 1060px;
-  }
-}
-
-/* A device that reports two horizontal viewport segments has real hardware
-   between them — a hinge with a gap, not just a crease. Put the gutter IN it,
-   so neither half is cut by the seam, and drop the max-width, since a clamped
-   content box would no longer line up with the hardware. max() keeps a sane
-   gutter if the segment values ever come back degenerate.
-   Chromium and Samsung Internet only; an engine that does not know the media
-   feature never matches this block and keeps the symmetric 1.5rem above. */
-@media (orientation: landscape) and (min-width: 640px) and (horizontal-viewport-segments: 2) {
-  .player {
-    max-width: none;
-    gap: 0 max(1rem, calc(env(viewport-segment-left 1 0, 50%) -
-                          env(viewport-segment-right 0 0, 50%)));
-  }
-}
 
 /* ── app shell (index.html) ── */
 
@@ -3167,6 +3063,26 @@ button.nota-assign { font-size: 0.85rem; }
 /* ── ProTracker export findings (popups/exportmod.js) ──
    A list per song, scrolling on its own so a project with many songs keeps its
    buttons on screen. What stops the export reads in the error ink. */
+/* File → Send to Music Hub… (item 373, popups/sendhub.js) */
+.sendhub { width: min(40rem, calc(92vw / var(--ui-zoom, 1))); }
+.sendhub-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 1rem; margin: 0.4rem 0 0.6rem; }
+.sendhub-facts div { border-bottom: 1px solid var(--border); padding: 0.25rem 0; }
+.sendhub-facts dt { color: var(--dim); font-size: 0.8rem; }
+.sendhub-facts dd { margin: 0; overflow-wrap: anywhere; }
+.sendhub-msg pre { white-space: pre-wrap; font-family: var(--mono-font); font-size: 0.85rem; max-height: 10rem; overflow: auto; margin: 0.3rem 0; }
+.sendhub fieldset { border: 0; border-top: 1px solid var(--border); margin: 0.6rem 0 0; padding: 0.5rem 0 0; display: flex; flex-direction: column; gap: 0.35rem; }
+.sendhub legend { font-weight: 700; padding: 0; }
+.sendhub-cover { display: flex; flex-direction: column; gap: 0.4rem; margin: 0.4rem 0 0 1.2rem; }
+.sendhub-cover[hidden] { display: none; }
+.sendhub-cover label:not(.sendhub-check), .sendhub-field { display: flex; flex-direction: column; gap: 0.2rem; margin-top: 0.5rem; }
+.sendhub-check { display: flex; gap: 0.4rem; align-items: flex-start; line-height: 1.4; }
+.sendhub-check input { margin-top: 0.2rem; flex: none; }
+.sendhub textarea, .sendhub input[type="text"] {
+  font: inherit; background: var(--panel-2); color: var(--fg);
+  border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.3rem 0.5rem;
+}
+.sendhub-status { min-height: 1.3em; color: var(--dim); margin: 0.5rem 0 0; }
+
 .modexport-songs { max-height: calc(50vh / var(--ui-zoom, 1)); overflow-y: auto; }
 .modexport-songs h4 { margin: 0.6rem 0 0.2rem; font-weight: inherit; color: var(--dim); }
 .modexport-list { margin: 0 0 0.4rem; padding-inline-start: 1.2rem; line-height: 1.45; }

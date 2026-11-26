@@ -683,6 +683,25 @@ void te_set_polyphony(TaudEngine *e, int limit)
     te_cap_background_voices(e);
 }
 
+/* The tempo scale (item 373, the Music Hub's radio mix): a host setting,
+ * like the polyphony limit. `glideSec` <= 0 sets it at once; otherwise it
+ * travels there exponentially (equal ratios in equal times) over that many
+ * seconds of the song's ticks — te_tempo_glide_step, at every tick. */
+void te_set_tempo_scale(TaudEngine *e, double scale, double glideSec)
+{
+    if (!(scale >= 0.25)) scale = 0.25;   /* NaN too */
+    if (scale > 4.0) scale = 4.0;
+    if (!(glideSec > 0.0)) {
+        e->tempoScale = e->tempoFrom = e->tempoTo = scale;
+        e->tempoGlideSec = 0.0;
+        return;
+    }
+    e->tempoFrom = e->tempoScale;
+    e->tempoTo = scale;
+    e->tempoGlideSec = glideSec;
+    e->tempoGlideAt = 0.0;
+}
+
 /* The lane wavescopes' tap (item 358): every switch-on — the page's, and the
  * one a host sends with each song it loads (item 376) — starts every lane's
  * ring silent, so a scope never shows the last song. */
@@ -951,6 +970,7 @@ TaudEngine *te_engine_new(int rate)
     e->rate = rate;
     e->spanFrames = TRACKER_CHUNK;
     e->bgLimit = MAX_BG_VOICES;
+    e->tempoScale = e->tempoFrom = e->tempoTo = 1.0;
     e->rampOutSamples = (int)js_round(RAMP_OUT_SEC * rate);
     e->volRampSamples = (int)js_round(VOL_RAMP_SEC * rate);
     e->attackRampSamples = (int)js_round(ATTACK_RAMP_SEC * rate);

@@ -6,6 +6,14 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 
 ## Version 5.2.0 (2026-11-26)
 
+**A new player, and the Music Hub to share songs on**: the player page is rebuilt for listening — the song's own title, author, tuning and message, its rows marching past the playhead — and the File view can send a song to the Microtone Music Hub, music.microtone.cc.
+
+- The player shows the song as a tracker does: a column per lane, the rows stepping past a fixed playhead one at a time, each note spelled in its lane's notation, with every lane's level and pan above its column. When the columns are too narrow for notes, each note is a mark.
+- Above it, everything the file says about itself: title, author, tuning system, tempo, copyright and the project's message.
+- Drop several songs on the player and it becomes a radio: when a song comes round to its start again, it plays one more cue and moves on to another at random. The next song begins at the tempo the last one ended on and glides to its own over four bars, without a crossfade. The Radio switch turns this off, and a looping song then plays as written.
+- Tempo is shown as BPM ÷ speed, scaled to speed 6, so BPM 747 at speed 14 reads 320 rather than looking like a fast song.
+- File → Send to Music Hub… puts the open project on music.microtone.cc, where anyone can listen to it and download it. It shows the title, author and message from the file, asks whether the song is your own or a cover, and asks you to agree that it may be downloaded and remixed freely and cannot be changed or taken down later. A person listens to every song before it goes up.
+
 **Control surfaces: a Mackie Control device as a second keyboard**: an X-Touch One, or any surface in its Mackie mode, works on the lane the cursor is in — its knob and fader write the lane's position and volume, its buttons play, record and move about, and its lamps and display follow the song.
 
 - The **surface** badge in the top bar picks the surface's ports. The choice is remembered, and the surface is opened again whenever it is plugged in. The desktop app opens it itself; a browser asks once for MIDI.

@@ -754,6 +754,36 @@ export const SCENARIOS = {
       r.render(100);
     },
   },
+  // The tempo scale (item 373, the Music Hub's radio mix): set at once, then
+  // a glide back to 1 under playback, a stop and play (no reset touches it),
+  // and out-of-range asks (clamped). The row the song has reached is noted
+  // at each step, so a tick that stopped scaling shows as a row count.
+  "the tempo scale: set, glided under playback, kept over a restart, clamped": {
+    file: DEMO("Zeta_valley"),
+    script(r) {
+      const { eng } = r;
+      const where = () => { r.note(eng.getTempoScale()); r.note(eng.getCuePosition(0)); r.note(eng.getTrackerRow(0)); };
+      eng.setTempoScale(1.5);
+      where();
+      playFromTop(r);
+      r.render(300);
+      where();
+      eng.setTempoScale(1, 4);
+      for (let i = 0; i < 6; i++) { r.render(80); where(); }
+      eng.setTempoScale(0.5);
+      eng.stop(0);
+      playFromTop(r);
+      r.render(200);
+      where();
+      eng.setTempoScale(0);
+      where();
+      eng.setTempoScale(100, 0.5);
+      r.render(120);
+      where();
+      eng.setTempoScale(NaN);
+      where();
+    },
+  },
 };
 
 function runScenario(scenario) {

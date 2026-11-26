@@ -26,7 +26,7 @@ import { kaiserKernel } from "../../core/audio/resampler.js";
 import {
   CMD, MSG,
   SNAP_PLAYING, SNAP_CUE, SNAP_ROW, SNAP_BPM, SNAP_TICK_RATE, SNAP_CHANNELS,
-  SNAP_SONG_INDEX, SNAP_INT_MASK, SNAP_INT_ARGS, SNAP_INT_COUNT, SNAP_HEADER,
+  SNAP_SONG_INDEX, SNAP_TEMPO_SCALE, SNAP_TICK, SNAP_INT_MASK, SNAP_INT_ARGS, SNAP_INT_COUNT, SNAP_HEADER,
   SNAP_V_ACTIVE, SNAP_V_VOLUME, SNAP_V_PAN, SNAP_V_STRIDE,
   SNAP_VOICES, SNAP_FLOATS,
 } from "./protocol.js";
@@ -95,6 +95,9 @@ class TaudPlayProcessor extends AudioWorkletProcessor {
         break;
       case CMD.SET_MONITOR:
         eng.setMonitorMode(0, m.mode | 0);
+        break;
+      case CMD.SET_TEMPO:
+        eng.setTempoScale(+m.scale || 1, +m.glideSec || 0);
         break;
       case CMD.SET_FADER:
         this.faders.set(m.voice | 0, m.value, m.samples | 0);
@@ -168,6 +171,8 @@ class TaudPlayProcessor extends AudioWorkletProcessor {
     f[SNAP_TICK_RATE] = ph.tickRate;
     f[SNAP_CHANNELS] = this.engine.channelCount();
     f[SNAP_SONG_INDEX] = this.songIndex;
+    f[SNAP_TEMPO_SCALE] = this.engine.getTempoScale();
+    f[SNAP_TICK] = ts.tickInRow;
     // Interrupts (item 181): drain the latch into the snapshot the main thread
     // is about to get. Read-to-acknowledge, so every fire is reported exactly
     // once — and the drain sits AFTER the pool check above on purpose: a

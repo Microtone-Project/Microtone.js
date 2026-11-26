@@ -27,7 +27,7 @@ const THANKS = [
 let version = null;
 
 /** package.json's version, read once; null when it cannot be read. */
-function appVersion() {
+export function appVersion() {
   version ??= fetch(new URL("../../../package.json", import.meta.url))
     .then((res) => (res.ok ? res.json() : null))
     .then((pkg) => (typeof pkg?.version === "string" ? pkg.version : null))

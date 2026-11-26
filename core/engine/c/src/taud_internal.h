@@ -150,6 +150,10 @@ static inline int32_t asr32(int32_t x, int n)
     return x >= 0 ? (int32_t)((uint32_t)x >> n) : (int32_t)~((uint32_t)~x >> n);
 }
 
+/* The BPM a tick's LENGTH is measured by: the song's, times the host's
+ * tempo scale. (Tempo-synced IMix pieces keep reading the song's own.) */
+#define TE_TICK_BPM(e) ((double)(e)->bpm * (e)->tempoScale)
+
 static inline int imin(int a, int b) { return a < b ? a : b; }
 static inline int imax(int a, int b) { return a > b ? a : b; }
 static inline int iclamp(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
@@ -1599,6 +1603,13 @@ typedef struct TaudEngine {
     /* The polyphony limit: how many background voices may SOUND at once
      * (te_cap_background_voices). MAX_BG_VOICES unless a host set another. */
     int bgLimit;
+    /* The host's tempo scale (the Music Hub's radio mix): every tick lasts
+     * 1/tempoScale of what the song's BPM says, so the song's own tempo
+     * changes still apply, scaled. 1 unless a host set another; no reset
+     * touches it. A glide moves it from `tempoFrom` to `tempoTo`
+     * exponentially over `tempoGlideSec` seconds of ticks
+     * (te_set_tempo_scale). At 1 a tick is the golden set's to the bit. */
+    double tempoScale, tempoFrom, tempoTo, tempoGlideSec, tempoGlideAt;
 
     /* Voice pool. */
     TaudVoiceChunk *chunks;
@@ -1730,6 +1741,7 @@ void te_update_global_behaviour(TaudEngine *e, int flags);
 void te_set_surround_model(TaudEngine *e, int model);
 void te_set_monitor_mode(TaudEngine *e, int mode);
 void te_set_polyphony(TaudEngine *e, int limit);
+void te_set_tempo_scale(TaudEngine *e, double scale, double glideSec);
 void te_set_lane_scope(TaudEngine *e, bool on);
 void te_set_lane_peak(TaudEngine *e, bool on);
 void te_set_mastering(TaudEngine *e, const TaudMastering *params);

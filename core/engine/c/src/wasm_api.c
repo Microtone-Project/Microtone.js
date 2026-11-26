@@ -332,6 +332,12 @@ void tw_set_monitor_mode(TaudEngine *e, int mode) { te_set_monitor_mode(e, mode)
 TW_EXPORT(tw_set_polyphony)
 void tw_set_polyphony(TaudEngine *e, int limit) { te_set_polyphony(e, limit); }
 
+TW_EXPORT(tw_set_tempo_scale)
+void tw_set_tempo_scale(TaudEngine *e, double scale, double glideSec) { te_set_tempo_scale(e, scale, glideSec); }
+
+TW_EXPORT(tw_get_tempo_scale)
+double tw_get_tempo_scale(TaudEngine *e) { return e->tempoScale; }
+
 TW_EXPORT(tw_set_lane_scope)
 void tw_set_lane_scope(TaudEngine *e, int on) { te_set_lane_scope(e, on != 0); }
 

@@ -14,7 +14,7 @@ import {
   CMD, MSG,
   SNAP_PLAYING, SNAP_CUE, SNAP_ROW, SNAP_BPM, SNAP_TICK_RATE, SNAP_CHANNELS,
   SNAP_INT_MASK, SNAP_INT_ARGS,
-  SNAP_HEADER, SNAP_V_ACTIVE, SNAP_V_VOLUME, SNAP_V_PAN, SNAP_V_STRIDE,
+  SNAP_HEADER, SNAP_TEMPO_SCALE, SNAP_TICK, SNAP_V_ACTIVE, SNAP_V_VOLUME, SNAP_V_PAN, SNAP_V_STRIDE,
   SNAP_VOICES, SNAP_FLOATS,
 } from "./protocol.js";
 import { makeInterruptBank, setInterruptIn, dispatchInterrupts } from "./interrupts.js";
@@ -195,6 +195,13 @@ export class TaudPlayer {
   stop() { this._post({ t: CMD.STOP }); }
   seekCue(cue) { this._post({ t: CMD.SEEK_CUE, cue }); }
 
+  /** The tempo scale (song-level, not per-lane): every tick lasts 1/scale of
+   *  what the song's BPM says, so its own tempo changes still apply, scaled —
+   *  pitch is untouched. 0.25…4; 1 is the song as written. With `glideSec`,
+   *  it travels there exponentially over that many seconds. A load, a song
+   *  switch, a stop and a play all keep it: set 1 to undo. */
+  setTempoScale(scale, glideSec = 0) { this._post({ t: CMD.SET_TEMPO, scale, glideSec }); }
+
   /** Master volume, 0..1. Not a per-lane fader: this is the whole mix. */
   setVolume(gain) {
     const g = gain < 0 ? 0 : gain > 1 ? 1 : gain;
@@ -287,6 +294,9 @@ export class TaudPlayer {
   get bpm() { return this.snapshot[SNAP_BPM] | 0; }
   get speed() { return this.snapshot[SNAP_TICK_RATE] | 0; }
   get channelCount() { return this.snapshot[SNAP_CHANNELS] | 0; }
+  /** The tempo scale in force (a glide moves it), and the tick of the row. */
+  get tempoScale() { return this.snapshot[SNAP_TEMPO_SCALE] || 1; }
+  get tick() { return this.snapshot[SNAP_TICK] | 0; }
 
   // ── internals ──
 

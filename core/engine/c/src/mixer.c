@@ -308,7 +308,7 @@ bool te_generate_tracker_audio(TaudEngine *e, int frames)
     if (e->imixSyncedGen != e->imixGen) te_sync_imix_routes(e);
 
     for (n = 0; n < frames; n++) {
-        double spt = (srate * 2.5) / e->bpm;
+        double spt = (srate * 2.5) / TE_TICK_BPM(e);
         double gvol, mvol, master, globalGain;
 
         /* A tick about to fire ends the span before it. */
