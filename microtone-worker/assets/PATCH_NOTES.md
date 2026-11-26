@@ -38,6 +38,11 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 
 - The trace is a smooth line of one normal pixel's weight, drawn column by column on the real screen pixels, so it stays as heavy on a diagonal or a steep edge as on a flat stretch, at any zoom.
 
+**Linked folders in the desktop app's Projects folder open**: a symbolic link you put in `~/Microtone/Projects` now works like any other folder.
+
+- Fixed: the desktop app's File view listed the projects inside a linked folder (or a linked project file) but could not open them, saying they were outside the store; the app checked where the link led and refused anywhere else. Saving, renaming and moving work through the link too.
+- Deleting a linked folder in the File view deletes the link only: the folder it leads to, and every project in it, stay where they are.
+
 ## Version 5.1.0 (2026-11-26)
 
 **A new desktop app, with the sound engine inside it**: Microtone for Windows, macOS and Linux is now a native app that plays through your computer's own audio system, in place of the website running in a window.

@@ -25,9 +25,10 @@
 //          {state: "running"|"done", found, kind, projects, soundfonts, keymaps, beside, failed, tell}
 //   POST   /api/files/oldapp?told                  the person has been told (tell is false from now on)
 //
-// A path is names joined by "/", each percent-encoded. Nothing outside the
-// store is reachable: "." and "..", separators inside a name and paths whose
-// real location (symlinks followed) leaves it are refused. A name that is
+// A path is names joined by "/", each percent-encoded: "." and "..", and
+// separators inside a name, are refused. A symlink the person put in the
+// store is followed wherever it leads (the store never makes one), and
+// deleting one deletes the link alone, never what it leads to. A name that is
 // CREATED must also be one every system can hold — none of <>:"|?* or control
 // characters, no trailing dot or space, no CON/PRN/AUX/NUL/COMn/LPTn — since
 // the folder may be synced between them; existing files are read whatever

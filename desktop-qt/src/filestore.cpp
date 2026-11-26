@@ -66,18 +66,14 @@ QStringList namesOf(const QString &encoded, bool *ok) {
   return names;
 }
 
-/** Is `path` (which may not exist yet) inside `root`, symlinks followed? */
+/** Is `path` inside `root`, by its names? The names are safe ones (namesOf,
+ *  portableName), so this holds by construction; it is said once more here.
+ *  A symlink in the store is followed wherever it leads: nothing the store
+ *  does makes one, so only the person can have put it there, and the listing
+ *  walks through it — what the File view shows must open. */
 bool inside(const QString &root, const QString &path) {
-  const QString top = QFileInfo(root).canonicalFilePath();
-  if (top.isEmpty()) return false;
-  QString at = path;
-  while (!QFileInfo::exists(at)) {  // the nearest part of it that exists
-    const QString up = QFileInfo(at).absolutePath();
-    if (up == at) return false;
-    at = up;
-  }
-  const QString real = QFileInfo(at).canonicalFilePath();
-  return real == top || real.startsWith(top + u'/');
+  const QString top = QDir::cleanPath(root), at = QDir::cleanPath(path);
+  return at == top || at.startsWith(top + u'/');
 }
 
 qint64 mtimeOf(const QFileInfo &f) { return f.lastModified().toMSecsSinceEpoch(); }
@@ -334,7 +330,9 @@ void FileStore::handle(const QHttpServerRequest &request, QHttpServerResponder &
       return;
     }
     bool done;
-    if (info.isDir()) {
+    if (info.isSymLink()) {
+      done = QFile::remove(path);  // the link, never what it leads to
+    } else if (info.isDir()) {
       done = query.hasQueryItem(QStringLiteral("recursive")) ? QDir(path).removeRecursively()
                                                              : QDir(info.absolutePath()).rmdir(info.fileName());
     } else {
@@ -391,7 +389,10 @@ void FileStore::handle(const QHttpServerRequest &request, QHttpServerResponder &
         return;
       }
       QDir().mkpath(QFileInfo(dest).absolutePath());
-      if (!QDir().rename(path, dest)) {
+      // A file may cross disks through a link (QFile copies, then removes);
+      // a folder or a link itself is renamed where it is.
+      const bool moved = info.isDir() || info.isSymLink() ? QDir().rename(path, dest) : QFile::rename(path, dest);
+      if (!moved) {
         say(responder, Status::InternalServerError, QStringLiteral("cannot move it"));
         return;
       }

@@ -199,9 +199,12 @@ in the app's data folder.
   control characters, a trailing dot or space, or be CON, PRN and the like.
   The page's `validName` says so before it asks. Files already there are
   read whatever they are called.
-- **Nothing outside the store.** `..`, separators inside a name, and paths
-  whose real place (symlinks followed) leaves the folder are refused. Hidden
-  files (.DS_Store, desktop.ini) are not listed.
+- **Nothing outside the store, but what the person links in.** `..` and
+  separators inside a name are refused. A symlink in the folder is followed
+  wherever it leads, as a file manager would: the store never makes one, so
+  only the person can have put it there. Deleting one deletes the link, never
+  what it leads to; a project moved through one may cross disks. Hidden files
+  (.DS_Store, desktop.ini) are not listed.
 - **No size limit to speak of.** Qt 6.11 refuses request bodies over 32 MiB
   by default, and a project with its samples can be more: the server allows
   2 GiB. Qt 6.8 has no limit. 64 MB goes in and out in about a quarter of a
