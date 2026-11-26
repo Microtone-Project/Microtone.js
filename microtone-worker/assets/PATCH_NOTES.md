@@ -25,6 +25,10 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 - Go to (Ctrl+G) takes only the Timeline you are working in to the cue and row you ask for, and the other stays where it was.
 - F1–F7, F9, Shift+F7 and Shift+F9 (and a control surface's F1–F7) now change the tab of the pane you are working in, even when another pane already shows that view. They used to move you to that other pane instead.
 
+**Sharper lane wavescopes**: the little oscilloscopes in the Timeline's lane headers are drawn at the screen's own resolution, so they no longer look like a scaled-up bitmap on a display set to a fractional zoom such as 125 %.
+
+- The trace is a smooth line of one normal pixel's weight, drawn column by column on the real screen pixels, so it stays as heavy on a diagonal or a steep edge as on a flat stretch, at any zoom.
+
 ## Version 5.1.0 (2026-11-26)
 
 **A new desktop app, with the sound engine inside it**: Microtone for Windows, macOS and Linux is now a native app that plays through your computer's own audio system, in place of the website running in a window.

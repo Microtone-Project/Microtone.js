@@ -142,3 +142,47 @@ test("a waveform with two rising edges a cycle keeps to the same one from frame 
   assert.ok(spread(phases) < 0.03, `with memory: the same point of the cycle (spread ${spread(phases).toFixed(3)})`);
   assert.ok(spread(plain) > 0.1, "without it the latest crossing hops between the two edges");
 });
+
+// Item 383: the trace is laid on the device pixel grid, whatever the page's
+// scale, so a fractional zoom does not stretch it into a blurry bitmap, and it
+// is a stroke of one layout pixel's weight, so a diagonal weighs what a flat
+// stretch does.
+test("paintLaneScope strokes its trace on device pixels at a fractional scale", async () => {
+  const { paintLaneScope, makeScopeState } = await import("../../src/ui/lanescope.js");
+  const scale = 1.25;
+  let T = { a: scale, d: scale, e: 0, f: 0 };
+  const stack = [];
+  const strokes = [];
+  const rects = [];
+  let path = [];
+  const ctx = {
+    lineWidth: 1,
+    getTransform: () => ({ ...T }),
+    setTransform(a, b, c, d, e, f) { T = { a, d, e, f }; },
+    save() { stack.push({ ...T }); },
+    restore() { T = stack.pop(); },
+    fillRect(x, y, w, h) { rects.push({ x, y, w, h, scaled: T.a !== 1 }); },
+    rect() {}, clip() {},
+    beginPath() { path = []; },
+    moveTo(x, y) { path.push([x, y]); },
+    lineTo(x, y) { path.push([x, y]); },
+    closePath() {}, fill() {},
+    stroke() { strokes.push({ pts: path.slice(), width: this.lineWidth, scaled: T.a !== 1 }); },
+  };
+  const data = new Float32Array(1024);
+  for (let i = 0; i < data.length; i++) data[i] = Math.sin(i / 8) * 0.5;
+  paintLaneScope(ctx, { bg: "#000", line: "#888", trace: "#0f0", mark: "#f00" },
+    10, 20, 101, 40, data, 0.5, makeScopeState());
+  assert.equal(strokes.length, 1);
+  const s = strokes[0];
+  assert.equal(s.scaled, false, "painted under the page's scale");
+  assert.equal(s.width, scale, "the pen is one layout pixel wide");
+  // 101 layout px × 1.25 = 126.25 → 126 device columns, each at its centre
+  const xs = new Set(s.pts.map((p) => p[0]));
+  assert.equal(xs.size, 126);
+  for (const x of xs) assert.ok(Number.isInteger(x - 0.5), "a column sits on a whole device pixel");
+  // the points stay inside the box (20…60 layout px = 25…75 device px)
+  for (const [, y] of s.pts) assert.ok(y >= 25 && y <= 75, `y ${y} out of the box`);
+  for (const r of rects) assert.equal(r.scaled, false);
+  assert.equal(T.a, scale, "the caller's transform is restored");
+});
