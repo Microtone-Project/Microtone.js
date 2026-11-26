@@ -172,10 +172,11 @@ function fakeHost(over = {}) {
     viewIndex: () => 0,
     lane: () => 4,
     surroundModel: () => 0,
-    editTarget: (any) => (host.rec || any ? {
+    editTarget: () => (host.rec ? {
       cell, fx2: false,
       apply: (fields, gesture) => { Object.assign(cell, fields); calls.push(["apply", fields, gesture]); },
     } : null),
+    cursorCell: () => cell,
     engineLane: () => ({ vol: 200, az: 128, el: 0 }),
     globalVolume: () => 0x80,
     setGlobalVolume: (v, g) => calls.push(["gvol", v, g]),
@@ -407,6 +408,28 @@ test("the motor puts back a fader a hand moved, and says where it is now and the
   h.engineLane = () => ({ vol: 64, az: 128, el: 0 });
   now = 3010; s.frame();
   assert.deepEqual(strip4(), [levelFader(64)]);
+});
+
+test("stopped, the motor shows the cursor's own M; playing, the lane", () => {
+  const h = fakeHost();
+  h.cell.effect = M; h.cell.effectArg = 0x0000; // M $0000 at the cursor, the lane at 200
+  const sent = [];
+  let now = 1000;
+  const s = new ControlSurface(h, () => now);
+  s.attach((m) => sent.push(m));
+  const strip4 = () => sent.filter((m) => m[0] === 0xe3).map((m) => m[1] | (m[2] << 7)).at(-1);
+  s.frame();
+  assert.equal(strip4(), levelFader(0)); // stopped: the cell's own M
+  h.playingNow = true;
+  now += 10; s.frame();
+  assert.equal(strip4(), levelFader(200)); // playing: the lane as it plays
+  h.playingNow = false;
+  h.rec = false;
+  now += 10; s.frame();
+  assert.equal(strip4(), levelFader(0)); // record off, stopped: still the cell's
+  h.cell.effect = 0; h.cell.effectArg = 0;
+  now += 10; s.frame();
+  assert.equal(strip4(), levelFader(200)); // no M: where the lane stands (the host's chase)
 });
 
 test("with a dialog or menu open, the surface walks it", () => {

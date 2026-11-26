@@ -72,6 +72,7 @@ import { startControlEnhancer } from "./components/spinner.js";
 import { lampButton } from "./components/lampbutton.js";
 import { ControlSurface, nextPanels } from "./surface.js";
 import { startSurfaceLink } from "./surfacelink.js";
+import { LaneChase } from "./lanechase.js";
 
 initTheme(); // before any canvas paints (saved choice ?? OS preference)
 initZoom();  // …and before anything measures itself: the factor scales the layout
@@ -2568,16 +2569,25 @@ const surfaceHost = {
   viewIndex: () => VIEWS.indexOf(store.view),
   lane: () => (store.doc ? Math.min(store.cursor.ch, store.doc.channelCount - 1) : null),
   surroundModel: () => store.song?.surroundModel ?? 0,
-  /** The cursor's cell, writable: only in record mode unless `any`. */
-  editTarget(any = false) {
-    if (!store.doc || (!any && !store.record)) return null;
+  /** The cursor's cell, writable: only in record mode. */
+  editTarget() {
+    if (!store.doc || !store.record) return null;
     const target = cursorCellTarget();
     if (!target) return null;
     const fx2 = store.view === "pattern" ? viewNamed("pattern").active.fx2() : store.fx2Chan(target.channel);
     return { cell: target.cell, fx2, apply: target.apply };
   },
+  /** The cursor's cell (record mode or not), or null where there is none. */
+  cursorCell: () => cursorCellTarget()?.cell ?? null,
+  /** Where lane `ch` stands: playing, the engine's own registers; stopped, as
+   *  the song arrives at the Timeline cursor's row (lanechase.js). */
   engineLane(ch) {
     const audio = store.audio;
+    if (!audio?.isPlaying() && store.doc) {
+      const loc = viewNamed("timeline")?.locate(store.cursor.row);
+      const at = loc && laneChase.lane(store.doc, store.songIndex, loc.entry.cue, loc.rowInCue, ch);
+      if (at) return at;
+    }
     if (!audio) return { vol: 255, az: 128, el: 0 }; // full, and centre / front
     return { vol: audio.getVoiceChannelVolume(ch), az: audio.getVoiceChannelAzimuth(ch), el: audio.getVoiceChannelElevation(ch) };
   },
@@ -2592,6 +2602,7 @@ const surfaceHost = {
   setLanePeak(on) {
     store.lanePeak = on;
     store.audio?.setLanePeak(on);
+    if (!on) laneChase.release(); // attach and detach both come through here
   },
   muted: (ch) => store.voiceMutes[ch] === true,
   soloed(ch) {
@@ -2724,6 +2735,11 @@ const surfaceHost = {
   position: surfacePosition,
 };
 const surface = new ControlSurface(surfaceHost);
+// The lanes as the song leaves them at the cursor, for a stopped surface. The
+// open document's edits reach it as they reach the live engine; a load or a
+// song switch takes it afresh (it compares the document and the song).
+const laneChase = new LaneChase();
+store.on("edit", (dirty) => laneChase.onDirty(dirty ?? []));
 const surfaceLink = startSurfaceLink(surface, $("surfaceBadge"));
 
 function showText(id, text) {

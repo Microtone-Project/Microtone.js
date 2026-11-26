@@ -586,7 +586,12 @@ export class ControlSurface {
       this.forgetFader(0);
       this.forgetFader(1);
     }
-    const target = ready ? h.editTarget(true) : null;
+    // Stopped, the motor and the ring show the cursor's row: its cell's own
+    // command if it has one, else the lane as the song arrives there
+    // (engineLane, a chase). Playing, the lane as the engine has it — a cell
+    // under a cursor that stays put would hold them there for the whole song
+    // (a song that sets every lane's volume on row 0, the cursor on row 0).
+    const target = ready && !playing ? { cell: h.cursorCell() } : null;
     if (ch !== null && !this.touched[0] && now - this.movedAt[0] > MOTOR_HOLD_MS) {
       const own = cellArg(target?.cell, isM);
       const level = own ? own.arg >> 8 : h.engineLane(ch).vol;
