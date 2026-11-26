@@ -11,7 +11,9 @@
 //     the cursor's cell, in record mode only, as the keyboard does. The master
 //     fader writes `V $xx00`. A touch-to-release movement is ONE undo step.
 //   - Lamps, the motor fader, the knob's ring and the displays are sent only
-//     when they change (`frame()`, from the app's animation frame).
+//     when they change (`frame()`, from the app's animation frame) — except
+//     the motor, which is also sent again after a hand moved it and every
+//     FADER_REFRESH_MS (see `forgetFader`).
 //
 // The protocol itself is ../midi/mackie.js.
 
@@ -36,6 +38,9 @@ const KNOB_GESTURE_MS = 1000;
 const TOUCH_GRACE_MS = 400;
 /** After a move, the motor leaves the fader alone this long. */
 const MOTOR_HOLD_MS = 300;
+/** The motor's position is sent again this often even when it has not
+ *  changed (see `forgetFader`). */
+const FADER_REFRESH_MS = 1000;
 /** How long a written value stays on the scribble strip. */
 const STATUS_MS = 1500;
 
@@ -242,7 +247,7 @@ export function positionText(pos, beats) {
   return pad(pos.cue, 3, 16) + zero(pos.row, 2) + zero(pos.speed, 2) + pad(pos.bpm, 3);
 }
 
-/** The panels Global View walks: neither → instruments → both → master. */
+/** The panels Replace walks: neither → instruments → both → master. */
 export function nextPanels({ inst, master }) {
   if (!inst && !master) return { inst: true, master: false };
   if (inst && !master) return { inst: true, master: true };
@@ -268,6 +273,7 @@ export class ControlSurface {
     this.gesture = [null, null];
     this.written = [null, null];
     this.movedAt = [-Infinity, -Infinity];
+    this.faderSentAt = -Infinity;
     this.lastVpotAt = -Infinity;
     this.knobGesture = null;
     /** Stop pressed while stopped: 0 = playback just stopped (or never
@@ -365,9 +371,13 @@ export class ControlSurface {
         return;
       // display
       case "timecodeBeats": this.beats = !this.beats; return;
-      // Replace is a second Global View: a one-fader surface (the X-Touch One)
-      // has no Global View button.
-      case "globalView": case "replace": h.cyclePanels(); return;
+      // the Timeline's cells: Cycle walks the widths as the Cells button
+      // does, Global View goes to mini and back, Drop is Raw
+      case "cycle": h.stepCells(1); return;
+      case "globalView": h.toggleMiniCells(); return;
+      case "drop": h.toggleRaw(); return;
+      // Replace walks the side panels (nextPanels)
+      case "replace": h.cyclePanels(); return;
       // transport
       case "rewind": h.seekCue(-1); return;
       case "fastForward": h.seekCue(1); return;
@@ -382,8 +392,6 @@ export class ControlSurface {
         return;
       }
       case "nudge": h.gotoMarker(); return;
-      case "cycle": h.keymapStep(-1); return;
-      case "drop": h.keymapStep(1); return;
       // Click walks the panes, one way round.
       case "click": h.paneStep(1); return;
       case "transportSolo": h.splitToggle(); return;
@@ -502,6 +510,7 @@ export class ControlSurface {
     }
     this.touched[i] = ev.down;
     this.movedAt[i] = now;
+    this.forgetFader(i);
   }
 
   fader(ev) {
@@ -512,6 +521,7 @@ export class ControlSurface {
       this.written[i] = null;
     }
     this.movedAt[i] = now;
+    this.forgetFader(i);
     const level = faderLevel(ev.value);
     // Out of record mode the master fader is the project's own global volume,
     // as the master strip's fader is (one undo step a touch).
@@ -571,6 +581,11 @@ export class ControlSurface {
 
     // the motor faders: where the lane and the song stand, unless a hand is
     // on them or just was
+    if (now - this.faderSentAt >= FADER_REFRESH_MS) {
+      this.faderSentAt = now;
+      this.forgetFader(0);
+      this.forgetFader(1);
+    }
     const target = ready ? h.editTarget(true) : null;
     if (ch !== null && !this.touched[0] && now - this.movedAt[0] > MOTOR_HOLD_MS) {
       const own = cellArg(target?.cell, isM);
@@ -657,6 +672,20 @@ export class ControlSurface {
    *  one-fader surface back to it. */
   goHome() {
     for (let s = 0; s < 8; s++) this.sent.delete(`led${STRIP_BUTTON.select + s}`);
+    this.forgetFader(0);
+  }
+
+  /** Send fader `i`'s motor position (0 the strips', 1 the master's) on the
+   *  next frame that may move it, changed or not. What `sent` remembers is
+   *  what the HOST sent, not where the fader stands: a hand moves it (out of
+   *  record mode the strip's writes nothing, and the fader stayed where it was
+   *  let go, since the lane's volume had not changed), and a one-fader surface
+   *  switches what its fader is without a word to the host (the X-Touch One's
+   *  Master button, its walk through the strips). A motor already in place
+   *  does not move. */
+  forgetFader(i) {
+    if (i === 1) { this.sent.delete("faderM"); return; }
+    for (let s = 0; s < 8; s++) this.sent.delete(`fader${s}`);
   }
 
   led(note, state) { this.out(`led${note}`, state, () => ledMessage(note, state)); }

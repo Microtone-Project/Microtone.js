@@ -53,6 +53,10 @@ constexpr char kAskClose[] =
     "({ dirty: !window.dispatchEvent(new Event('beforeunload', { cancelable: true })),"
     "   lang: document.documentElement.lang })";
 
+// The page is going (Shell::sayFarewell): what a closing tab hears. The
+// control surface puts its lamps out on it (src/ui/surfacelink.js).
+constexpr char kFarewell[] = "window.dispatchEvent(new Event('pagehide'));";
+
 // The welcome screen's "Get the desktop app" is the website's offer of the
 // very app this is.
 constexpr char kGlue[] = R"JS((() => {
@@ -275,8 +279,11 @@ void AppWindow::askThePage() {
       box.exec();
       if (!self || box.clickedButton() != discard) return;
     }
-    self->closeAgreed_ = true;
-    self->close();
+    self->shell_->sayFarewell([self] {
+      if (!self) return;
+      self->closeAgreed_ = true;
+      self->close();
+    });
   });
 }
 
@@ -388,8 +395,23 @@ void Shell::openOutside(const QUrl &url) {
 }
 
 void Shell::quit() {
-  if (docs_) docs_->close();
-  QTimer::singleShot(0, qApp, &QApplication::quit);
+  sayFarewell([this] {
+    if (docs_) docs_->close();
+    QTimer::singleShot(0, qApp, &QApplication::quit);
+  });
+}
+
+void Shell::sayFarewell(std::function<void()> then) {
+  if (farewellSaid_ || !main_) {
+    then();
+    return;
+  }
+  farewellSaid_ = true;
+  main_->page()->runJavaScript(QString::fromLatin1(kFarewell));
+  // Armed before control returns to the event loop, which is where the
+  // page's answer (on its own socket) would be read.
+  if (farewellHook_) farewellHook_(std::move(then));
+  else then();
 }
 
 // Downloads → a native Save dialog. The web app saves the way any page does

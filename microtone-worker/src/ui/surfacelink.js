@@ -123,8 +123,13 @@ export function startSurfaceLink(surface, badge) {
   refresh();
   onLangChange(refresh);
   // A page that goes (a reload, the app closing) leaves the surface dark
-  // rather than showing a song nobody is playing.
-  window.addEventListener("pagehide", () => surface.goodbye());
+  // rather than showing a song nobody is playing. The desktop's shell
+  // dispatches this pagehide itself before it quits (QtWebEngine sends none),
+  // and waits for the flush that follows the goodbye.
+  window.addEventListener("pagehide", () => {
+    surface.goodbye();
+    ports?.flush();
+  });
   // Reconnect what was chosen last time, if that needs nobody's permission.
   if (pref) {
     midiGranted().then(async (granted) => {

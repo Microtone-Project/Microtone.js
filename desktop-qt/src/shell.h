@@ -14,6 +14,8 @@
 #include <QWebEngineUrlRequestInterceptor>
 #include <QWebEngineView>
 
+#include <functional>
+
 class QWebEngineDownloadRequest;
 class QWebEngineProfile;
 
@@ -108,8 +110,19 @@ class Shell : public QObject {
    *  the page hears it on the channel the website's sign-in window uses, and
    *  the main window comes forward. */
   void onlineAuth(const QString &type);
-  /** The main window agreed to close: the app goes with it. */
+  /** The main window agreed to close: the app goes with it (after the
+   *  farewell, when it has not been said). */
   void quit();
+
+  /** What the page must finish before it goes: `hook(done)` is called as the
+   *  farewell starts and calls `done` when that has happened (main.cpp: the
+   *  control surface's last bytes reaching the device). */
+  void setFarewell(std::function<void(std::function<void()>)> hook) { farewellHook_ = std::move(hook); }
+  /** Let the main page say goodbye as a browser tab does when it closes —
+   *  QtWebEngine tears a page down at quit without a `pagehide`, so the
+   *  shell dispatches one — then `then()`. Said once; afterwards `then()` runs
+   *  at once. */
+  void sayFarewell(std::function<void()> then);
 
   /** The page is about to open a dialog (POST /api/desktop/dialog, from
    *  storage/import-export.js `withDialogTitle`): `kind` "open" (a file picker) or
@@ -131,6 +144,8 @@ class Shell : public QObject {
   QWebEngineProfile *profile_;
   QPointer<AppWindow> main_;
   QPointer<AppWindow> docs_;
+  std::function<void(std::function<void()>)> farewellHook_;
+  bool farewellSaid_ = false;
 };
 
 }  // namespace microtone

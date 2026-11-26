@@ -30,6 +30,7 @@
 #include <QStringList>
 #include <QTimer>
 
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -58,6 +59,14 @@ class NativeMidi : public QObject {
    *  "client:port" numbers. */
   static QString plainName(const std::string &rtName);
 
+  /** Call `done` once everything the page has sent so far has gone to the
+   *  device: when the page's `{"flush": true}` arrives (ports.js `flush()`,
+   *  sent after the surface's goodbye), when the page goes, or after
+   *  `timeoutMs`. At once when no output is open, since then nothing is on
+   *  its way. One wait at a time; a second replaces the first's timer and
+   *  calls it as well. */
+  void whenFlushed(std::function<void()> done, int timeoutMs);
+
  private:
   bool ensureApis();
   void onText(const QString &text);
@@ -68,6 +77,7 @@ class NativeMidi : public QObject {
   void reconcile();
   void closeAll();
   void sendState();
+  void flushed();
   static void onInput(double stamp, std::vector<unsigned char> *message, void *user);
 
   std::unique_ptr<rt::midi::RtMidiIn> in_;
@@ -79,6 +89,8 @@ class NativeMidi : public QObject {
   QString openIn_, openOut_;       // what is open
   QString error_;
   bool apisFailed_ = false;
+  std::vector<std::function<void()>> flushWaits_;
+  QTimer flushTimer_;
 };
 
 }  // namespace microtone

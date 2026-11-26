@@ -137,6 +137,13 @@ export class MidiPorts {
     try { this._out?.send(bytes); } catch { /* the port went as we wrote */ }
   }
 
+  /** Tell the desktop's shell that everything sent before this is the last
+   *  word: it waits for it before it quits (nativemidi.cpp `whenFlushed`).
+   *  Web MIDI needs no such thing — a closing tab sends what it was given. */
+  flush() {
+    if (this._ws) this._ws.send(JSON.stringify({ flush: true }));
+  }
+
   get connected() { return this.inputName !== null || this.outputName !== null; }
 
   close() {

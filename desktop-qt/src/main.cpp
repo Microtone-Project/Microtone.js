@@ -335,6 +335,8 @@ int main(int argc, char **argv) {
                           {QStringLiteral("dialogs"), QJsonObject{{QStringLiteral("base"), QStringLiteral("/api/desktop/dialog")}}}});
   QObject::connect(&online, &Online::authChanged, &shell, &Shell::onlineAuth);
   server.setUpdater(&updater, [&shell] { shell.quit(); });
+  // Quitting: the surface's lamps and displays go dark before its port does.
+  shell.setFarewell([&midi](std::function<void()> done) { midi.whenFlushed(std::move(done), 500); });
   server.setDialogs([&shell](const QString &kind, const QString &title, const QString &lang) {
     shell.announceDialog(kind, title, lang);
   });

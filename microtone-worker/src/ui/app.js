@@ -27,7 +27,7 @@ import { SplitView, VIEWS, MAX_PANES } from "./splitview.js";
 import { JamKeyboard } from "./jam.js";
 import { InstLookup } from "./instlookup.js";
 import { SUB_NOTE, gridStepRow } from "./edit.js";
-import { CELL_MODES } from "./narrowcell.js";
+import { CELL_MODES, CELLS_MINI } from "./narrowcell.js";
 import { CommandPalette } from "./palette.js";
 import { FindBar } from "./findbar.js";
 import { setCellOp } from "../doc/ops.js";
@@ -1489,12 +1489,13 @@ loadCanvasFonts([13, 14], () => invalidateGrids());
 $("tbRetune").addEventListener("click", () => viewNamed("project").openRetune());
 store.rawNoteView = false;
 $("tbRaw").textContent = t("toolbox.rawOff");
-$("tbRaw").addEventListener("click", () => {
+function toggleRawNotes() {
   store.rawNoteView = !store.rawNoteView;
   $("tbRaw").textContent = t(store.rawNoteView ? "toolbox.rawOn" : "toolbox.rawOff");
   $("tbRaw").classList.toggle("active", store.rawNoteView);
   invalidateGrids();
-});
+}
+$("tbRaw").addEventListener("click", toggleRawNotes);
 // Ghost cells — the pattern-ditto repeats AND the bend trails, one switch for
 // both: each says "nothing is written here, but this is what plays", and a
 // reader who wants the grid to show only what was typed wants neither. ON by
@@ -1566,8 +1567,19 @@ function refreshCellsBtn() {
  *  either way. Another Timeline on screen keeps its own. */
 function stepCells(dir) {
   const v = cellsTimeline();
+  if (v) setCells(v, (v.cells + dir + CELL_MODES) % CELL_MODES);
+}
+/** Mini and back: the active Timeline to mini cells, or from mini back to the
+ *  width it had before (full, if it was never anything else). A control
+ *  surface's Global View. */
+function toggleMiniCells() {
+  const v = cellsTimeline();
   if (!v) return;
-  v.cells = (v.cells + dir + CELL_MODES) % CELL_MODES;
+  if (v.cells === CELLS_MINI) setCells(v, v.cellsBeforeMini ?? 0);
+  else { v.cellsBeforeMini = v.cells; setCells(v, CELLS_MINI); }
+}
+function setCells(v, mode) {
+  v.cells = mode;
   store.timelineCells = v.cells;
   try {
     if (store.timelineCells !== 0) localStorage.setItem(CELLS_KEY, String(store.timelineCells));
@@ -2616,6 +2628,10 @@ const surfaceHost = {
   },
   isSplit: () => split.isSplit,
   paneStep: (dir) => split.focusNext(dir),
+  // the Timeline's toolbox: Cells, Raw, and mini cells and back
+  stepCells: (dir) => stepCells(dir),
+  toggleMiniCells: () => toggleMiniCells(),
+  toggleRaw: () => toggleRawNotes(),
   cyclePanels() {
     const next = nextPanels({ inst: instLookup.visible, master: masterStrip.visible });
     if (instLookup.visible !== next.inst) $("tbInstList").classList.toggle("active", instLookup.toggle());
@@ -2705,7 +2721,6 @@ const surfaceHost = {
     eachView("timeline", (v) => v.invalidate());
   },
   gotoMarker() { if (store.marker !== null && store.marker !== undefined) surfaceGoTo(store.marker); },
-  keymapStep: (dir) => stepKeymap(dir),
   position: surfacePosition,
 };
 const surface = new ControlSurface(surfaceHost);

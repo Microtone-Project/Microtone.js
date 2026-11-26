@@ -3757,17 +3757,19 @@ Mackie Control groups its faders in banks of eight strips. Microtone does not: *
 | Knob | The lane's position, written into the cursor's cell: `S $80xx` in a stereo song, `S $8xxx` in a planar one, `X $eeaa` in a spatial one. It starts from the cell's own command, else from where the lane is. A quick turn goes further, and one turn is one undo step. |
 | Knob push | In a spatial song, switches the knob between azimuth and elevation. |
 | Level meter | The lane's level as it reaches the mix, in decibels of full scale: about −60 dB at the bottom, 0 dB at the top. The top light means the lane went over full scale, and stays on for a second so you see it. |
-| Fader | The lane's volume, `M $xx00`. One touch, from the moment you put a finger on it to the moment you let go, is one undo step. While nothing is under your hand the motor shows the cell's own `M $xx00`, else the lane's volume as it plays. |
+| Fader | The lane's volume, `M $xx00`. One touch, from the moment you put a finger on it to the moment you let go, is one undo step. While nothing is under your hand the motor shows the cell's own `M $xx00`, else the lane's volume as it plays, and it brings the fader back there after you let go of it. |
 | Master fader | In record mode, `V $xx00` into the cursor's cell; otherwise the project's own global volume, as the master strip's fader sets it. Either way one touch is one undo step. On the X-Touch One the **Master** button switches its one fader between the lane and the master. |
 | Select | The lane's menu, as a right-click on its header opens it. While a menu (or any dialog) is open, the knob and the jog wheel walk it, the knob's push takes the highlighted item, and Select closes it. |
 | Mute, Solo | Mute or solo the lane. |
 | Rec | Show or hide the lane's second effect column. |
 | BPM/Time | The display reads cue · row · speed · BPM (cue, row and speed in hex, as the grids write them), or bar · beat · subdivision, counted from the row highlights. |
-| Global View, Replace | Walks the side panels: none → the instrument list → both → the master strip → none. Replace does the same, for a surface without Global View (the X-Touch One). |
+| Cycle | Steps the Timeline's cell width, as the toolbox's **Cells** button: full → two slots → one slot → mini → full. |
+| Global View | Switches the Timeline to mini cells, and back to the width it had before. |
+| Replace | Walks the side panels: none → the instrument list → both → the master strip → none. |
+| Drop | The toolbox's **Raw** toggle: notes as hex pitches, or in the notation. |
 | F1–F7, F8 | The tabs, as the F1–F7 keys; F8 splits the view. |
 | Marker | Marks the cursor's row, shown as a notch in the Timeline's trough; on the marked row, clears it. There is one marker, and opening a project clears it. |
 | Nudge | To the marker (and plays from there if playing). |
-| Cycle, Drop | The previous and next keyboard layout. |
 | Click | Moves to the next pane, round and round. |
 | Solo (transport) | Splits the view, or closes the pane you are in. |
 | Rewind, Fast forward | To the start of the previous and the next cue; Rewind from inside a cue goes to its own start first. While playing, playback follows. |

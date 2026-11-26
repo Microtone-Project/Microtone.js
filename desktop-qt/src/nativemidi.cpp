@@ -38,6 +38,25 @@ QString NativeMidi::plainName(const std::string &rtName) {
 NativeMidi::NativeMidi(QObject *parent) : QObject(parent) {
   poll_.setInterval(kPollMs);
   connect(&poll_, &QTimer::timeout, this, &NativeMidi::poll);
+  flushTimer_.setSingleShot(true);
+  connect(&flushTimer_, &QTimer::timeout, this, &NativeMidi::flushed);
+}
+
+void NativeMidi::whenFlushed(std::function<void()> done, int timeoutMs) {
+  if (!socket_ || openOut_.isEmpty()) {
+    done();
+    return;
+  }
+  flushWaits_.push_back(std::move(done));
+  flushTimer_.start(timeoutMs);
+}
+
+void NativeMidi::flushed() {
+  flushTimer_.stop();
+  // taken first: a wait may quit the app, or ask again
+  std::vector<std::function<void()>> waits;
+  waits.swap(flushWaits_);
+  for (auto &done : waits) done();
 }
 
 NativeMidi::~NativeMidi() {
@@ -89,6 +108,7 @@ void NativeMidi::attach(std::unique_ptr<QWebSocket> socket) {
     wantIn_.clear();
     wantOut_.clear();
     socket_.release()->deleteLater();
+    flushed();  // nothing more will come
   });
   ensureApis();
   readLists();
@@ -107,6 +127,9 @@ void NativeMidi::onText(const QString &text) {
     reconcile();
     sendState();
   }
+  // Text and binary messages keep their order on the socket, so every byte
+  // the page sent before this has been handed to the port already.
+  if (msg.value(QStringLiteral("flush")).toBool()) flushed();
 }
 
 void NativeMidi::onBinary(const QByteArray &bytes) {

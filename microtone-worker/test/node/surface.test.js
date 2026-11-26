@@ -145,7 +145,7 @@ test("the display's two readings", () => {
   assert.equal(positionText({ ...pos, row: 0x3f, barsBefore: 0 }, true), "  4 4 4   ");
 });
 
-test("Global View walks the panels: none, instruments, both, master", () => {
+test("Replace walks the panels: none, instruments, both, master", () => {
   let p = { inst: false, master: false };
   const seen = [];
   for (let i = 0; i < 4; i++) { p = nextPanels(p); seen.push(`${+p.inst}${+p.master}`); }
@@ -192,6 +192,9 @@ function fakeHost(over = {}) {
     splitToggle: () => calls.push(["split"]),
     isSplit: () => host.split,
     paneStep: (d) => calls.push(["pane", d]),
+    stepCells: (d) => calls.push(["cells", d]),
+    toggleMiniCells: () => calls.push(["mini"]),
+    toggleRaw: () => calls.push(["raw"]),
     cyclePanels: () => calls.push(["panels"]),
     record: () => host.rec,
     setRecord: (on) => { host.rec = on; calls.push(["rec", on]); },
@@ -212,7 +215,6 @@ function fakeHost(over = {}) {
     marker: () => host.mark,
     setMarker: (r) => { host.mark = r; calls.push(["marker", r]); },
     gotoMarker: () => calls.push(["goto"]),
-    keymapStep: (d) => calls.push(["keymap", d]),
     position: () => ({ cue: 0, row: 0, speed: 6, bpm: 125, barsBefore: 0, pri: 4, sec: 16 }),
     dialog: false,
     dialogOpen: () => host.dialog,
@@ -244,8 +246,8 @@ test("the transport and the function keys", () => {
   }
   assert.deepEqual(h.calls, [
     ["view", 2], ["seek", -1], ["seek", 1], ["clear"], ["play"], ["rec", false], ["toggle"],
-    ["keymap", -1], ["keymap", 1], ["panels"], ["pane", 1], ["split"], ["sel", true], ["undo"],
-    ["panels"], ["goto"],
+    ["cells", 1], ["raw"], ["panels"], ["pane", 1], ["split"], ["sel", true], ["undo"],
+    ["mini"], ["goto"],
   ]);
   // Play while playing does nothing
   h.calls.length = 0;
@@ -369,6 +371,42 @@ test("feedback is sent once, and again only when it changes", () => {
   s.goodbye();
   assert.ok(sent.some((m) => m[0] === 0x90 && m[1] === BUTTON.record && m[2] === 0));
   assert.equal(s.send, null);
+});
+
+test("the motor puts back a fader a hand moved, and says where it is now and then", () => {
+  const h = fakeHost();
+  h.rec = false;
+  const sent = [];
+  let now = 1000;
+  const s = new ControlSurface(h, () => now);
+  s.attach((m) => sent.push(m));
+  const strip4 = () => sent.filter((m) => m[0] === 0xe3).map((m) => m[1] | (m[2] << 7));
+  s.frame();
+  assert.deepEqual(strip4(), [levelFader(200)]);
+  // out of record mode a hand moves the fader and writes nothing: the lane is
+  // still at 200, so the motor takes the fader back once the hand is gone
+  sent.length = 0;
+  now = 1100;
+  s.receive(noteOn(104));
+  s.receive([0xe3, 0x00, 0x10]);
+  s.receive(noteOff(104));
+  s.frame();
+  assert.deepEqual(strip4(), []); // not while the hand is just off it
+  now = 1500;
+  s.frame();
+  assert.deepEqual(strip4(), [levelFader(200)]);
+  // nothing changes, and once a refresh period has gone it is said again (a
+  // one-fader surface may have shown its master meanwhile, telling nobody)
+  sent.length = 0;
+  now = 1600; s.frame();
+  assert.deepEqual(strip4(), []);
+  now = 2000 + 1000; s.frame();
+  assert.deepEqual(strip4(), [levelFader(200)]);
+  // …and the lane's volume changing moves it at once
+  sent.length = 0;
+  h.engineLane = () => ({ vol: 64, az: 128, el: 0 });
+  now = 3010; s.frame();
+  assert.deepEqual(strip4(), [levelFader(64)]);
 });
 
 test("with a dialog or menu open, the surface walks it", () => {
