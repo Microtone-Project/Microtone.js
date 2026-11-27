@@ -15,16 +15,20 @@
 import { TaudPlayer } from "../taudplay/index.js";
 import { parseTaud } from "../../core/format/taud-parse.js";
 import { Document } from "../doc/document.js";
-import { applyIcons } from "./icons.js";
+import { applyIcons, setIconLabel } from "./icons.js";
 import { startControlEnhancer } from "./components/spinner.js";
 import { holdBrowserZoom } from "./zoom.js";
 import { loadCanvasFonts } from "./fonts.js";
 import { songFacts, displayTempo, tempoOf } from "../player/songfacts.js";
 import { RadioWatch, matchScale, glideSeconds, pickNext } from "../player/radio.js";
 import { RowMarch } from "../player/marching.js";
+import { LaneBars } from "../player/lanebars.js";
 
 const $ = (id) => document.getElementById(id);
 const EMBEDDED = document.documentElement.classList.contains("pl-embedded");
+/** The Hub's bottom bar: one strip — the bar's own buttons, the title as a
+ *  marquee, the lanes' levels. */
+const inBar = () => document.documentElement.dataset.layout === "bar";
 
 applyIcons(document); // vector transport symbols (item 107)
 startControlEnhancer(); // …and the song chooser as a step-button group (item 156)
@@ -96,6 +100,9 @@ const queue = [];        // standalone: every file loaded, in order
 let current = null;      // the entry playing (or loaded)
 let upcoming = null;     // embedded: the Hub's next song, fetched ahead
 const recent = [];       // ids played lately, so the radio does not repeat itself
+const history = [];      // the entries played before this one, latest last (Previous)
+const HISTORY_MAX = 20;
+let playedSec = 0;       // how long the song has played since it opened or was sent back to its top
 
 function makeEntry(name, bytes, extra = {}) {
   const parsed = parseTaud(bytes);
@@ -116,11 +123,17 @@ let startedId = null;     // the entry a "started" was reported for
  * radio mix: it starts at the outgoing song's tempo and glides to its own).
  * `play` starts it.
  */
-async function openEntry(entry, { how = "manual", play = false } = {}) {
+async function openEntry(entry, { how = "manual", play = false, back = false } = {}) {
   const outTempo = how === "radio" && current
     ? tempoOf(player.bpm || current.facts.bpm, player.speed || current.facts.speed) * (player.tempoScale || 1)
     : 0;
+  // Previous goes back through what was played; going back is not itself played.
+  if (!back && current && current !== entry) {
+    history.push(current);
+    if (history.length > HISTORY_MAX) history.shift();
+  }
   current = entry;
+  playedSec = 0;
   watchArmed = false;
   if (audioReady) player.stop();
   const songs = await player.load(entry.bytes);
@@ -168,6 +181,7 @@ function onLoaded() {
 /** Every snapshot (≈60 Hz, also in a background tab): the radio's clock. */
 function onSnapshot() {
   if (!watchArmed || !current) return;
+  if (player.playing) playedSec += player.span;
   if (player.playing && startedId !== current.id) {
     startedId = current.id;
     embed.post("started", { id: current.id });
@@ -221,13 +235,62 @@ function nextEntry() {
 // ── showing a song ──
 
 const march = new RowMarch($("meters"));
+const bars = new LaneBars($("meters"));
+
+/** The bar's levels: the march's lanes, and a width for as many as there are. */
+function setBarLanes() {
+  bars.setLanes(march.lanes);
+  $("visualiser").style.setProperty("--pl-lanes", String(march.lanes.length));
+}
+
+// ── the bar's title and author: a marquee when they do not fit ──
+// Each holds its text twice (the second copy for the eye only); when the
+// first copy is wider than the box, the pair scrolls by one copy and a gap,
+// so the loop has no seam. Measured on a new song, a layout change, a resize
+// and a font arriving — never from the frame loop.
+
+const MQ_SPEED = 40;   // px per second
+const MQ_HOLD = 0.12;  // of each loop, still at the start
+const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+
+function setMarqueeText(el, text) {
+  const a = document.createElement("span");
+  a.className = "mq-t";
+  a.textContent = text;
+  const b = a.cloneNode(true);
+  b.classList.add("mq-copy");
+  b.setAttribute("aria-hidden", "true");
+  const wrap = document.createElement("span");
+  wrap.className = "mq";
+  wrap.append(a, b);
+  el.replaceChildren(wrap);
+  fitMarquee(el);
+}
+
+function fitMarquee(el) {
+  el.classList.remove("mq-on");
+  const t = el.querySelector(".mq-t");
+  if (!t || !inBar() || el.hidden || reducedMotion.matches) return;
+  if (t.getBoundingClientRect().width <= el.clientWidth + 0.5) return;
+  el.classList.add("mq-on");
+  const copy = el.querySelector(".mq-copy");
+  const shift = copy.getBoundingClientRect().left - t.getBoundingClientRect().left;
+  el.style.setProperty("--mq-shift", `${-shift.toFixed(1)}px`);
+  el.style.setProperty("--mq-dur", `${(shift / MQ_SPEED / (1 - MQ_HOLD)).toFixed(2)}s`);
+}
+
+const marquees = [$("nowTitle"), $("nowAuthor")];
+const fitMarquees = () => marquees.forEach(fitMarquee);
+new ResizeObserver(fitMarquees).observe($("now"));
+document.fonts?.addEventListener?.("loadingdone", fitMarquees);
+reducedMotion.addEventListener?.("change", fitMarquees);
 
 function showSong(entry, songs) {
   const f = entry.facts;
   $("now").hidden = false;
-  $("nowTitle").textContent = f.title || entry.name;
-  $("nowAuthor").textContent = f.author ? `by ${f.author}` : "";
   $("nowAuthor").hidden = !f.author;
+  setMarqueeText($("nowTitle"), f.title || entry.name);
+  setMarqueeText($("nowAuthor"), f.author ? `by ${f.author}` : "");
   const facts = $("nowFacts");
   facts.replaceChildren();
   const fact = (k, v, wide = false) => {
@@ -268,6 +331,7 @@ function showSong(entry, songs) {
   $("visualiser").hidden = false; // the other half of the landscape split
   $("nextSong").hidden = !EMBEDDED && queue.length < 2;
   march.setSong(entry.doc, 0, f);
+  setBarLanes();
   paintQueue();
 }
 
@@ -348,6 +412,7 @@ $("song").addEventListener("change", (e) => {
   if (current) {
     current.facts = songFacts(current.doc, parseInt(e.target.value, 10));
     march.setSong(current.doc, parseInt(e.target.value, 10), current.facts);
+    setBarLanes();
   }
   rewatch(0);
   refreshBinaural(); // …and the next song may not be surround
@@ -374,11 +439,40 @@ $("radio").addEventListener("change", () => {
   if (barStopSent) player.stopAtBarLine(0);
   rewatch(player.cue);
 });
-$("nextSong").addEventListener("click", () => {
+function skipNext() {
   const next = EMBEDDED ? upcoming : pickNext(queue, current?.id, recent);
   if (!next) { if (EMBEDDED) embed.post("wantNext", { id: current?.id ?? null, now: true }); return; }
   openEntry(next, { play: true }).then(() => { if (EMBEDDED) embed.post("changed", { id: next.id }); upcoming = null; });
-});
+}
+$("nextSong").addEventListener("click", skipNext);
+
+/** Previous, as on any music player: a song that has played a few seconds
+ *  goes back to its top; one that has only just begun gives way to the song
+ *  before it (and the first one played simply starts again). */
+const RESTART_SEC = 3;
+function skipPrev() {
+  const back = history.at(-1);
+  if (!back || playedSec > RESTART_SEC) {
+    player.seekCue(0);
+    rewatch(0);
+    playedSec = 0;
+    return;
+  }
+  history.pop();
+  openEntry(back, { play: true, back: true }).then(() => { if (EMBEDDED) embed.post("changed", { id: back.id }); });
+}
+
+async function togglePlay() {
+  await ensureAudio();
+  if (player.playing) { player.stop(); watchArmed = false; return; }
+  rewatch(0);
+  watchArmed = !!current;
+  player.play();
+}
+
+$("barPrev").addEventListener("click", skipPrev);
+$("barToggle").addEventListener("click", togglePlay);
+$("barNext").addEventListener("click", skipNext);
 $("vol").addEventListener("input", (e) => player.setVolume(parseInt(e.target.value, 10) / 255));
 
 // ── the frame loop: the march and the readouts ──
@@ -390,8 +484,22 @@ function showText(id, s) {
   $(id).textContent = s;
 }
 
+let shownBar = null;      // the layout the canvas was last painted for
+let shownPlaying = null;  // what the bar's play/stop button shows
+
 function frame(now) {
-  if (!$("visualiser").hidden) march.frame(player, now);
+  const bar = inBar();
+  if (bar !== shownBar) { shownBar = bar; march.lastPaintKey = ""; bars.lastPaintKey = ""; }
+  if (!$("visualiser").hidden) {
+    if (bar) bars.frame(player); else march.frame(player, now);
+  }
+  if (player.playing !== shownPlaying) {
+    shownPlaying = player.playing;
+    const btn = $("barToggle"), word = shownPlaying ? "Stop" : "Play";
+    setIconLabel(btn, shownPlaying ? "stop" : "play");
+    btn.title = word;
+    btn.setAttribute("aria-label", word);
+  }
   showText("cue", "$" + player.cue.toString(16).toUpperCase());
   showText("rowIdx", "$" + player.row.toString(16).toUpperCase().padStart(2, "0"));
   showText("bpm", player.bpm ? String(player.bpm) : "—");
@@ -461,15 +569,15 @@ if (EMBEDDED) {
           break;
         case "play": await ensureAudio(); watchArmed = !!current; player.play(); break;
         case "stop": player.stop(); break;
-        case "toggle":
-          await ensureAudio();
-          if (player.playing) player.stop(); else { rewatch(0); watchArmed = !!current; player.play(); }
-          break;
+        case "toggle": await togglePlay(); break;
         case "radio":
           $("radio").checked = !!m.on;
           $("radio").dispatchEvent(new Event("change"));
           break;
-        case "layout": document.documentElement.dataset.layout = m.layout === "bar" ? "bar" : "full"; break;
+        case "layout":
+          document.documentElement.dataset.layout = m.layout === "bar" ? "bar" : "full";
+          fitMarquees();
+          break;
         case "theme":
           if (["dark", "dim", "light"].includes(m.theme)) document.documentElement.dataset.theme = m.theme;
           break;

@@ -56,6 +56,13 @@
       </section>
 
       <section class="transport pl-transport" id="transport" hidden>
+        <!-- The Hub's bottom bar only: previous song, play/stop, next song,
+             icons alone (the labels are for a screen reader). -->
+        <div class="pl-bar-buttons">
+          <button id="barPrev" class="pl-bar-btn" data-icon="prevCue" title="Previous song" aria-label="Previous song"></button>
+          <button id="barToggle" class="pl-bar-btn pl-bar-toggle" data-icon="play" title="Play" aria-label="Play"></button>
+          <button id="barNext" class="pl-bar-btn" data-icon="nextCue" title="Next song" aria-label="Next song"></button>
+        </div>
         <div class="pl-buttons">
           <button id="play" class="big pl-play" data-icon="play">Play</button>
           <button id="stopBtn" class="big" data-icon="stop">Stop</button>

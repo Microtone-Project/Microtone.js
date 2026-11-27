@@ -209,7 +209,12 @@ html.pl-embedded, html.pl-embedded .player-page { background: transparent; }
 .pl-embedded .phone-note { display: none !important; }
 .pl-embedded .pl { padding-top: 0; }
 
-/* The Hub's bottom bar: one strip, the march squeezed beside the title. */
+/* The bar's own buttons and the marquee exist only in the bar. */
+.pl-bar-buttons { display: none; }
+.mq-copy { display: none; }
+
+/* The Hub's bottom bar: one strip — [previous] [play/stop] [next], the title
+   and author (a marquee when they do not fit), and the lanes' levels. */
 [data-layout="bar"] .player-page { height: 100%; overflow: hidden; }
 [data-layout="bar"] .pl {
   display: flex;
@@ -224,7 +229,7 @@ html.pl-embedded, html.pl-embedded .player-page { background: transparent; }
   flex-direction: row;
   align-items: center;
   gap: 0.8rem;
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
 }
@@ -234,11 +239,39 @@ html.pl-embedded, html.pl-embedded .player-page { background: transparent; }
 [data-layout="bar"] .pl-kicker,
 [data-layout="bar"] .pl-controls,
 [data-layout="bar"] .pl-status,
-[data-layout="bar"] #prevCue,
-[data-layout="bar"] #nextCue { display: none !important; }
+[data-layout="bar"] .pl-buttons { display: none !important; }
 [data-layout="bar"] .pl-transport { order: -1; }
-[data-layout="bar"] .pl-now { min-width: 0; max-width: calc(32vw / var(--ui-zoom, 1)); }
+[data-layout="bar"] .pl-bar-buttons { display: flex; align-items: center; gap: 0.4rem; }
+[data-layout="bar"] .pl-bar-btn {
+  display: grid;
+  place-items: center;
+  width: 2.1rem;
+  height: 2.1rem;
+  padding: 0;
+  font-size: 1rem;
+}
+[data-layout="bar"] .pl-bar-toggle { width: 2.9rem; height: 2.9rem; font-size: 1.45rem; }
+[data-layout="bar"] .pl-bar-btn .btn-ico { margin: 0; vertical-align: 0; }
+/* The title and author take whatever the buttons and the levels leave. */
+[data-layout="bar"] .pl-now { flex: 1 1 auto; min-width: 0; }
 [data-layout="bar"] .pl-title { font-size: 1.05rem; letter-spacing: -0.01em; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 [data-layout="bar"] .pl-author { font-size: 0.85rem; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-[data-layout="bar"] .pl-vis { flex: 1 1 auto; min-width: 0; }
+[data-layout="bar"] .mq-on { text-overflow: clip; }
+[data-layout="bar"] .mq-on .mq { display: inline-block; animation: pl-marquee var(--mq-dur, 10s) linear infinite; }
+[data-layout="bar"] .mq-on .mq-copy { display: inline; margin-left: 3em; }
+@keyframes pl-marquee {
+  0%, 12% { transform: translateX(0); }
+  100% { transform: translateX(var(--mq-shift, 0)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-layout="bar"] .mq-on .mq { animation: none; }
+  [data-layout="bar"] .mq-on .mq-copy { display: none; }
+}
+/* The levels take what their lanes need (--pl-lanes, set by player.js): a
+   narrow bar each, never more than 30 % of the strip. */
+[data-layout="bar"] .pl-vis {
+  flex: none;
+  width: clamp(3rem, calc(var(--pl-lanes, 16) * 10px), calc(30vw / var(--ui-zoom, 1)));
+  padding: 0;
+}
 [data-layout="bar"] #meters { height: 100%; min-height: 0; border-top: 0; }
