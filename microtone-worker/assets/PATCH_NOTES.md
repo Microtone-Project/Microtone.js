@@ -6,7 +6,7 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 
 ## Version 5.2.0 (2026-11-26)
 
-**A new player, and the Music Hub to share songs on**: the player page is rebuilt for listening — the song's own title, author, tuning and message, its rows marching past the playhead — and the File view can send a song to the Microtone Music Hub, music.microtone.cc.
+**A new player, and the Music Hub to share songs on**: the player page is rebuilt for listening — the song's own title, author, tuning and message, its rows marching past the playhead — and the File view can send a song to the Microtone Music Hub, [music.microtone.cc](https://music.microtone.cc).
 
 - The player shows the song as a tracker does: a column per lane, the rows stepping past a fixed playhead one at a time, each note spelled in its lane's notation, with every lane's level and pan above its column. When the columns are too narrow for notes, each note is a mark.
 - Above it, everything the file says about itself: title, author, tuning system, tempo, copyright and the project's message.
