@@ -71,7 +71,8 @@ import { loadCanvasFonts, refreshCanvasFont } from "./fonts.js";
 import { startControlEnhancer } from "./components/spinner.js";
 import { lampButton } from "./components/lampbutton.js";
 import { ControlSurface, nextPanels } from "./surface.js";
-import { startSurfaceLink } from "./surfacelink.js";
+import { startMidiLink } from "./midilink.js";
+import { MasterKeyboard, velocityVolume } from "./masterkeyboard.js";
 import { LaneChase } from "./lanechase.js";
 
 initTheme(); // before any canvas paints (saved choice ?? OS preference)
@@ -1088,9 +1089,11 @@ function refreshToolbox() {
 const NO_DOC_VIEWS = ["timeline", "files", "keymap", "motif", "settings"];
 
 /** The desktop app's Settings tab (item 336) exists where the Qt shell runs
- *  the native audio host; the website's audio is the browser's, so it has
- *  none. Shown before the split view clones the tab bar for its other panes. */
-const SETTINGS_TAB = !!globalThis.__MICROTONE_NATIVE__?.engine;
+ *  the native audio host, or opens the MIDI ports (item 379: a shell started
+ *  with --web-audio, or with no device, still has its MIDI settings); the
+ *  website's audio and MIDI are the browser's, so it has none. Shown before
+ *  the split view clones the tab bar for its other panes. */
+const SETTINGS_TAB = !!(globalThis.__MICROTONE_NATIVE__?.engine || globalThis.__MICROTONE_NATIVE__?.midi);
 if (SETTINGS_TAB) document.querySelector('#tabs [data-view="settings"]').hidden = false;
 
 /** Is this view reachable at all right now? (The dead-end tabs say so rather
@@ -2473,6 +2476,8 @@ window.__microtone = {
   __VIEWS: VIEWS,
   get timeline() { return viewNamed("timeline"); },
   get surface() { return surface; }, // the control surface (item 379)
+  get masterKeyboard() { return masterKeyboard; }, // …and the MIDI keyboards
+  get midiLink() { return midiLink; },
   get cuesView() { return viewNamed("cues"); },
   get patternView() { return viewNamed("pattern"); },
   get samplesView() { return viewNamed("samples"); },
@@ -2740,7 +2745,38 @@ const surface = new ControlSurface(surfaceHost);
 // song switch takes it afresh (it compares the document and the song).
 const laneChase = new LaneChase();
 store.on("edit", (dirty) => laneChase.onDirty(dirty ?? []));
-const surfaceLink = startSurfaceLink(surface, $("surfaceBadge"));
+
+// The master keyboard (item 379): MIDI keys are the piano keys — entered in
+// record mode on the grids, auditioned everywhere else (the views where typed
+// piano keys are inert too: a MIDI key steals nothing from them).
+const keyboardHost = {
+  octave: () => jam.octave,
+  period() {
+    const p = jam.preset();
+    return p?.table?.length ?? 0;
+  },
+  enterNote(id, noteFor, velocity) {
+    if (!store.record || !store.doc || document.querySelector("dialog:modal")) return false;
+    const volume = velocity === undefined ? undefined : velocityVolume(velocity, store.doc.wideCells === true);
+    const entered = store.view === "timeline" ? viewNamed("timeline").enterMidiNote(id, noteFor, volume, jam)
+      : store.view === "pattern" ? viewNamed("pattern").enterMidiNote(id, noteFor, volume)
+      : false;
+    if (entered) updateStatus();
+    return entered;
+  },
+  audition: (id, noteFor) => jam.midiDown(id, noteFor(jam.preset())),
+  release: (id) => jam.midiUp(id),
+  /** Where the pedal writes: the cursor's cell, in record mode, on a grid
+   *  that shows it (not Mini Mode), with no dialog over it. */
+  pedalTarget() {
+    if (document.querySelector("dialog:modal")) return null;
+    if (store.view === "timeline" && viewNamed("timeline").mini()) return null;
+    return surfaceHost.editTarget();
+  },
+};
+const masterKeyboard = new MasterKeyboard(keyboardHost);
+const midiLink = startMidiLink({ surface, keyboard: masterKeyboard, badge: $("midiBadge") });
+store.midiLink = midiLink; // the Settings tab's MIDI category
 
 function showText(id, text) {
   const el = $(id);
@@ -2771,7 +2807,7 @@ function frame() {
   }
   if (store.viewOpen("timeline")) masterStrip.frame();
   instLookup.frame(); // play-indicator lamps (item 169); no-ops while hidden
-  surfaceLink.frame(); // the control surface's lamps, motor fader and displays (item 379)
+  midiLink.frame(); // the control surface's lamps, motor fader and displays (item 379)
   keymapBar.frame();  // held-key highlight (item 187); no-ops while hidden
   requestAnimationFrame(frame);
 }

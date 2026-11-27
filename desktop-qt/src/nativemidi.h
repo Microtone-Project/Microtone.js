@@ -1,16 +1,27 @@
-// The control surface's MIDI ports (item 379), for the page.
+// The page's MIDI ports (item 379): the control surface's input and output,
+// and the master keyboards' inputs.
 //
 // QtWebEngine has Web MIDI compiled in and refuses every request: it has no
 // MIDI permission to grant (QWebEnginePermission has no such type; measured
 // on 6.11.1, with Chromium's BlockMidiByDefault switched off as well). So the
-// shell opens one input and one output itself, with RtMidi, and the page
-// reaches them over a WebSocket of its own beside the engine's:
+// shell opens the ports itself, with RtMidi, and the page reaches them over a
+// WebSocket of its own beside the engine's:
 //
-//   page → shell  text    {"open": {"input": name|null, "output": name|null}}
-//                 binary  one whole MIDI message, for the open output
+//   page → shell  text    {"open": {"input": name|null, "output": name|null,
+//                                   "keyboards": [name, ...]}}
+//                 binary  one whole MIDI message, for the surface's output
 //   shell → page  text    {"ports": {"inputs": [...], "outputs": [...]},
-//                          "open": {"input", "output"}, "error"?}
-//                 binary  one whole MIDI message from the open input
+//                          "open": {"input", "output",
+//                                   "keyboards": [{"name", "id"}, ...]},
+//                          "error"?}
+//                 binary  a source byte, then one whole MIDI message: source
+//                         0 is the surface's input, 1…127 the keyboard of
+//                         that id (ids are the shell's, given as each one
+//                         opens; the state that names one is always sent
+//                         before its first message)
+//
+// A keyboard is never the surface's own input: a name wished for as both is
+// the surface's.
 //
 // The page's side is microtone-worker/src/midi/ports.js.
 //
@@ -80,8 +91,24 @@ class NativeMidi : public QObject {
   void flushed();
   static void onInput(double stamp, std::vector<unsigned char> *message, void *user);
 
+  /** An open keyboard input: RtMidi's input is one port per object. */
+  struct Keyboard {
+    QString name;
+    int id = 0;
+    NativeMidi *self = nullptr;
+    std::unique_ptr<rt::midi::RtMidiIn> in;
+  };
+  int freeKeyboardId() const;
+  void reconcileKeyboards();
+  bool keyboardOpen(int id) const;
+  static void onKeyboard(double stamp, std::vector<unsigned char> *message, void *user);
+  void forward(int source, const QByteArray &bytes);
+
   std::unique_ptr<rt::midi::RtMidiIn> in_;
   std::unique_ptr<rt::midi::RtMidiOut> out_;
+  std::vector<std::unique_ptr<Keyboard>> keyboards_;  // open, in the page's order
+  QStringList wantKeyboards_;
+  int nextKeyboardId_ = 1;
   std::unique_ptr<QWebSocket> socket_;
   QTimer poll_;
   QStringList inputs_, outputs_;   // as the page sees them

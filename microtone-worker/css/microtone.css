@@ -2021,7 +2021,14 @@ body.dragsorting { cursor: grabbing; user-select: none; }
   font-weight: var(--weight-button);
 }
 .profiler-detail { margin: 0.25rem 0 0; line-height: 1.4; }
-#audioBadge[role="button"], #surfaceBadge { cursor: pointer; }
+#audioBadge[role="button"], #midiBadge { cursor: pointer; }
+/* The MIDI configuration (midipanel.js, item 379): the Settings tab's rows and
+   notes, in the badge's dialog and in the Settings tab's MIDI category alike.
+   An option is a box and its caption on one line, as a dialog form's are. */
+.midi-dialog { width: min(44rem, calc(94vw / var(--ui-zoom, 1))); }
+.midi-panel { display: flex; flex-direction: column; gap: 0.8rem; }
+.midi-panel .modal-check { display: flex; align-items: center; gap: 0.5rem; margin: 0.15rem 0; }
+.midi-panel .midi-hint { margin: -0.1rem 0 0 1.55rem; }
 #audioBadge[aria-pressed="true"] { outline: 1px solid var(--accent); outline-offset: 1px; }
 .ctx-grid { display: flex; flex-direction: column; gap: 0.3rem; }
 /* One row per group; the second one (the column tools) is ruled off from the

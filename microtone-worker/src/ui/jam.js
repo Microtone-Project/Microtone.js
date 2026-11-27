@@ -141,6 +141,30 @@ export class JamKeyboard {
     return true;
   }
 
+  /**
+   * A MIDI keyboard's key (item 379, masterkeyboard.js), auditioned: `note`
+   * sounds under the key's own `id` by the piano's rules — chording where the
+   * piano chords, last key wins where it enters notes. A key the grid has
+   * just entered comes through hold(id, note, true) instead.
+   */
+  midiDown(id, note) {
+    this._cancelRelease(id);
+    let voice = this.held.get(id);
+    if (voice === undefined) {
+      voice = this._takeVoice();
+      this.held.set(id, voice);
+    }
+    const audition = this.store.view === "instruments" || this.store.view === "samples";
+    this.store.audio?.jamNote(0, voice, note, this.currentInst, audition);
+  }
+
+  /** …and its release: at once, since MIDI has no phantom repeats to wait out. */
+  midiUp(id) {
+    if (!this.held.has(id)) return;
+    this._cancelRelease(id);
+    this._release(id);
+  }
+
   /** Drop every held key at once — a focus loss ends the gesture (no keyup). */
   allUp() {
     for (const code of this.releasing.keys()) clearTimeout(this.releasing.get(code));

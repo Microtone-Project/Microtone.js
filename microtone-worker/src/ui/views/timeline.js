@@ -1728,8 +1728,18 @@ export class TimelineView {
     return this.editKey(capKey(code), jam, SUB_NOTE, 0, false);
   }
 
+  /** A MIDI keyboard's key in record mode (item 379): note entry exactly as
+   *  a cap's — the note column, the current instrument, the audition and the
+   *  step. `noteFor(preset)` is its note in a notation, `volume` its velocity
+   *  as a volume SET (or undefined). True when it entered one. */
+  enterMidiNote(id, noteFor, volume, jam) {
+    if (this.mini()) return false;
+    return this.editKey({ code: id, key: "", repeat: false, shiftKey: false, noteFor, volume }, jam, SUB_NOTE, 0, false);
+  }
+
   /** Record-mode entry of one key into the cursor's cell, read as column
-   *  `sub`/`nib` — the shared body of processEditKey and enterCapNote. */
+   *  `sub`/`nib` — the shared body of processEditKey, enterCapNote and
+   *  enterMidiNote. */
   editKey(e, jam, sub, nib, rawHex) {
     const store = this.store;
     if (!store.record) return false;
@@ -1739,7 +1749,8 @@ export class TimelineView {
     const continues = jam.currentInst > 0 && !!store.doc?.isLyricSlot(jam.currentInst) &&
       lyricContinues(store.doc.songs[store.songIndex].patterns[target.pat] ?? [], target.rowInCue, jam.currentInst);
     const action = interpretEditKey(
-      { code: e.code, key: e.key, repeat: e.repeat, shiftKey: e.shiftKey }, sub, nib, target.cell,
+      { code: e.code, key: e.key, repeat: e.repeat, shiftKey: e.shiftKey, noteFor: e.noteFor, volume: e.volume },
+      sub, nib, target.cell,
       { octave: jam.octave, transpose: jam.transpose, currentInst: jam.currentInst,
         // The note goes in, in its instrument's or its lane's notation (item 374).
         preset: entryNotation(store, c.ch, this.patternFor(target.pat), target.rowInCue, jam.currentInst, !continues),
@@ -1753,7 +1764,8 @@ export class TimelineView {
       store.undo.apply(setCellOp(store.songIndex, target.pat, target.rowInCue, action.fields));
     }
     if (action.jamNote !== undefined) {
-      jam.hold(e.code, action.jamNote);
+      // A MIDI key is the jam's to track whatever the layout claims.
+      jam.hold(e.code, action.jamNote, e.noteFor ? true : undefined);
     }
     if (action.advanceNib) {
       this.moveSubCursor(1);

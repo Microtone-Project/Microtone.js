@@ -839,8 +839,15 @@ class PatternPane {
     return this.editKey(capKey(code), SUB_NOTE, 0, false);
   }
 
+  /** A MIDI keyboard's key in record mode (item 379) — Timeline.enterMidiNote,
+   *  for one pattern. */
+  enterMidiNote(id, noteFor, volume) {
+    return this.editKey({ code: id, key: "", repeat: false, shiftKey: false, noteFor, volume }, SUB_NOTE, 0, false);
+  }
+
   /** Record-mode entry of one key into the cursor's row, read as column
-   *  `sub`/`nib` — the shared body of processKey and enterCapNote. */
+   *  `sub`/`nib` — the shared body of processKey, enterCapNote and
+   *  enterMidiNote. */
   editKey(e, sub, nib, rawHex) {
     const pattern = this.pattern();
     if (!pattern || !this.store.record) return false;
@@ -849,7 +856,8 @@ class PatternPane {
     const continues = this.jam.currentInst > 0 && !!this.store.doc?.isLyricSlot(this.jam.currentInst) &&
       lyricContinues(pattern, c.row, this.jam.currentInst);
     const action = interpretEditKey(
-      { code: e.code, key: e.key, repeat: e.repeat, shiftKey: e.shiftKey }, sub, nib, cell,
+      { code: e.code, key: e.key, repeat: e.repeat, shiftKey: e.shiftKey, noteFor: e.noteFor, volume: e.volume },
+      sub, nib, cell,
       { octave: this.jam.octave, transpose: this.jam.transpose, currentInst: this.jam.currentInst,
         preset: entryNotation(this.store, patternLane(this.store, this.patIdx), pattern, c.row,
           this.jam.currentInst, !continues),
@@ -862,7 +870,8 @@ class PatternPane {
       this.store.undo.apply(setCellOp(this.store.songIndex, this.patIdx, c.row, action.fields));
     }
     if (action.jamNote !== undefined) {
-      this.jam.hold(e.code, action.jamNote);
+      // A MIDI key is the jam's to track whatever the layout claims.
+      this.jam.hold(e.code, action.jamNote, e.noteFor ? true : undefined);
     }
     if (action.advanceNib) this.moveSubCursor(1);
     else if (action.advanceRow) { c.nib = 0; this.moveCursor(this.store.editStep); }
@@ -1484,6 +1493,9 @@ export class PatternView {
 
   /** A keymap strip cap, in record mode: entered into the active column. */
   enterCapNote(code) { return this.active.enterCapNote(code); }
+
+  /** A MIDI keyboard's key, in record mode: entered into the active column. */
+  enterMidiNote(id, noteFor, volume) { return this.active.enterMidiNote(id, noteFor, volume); }
 
   frame() {
     if (!this.visible) return;

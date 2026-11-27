@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>MIDI keyboards smoke</title>
+</head>
+<body>
+  <pre id="out">running…</pre>
+  <iframe id="app" src="../../index.html?load=assets/demo_projects/Daisy_bell.taud" style="width:1200px;height:700px"></iframe>
+  <script>
+    // Item 379: the MIDI badge's dialog and the master keyboard in the real
+    // app, over a stand-in Web MIDI access (three inputs, one output) put on
+    // the app's navigator once it has loaded — the ports are asked for only
+    // when the badge is clicked.
+    const out = [];
+    let failures = 0;
+    const log = (line) => {
+      out.push(line);
+      console.log("SMOKE: " + line);
+      document.getElementById("out").textContent = out.join("\n");
+    };
+    const check = (ok, what) => { if (!ok) failures++; log(`${ok ? "ok  " : "FAIL"} ${what}`); };
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const hex = (v) => "$" + Math.round(v).toString(16).toUpperCase();
+    // 12-TET's semitone n above C-4, in note-word units (a wide cell's note
+    // carries sixteenths)
+    const semi = (n) => 0x5000 + (n * 4096) / 12;
+    const near = (a, b) => Math.abs(a - b) <= 1 / 16;
+
+    function fakeAccess() {
+      const input = (name) => ({ name, state: "connected", onmidimessage: null });
+      const inputs = new Map([["a", input("Keys A")], ["b", input("Keys B")], ["s", input("X-Touch One")]]);
+      const outputs = new Map([["o", { name: "X-Touch One", state: "connected", send() {} }]]);
+      return { inputs, outputs, onstatechange: null };
+    }
+
+    (async () => {
+      try {
+        const frame = document.getElementById("app");
+        const win = await new Promise((resolve) => {
+          const poll = setInterval(() => {
+            const w = frame.contentWindow;
+            if (w && w.__microtone?.store.doc) { clearInterval(poll); resolve(w); }
+          }, 100);
+        });
+        const doc = frame.contentDocument;
+        const { store, timeline, jam, midiLink } = win.__microtone;
+        win.localStorage.removeItem("microtone-midi-keyboards");
+        const access = fakeAccess();
+        win.navigator.requestMIDIAccess = async () => access;
+        const keys = (name) => [...access.inputs.values()].find((p) => p.name === name);
+        const send = (name, bytes) => keys(name).onmidimessage({ data: Uint8Array.from(bytes) });
+        const badge = doc.getElementById("midiBadge");
+        check(!badge.hidden && badge.textContent === "MIDI off", `the badge reads "${badge.textContent}"`);
+
+        // The dialog: one option per input, live.
+        badge.click();
+        await sleep(200);
+        const dlg = doc.querySelector("dialog.midi-dialog");
+        check(!!dlg, "the badge opens the MIDI dialog");
+        const boxes = [...dlg.querySelectorAll(".midi-input input[type=checkbox]")];
+        check(boxes.length === 3, `${boxes.length} keyboard options`);
+        check(!!dlg.querySelector(".modal-buttons .act-dismiss") && !dlg.querySelector(".act-cancel"),
+          "one Close and no Cancel (a live panel)");
+        boxes.find((b) => b.dataset.key === "kb:Keys A").click();
+        await sleep(50);
+        check(midiLink.ports.keyboardNames.join() === "Keys A", `open keyboards: ${midiLink.ports.keyboardNames.join()}`);
+        check(badge.textContent === "MIDI" && badge.classList.contains("on"), `the badge lights: "${badge.textContent}"`);
+        check(badge.title.includes("Keys A"), "the keyboard's name is in the tooltip");
+        check(JSON.parse(win.localStorage.getItem("microtone-midi-keyboards")).inputs.join() === "Keys A", "the choice is remembered");
+        // While a dialog is open a key only auditions (the grid is under it).
+        store.record = true;
+        const t0 = timeline.cursorCell();
+        const was = store.song.patterns[t0.pat][t0.rowInCue].note;
+        send("Keys A", [0x90, 67, 100]);
+        check(store.song.patterns[t0.pat][t0.rowInCue].note === was && jam.held.has("midi:Keys A:0:67"),
+          "with the dialog open: auditioned, not entered");
+        send("Keys A", [0x80, 67, 0]);
+        dlg.querySelector(".act-dismiss").click();
+        await sleep(50);
+        check(!doc.querySelector("dialog.midi-dialog"), "Close closes it");
+
+        // Record mode on the Timeline: a key enters a note and steps down.
+        store.record = true;
+        store.cursor = { row: 1, ch: 0, sub: 3, nib: 0 }; // on another column: still a note
+        jam.currentInst = 2;
+        const step = store.editStep;
+        const t1 = timeline.cursorCell();
+        send("Keys A", [0x90, 60, 100]);
+        const c1 = store.song.patterns[t1.pat][t1.rowInCue];
+        check(c1.note === 0x5000 && c1.instrment === 2, `key 60 entered ${hex(c1.note)} inst ${c1.instrment}`);
+        check(store.cursor.row === 1 + step, `the cursor stepped to row ${store.cursor.row} (step ${step})`);
+        check(jam.held.has("midi:Keys A:0:60"), "and it auditions under the key's id");
+        send("Keys A", [0x80, 60, 0]);
+        check(!jam.held.has("midi:Keys A:0:60"), "the note-off lets it go");
+
+        // The second keyboard is not listened to until it is chosen.
+        check(keys("Keys B").onmidimessage === null, "an unchosen keyboard is not listened to");
+
+        // The pedal: S $7200 down, S $7100 up, into the cursor's cell.
+        const t2 = timeline.cursorCell();
+        send("Keys A", [0xb0, 64, 127]);
+        let c2 = store.song.patterns[t2.pat][t2.rowInCue];
+        const slot = (c) => (c.effect === 0x1c ? c.effectArg : c.effect2 === 0x1c ? c.effectArg2 : null);
+        check(slot(c2) === 0x7200, `pedal down wrote S ${hex(slot(c2) ?? 0)}`);
+        send("Keys A", [0xb0, 64, 0]);
+        c2 = store.song.patterns[t2.pat][t2.rowInCue];
+        check(slot(c2) === 0x7100, `pedal up wrote S ${hex(slot(c2) ?? 0)} over it`);
+
+        // Velocity: a volume SET.
+        midiLink.setVelocity(true);
+        const t3 = timeline.cursorCell();
+        send("Keys A", [0x90, 62, 64]);
+        const c3 = store.song.patterns[t3.pat][t3.rowInCue];
+        check(near(c3.note, semi(2)) && c3.volume === 129 && c3.volumeEff === 0, `velocity 64 → note ${hex(c3.note)} volume ${c3.volume} sel ${c3.volumeEff}`);
+        send("Keys A", [0x80, 62, 0]);
+
+        // A mapping: white keys only, key 61 silent.
+        midiLink.setKbm("white.kbm", "12\n0\n127\n60\n69\n440\n7\n0\nx\n1\nx\n2\n3\nx\n4\nx\n5\nx\n6\n");
+        const row = store.cursor.row;
+        send("Keys A", [0x90, 61, 100]);
+        check(store.cursor.row === row, "a key the mapping leaves silent enters nothing");
+        const t4 = timeline.cursorCell();
+        send("Keys A", [0x90, 62, 100]);
+        const c4 = store.song.patterns[t4.pat][t4.rowInCue];
+        check(near(c4.note, semi(1)), `under it, key 62 plays degree 1: ${hex(c4.note)}`);
+        send("Keys A", [0x80, 62, 0]);
+
+        // Out of record mode: an audition, nothing written.
+        store.record = false;
+        const t5 = timeline.cursorCell();
+        const before = store.song.patterns[t5.pat][t5.rowInCue].note;
+        send("Keys A", [0x90, 64, 100]);
+        check(jam.held.has("midi:Keys A:0:64") && store.song.patterns[t5.pat][t5.rowInCue].note === before,
+          "record off: auditioned, not entered");
+        send("Keys A", [0x80, 64, 0]);
+        check(jam.held.size === 0, "and let go");
+
+        // The dialog again: the mapping, the velocity box, and no chosen
+        // keyboard offered as the surface.
+        badge.click();
+        await sleep(200);
+        const again = doc.querySelector("dialog.midi-dialog");
+        check(again.textContent.includes("white.kbm"), "the dialog names the mapping");
+        check(again.querySelector("input[data-key=velocity]").checked, "and shows velocity on");
+        const opts = [...again.querySelector("select[data-key=surface-in]").options].map((o) => o.value);
+        check(!opts.includes("Keys A") && opts.includes("X-Touch One"), `surface inputs offered: ${opts.join(" | ")}`);
+
+        again.querySelector(".act-dismiss").click();
+        await sleep(50);
+      } catch (err) {
+        failures++;
+        log("FAIL " + (err?.stack ?? err));
+      }
+      log(`FAILURES: ${failures}`);
+    })();
+  </script>
+  <img src="/hang" alt="" hidden />
+</body>
+</html>

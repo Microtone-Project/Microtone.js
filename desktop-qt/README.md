@@ -839,18 +839,22 @@ under Wine's cmd.
     - ALSA: its `default` (PipeWire's plugin) broken by killing the server:
       caught and reopened. A card plugged in or out (`/dev/snd`) and a JACK
       thread that is real-time already need hardware and a real-time JACK.
-- **`nativemidi`**: a control surface's MIDI ports (item 379). QtWebEngine
+- **`nativemidi`**: the page's MIDI ports (item 379): a control surface's
+  input and output, and any number of keyboards' inputs. QtWebEngine
   has Web MIDI compiled in and refuses every request (there is no MIDI
-  permission it can grant; measured on 6.11.1), so the shell opens one input
-  and one output with RtMidi (`vendor/rtmidi`: ALSA's sequencer, CoreMIDI,
-  the Windows multimedia API; never JACK) and the page reaches them over
+  permission it can grant; measured on 6.11.1), so the shell opens them
+  with RtMidi (`vendor/rtmidi`: ALSA's sequencer, CoreMIDI,
+  the Windows multimedia API; never JACK; an RtMidiIn per keyboard, since
+  one object opens one port) and the page reaches them over
   `ws://microtone.localhost/midi?t=<token>`, beside the engine's socket:
-  JSON for the port lists and which pair to open, binary frames for whole
-  MIDI messages each way (`microtone-worker/src/midi/ports.js` is the page's
-  side). Ports are known by name, without ALSA's client numbers, which a
-  replug changes; the page's choice is kept, and the lists are read every
-  1.5 s while it is connected, so a surface plugged back in is opened again.
-  The shell's own ports show up in other programs as `Microtone`.
+  JSON for the port lists and what to open, binary frames for whole MIDI
+  messages each way — inbound ones led by a source byte, 0 for the surface,
+  else the id the shell gave that keyboard in the state it sent before
+  (`microtone-worker/src/midi/ports.js` is the page's side; `nativemidi.h`
+  has the protocol). Ports are known by name, without ALSA's client numbers,
+  which a replug changes; the page's choice is kept, and the lists are read
+  every 1.5 s while it is connected, so a device plugged back in is opened
+  again. The shell's own ports show up in other programs as `Microtone`.
 - **`links`**: `docs.html` opens in the docs window, other pages of the app in
   the main window, `http(s):` and `mailto:` in the system browser. The window a
   link was clicked in never navigates away from an open project.
@@ -1139,8 +1143,8 @@ carried library that no Debian package owns.
   Chromium and Edge profiles, not yet on a real Tauri install on Windows;
   the macOS path is untried.
 - The native audio host's next steps:
-  - audio input for the sampler's Record, and MIDI (QtWebEngine's Web MIDI
-    untried);
+  - audio input for the sampler's Record (MIDI is the shell's own,
+    `nativemidi`, since QtWebEngine refuses Web MIDI);
   - PulseAudio's underflows (RtAudio's backend reports none: "PulseAudio,
     ALSA and JACK", above), which would take a stream of our own.
       - Dropout counts works perfectly well; just test with ALSA with block size 64 samples

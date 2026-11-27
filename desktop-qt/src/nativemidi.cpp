@@ -1,5 +1,7 @@
 #include "nativemidi.h"
 
+#include <algorithm>
+
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QRegularExpression>
@@ -97,6 +99,7 @@ void NativeMidi::attach(std::unique_ptr<QWebSocket> socket) {
   closeAll();
   wantIn_.clear();
   wantOut_.clear();
+  wantKeyboards_.clear();
   socket_ = std::move(socket);
   QWebSocket *s = socket_.get();
   connect(s, &QWebSocket::textMessageReceived, this, &NativeMidi::onText);
@@ -107,6 +110,7 @@ void NativeMidi::attach(std::unique_ptr<QWebSocket> socket) {
     closeAll();
     wantIn_.clear();
     wantOut_.clear();
+    wantKeyboards_.clear();
     socket_.release()->deleteLater();
     flushed();  // nothing more will come
   });
@@ -122,6 +126,11 @@ void NativeMidi::onText(const QString &text) {
     const QJsonObject open = msg.value(QStringLiteral("open")).toObject();
     wantIn_ = open.value(QStringLiteral("input")).toString();
     wantOut_ = open.value(QStringLiteral("output")).toString();
+    wantKeyboards_.clear();
+    for (const QJsonValue &v : open.value(QStringLiteral("keyboards")).toArray()) {
+      const QString name = v.toString();
+      if (!name.isEmpty() && name != wantIn_ && !wantKeyboards_.contains(name)) wantKeyboards_.append(name);
+    }
     error_.clear();
     readLists();
     reconcile();
@@ -144,8 +153,12 @@ void NativeMidi::onBinary(const QByteArray &bytes) {
 void NativeMidi::poll() {
   const bool changed = readLists();
   const QString wasIn = openIn_, wasOut = openOut_;
+  std::vector<int> wasKeyboards;
+  for (const auto &k : keyboards_) wasKeyboards.push_back(k->id);
   reconcile();
-  if (changed || wasIn != openIn_ || wasOut != openOut_) sendState();
+  std::vector<int> nowKeyboards;
+  for (const auto &k : keyboards_) nowKeyboards.push_back(k->id);
+  if (changed || wasIn != openIn_ || wasOut != openOut_ || wasKeyboards != nowKeyboards) sendState();
 }
 
 /** The page's names for `api`'s ports, lined up with RtMidi's indices: the
@@ -215,6 +228,74 @@ void NativeMidi::reconcile() {
   } catch (const RtMidiError &e) {
     error_ = QString::fromStdString(e.getMessage());
   }
+  reconcileKeyboards();
+}
+
+/** The smallest id no open keyboard has, counting on from the last one given
+ *  (so a message still on its way from a keyboard just closed is never taken
+ *  for the next one's). 0 when all 127 are taken. */
+int NativeMidi::freeKeyboardId() const {
+  for (int n = 0; n < 127; n++) {
+    const int id = (nextKeyboardId_ - 1 + n) % 127 + 1;
+    if (!keyboardOpen(id)) return id;
+  }
+  return 0;
+}
+
+bool NativeMidi::keyboardOpen(int id) const {
+  for (const auto &k : keyboards_)
+    if (k->id == id) return true;
+  return false;
+}
+
+/** The keyboards, as reconcile() does the surface: what is open and no longer wished
+ *  for or listed is closed, and a wished-for one that is listed is opened —
+ *  each on an RtMidiIn of its own (one port to an object). */
+void NativeMidi::reconcileKeyboards() {
+  if (!in_) return;
+  for (auto it = keyboards_.begin(); it != keyboards_.end();) {
+    if (!wantKeyboards_.contains((*it)->name) || !inputs_.contains((*it)->name)) it = keyboards_.erase(it);
+    else ++it;
+  }
+  QStringList names;
+  for (const QString &want : wantKeyboards_) {
+    bool open = false;
+    for (const auto &k : keyboards_) open = open || k->name == want;
+    if (open || !inputs_.contains(want)) continue;
+    if (names.isEmpty()) {
+      try {
+        names = pageNames(*in_);
+      } catch (const RtMidiError &e) {
+        error_ = QString::fromStdString(e.getMessage());
+        return;
+      }
+    }
+    const qsizetype i = names.indexOf(want);
+    const int id = freeKeyboardId();
+    if (i < 0 || id == 0) continue;
+    auto k = std::make_unique<Keyboard>();
+    k->name = want;
+    k->id = id;
+    k->self = this;
+    try {
+      k->in = std::make_unique<RtMidiIn>(RtMidi::UNSPECIFIED, kClientName);
+      k->in->setAutoReconnect(false);
+      // Notes, controllers and the rest; SysEx, clocks and active sensing not.
+      k->in->ignoreTypes(true, true, true);
+      k->in->setCallback(&NativeMidi::onKeyboard, k.get());
+      k->in->openPort(unsigned(i), std::string(kClientName) + " keyboard in");
+    } catch (const RtMidiError &e) {
+      error_ = QString::fromStdString(e.getMessage());
+      continue;
+    }
+    if (!k->in->isPortOpen()) continue;
+    nextKeyboardId_ = id % 127 + 1;
+    keyboards_.push_back(std::move(k));
+  }
+  // In the page's order, so the state reads as it asked.
+  std::stable_sort(keyboards_.begin(), keyboards_.end(), [this](const auto &a, const auto &b) {
+    return wantKeyboards_.indexOf(a->name) < wantKeyboards_.indexOf(b->name);
+  });
 }
 
 void NativeMidi::closeAll() {
@@ -223,31 +304,55 @@ void NativeMidi::closeAll() {
     if (out_ && out_->isPortOpen()) out_->closePort();
   } catch (const RtMidiError &) {
   }
+  keyboards_.clear();  // each RtMidiIn closes its port and joins its thread
   openIn_.clear();
   openOut_.clear();
 }
 
 void NativeMidi::sendState() {
   if (!socket_) return;
+  QJsonArray keyboards;
+  for (const auto &k : keyboards_)
+    keyboards.append(QJsonObject{{QStringLiteral("name"), k->name}, {QStringLiteral("id"), k->id}});
   QJsonObject msg{
       {QStringLiteral("ports"), QJsonObject{{QStringLiteral("inputs"), toArray(inputs_)},
                                             {QStringLiteral("outputs"), toArray(outputs_)}}},
       {QStringLiteral("open"), QJsonObject{{QStringLiteral("input"), nameOrNull(openIn_)},
-                                           {QStringLiteral("output"), nameOrNull(openOut_)}}},
+                                           {QStringLiteral("output"), nameOrNull(openOut_)},
+                                           {QStringLiteral("keyboards"), keyboards}}},
   };
   if (!error_.isEmpty()) msg.insert(QStringLiteral("error"), error_);
   socket_->sendTextMessage(QString::fromUtf8(QJsonDocument(msg).toJson(QJsonDocument::Compact)));
 }
 
-void NativeMidi::onInput(double, std::vector<unsigned char> *message, void *user) {
-  auto *self = static_cast<NativeMidi *>(user);
-  if (!message || message->empty()) return;
-  const QByteArray bytes(reinterpret_cast<const char *>(message->data()), qsizetype(message->size()));
-  // RtMidi's thread: the socket is the GUI thread's. Dropped if the shell has
-  // gone by then (the context object).
-  QMetaObject::invokeMethod(self, [self, bytes] {
-    if (self->socket_ && !self->openIn_.isEmpty()) self->socket_->sendBinaryMessage(bytes);
+/** One message from source `source` (0 the surface, else a keyboard's id),
+ *  as the page reads it: the source byte, then the message. On RtMidi's
+ *  thread; the socket is the GUI thread's, so it is handed over, and dropped
+ *  if the shell has gone by then (the context object) or the port has. */
+void NativeMidi::forward(int source, const QByteArray &message) {
+  QByteArray bytes;
+  bytes.reserve(message.size() + 1);
+  bytes.append(char(source));
+  bytes.append(message);
+  QMetaObject::invokeMethod(this, [this, source, bytes] {
+    if (!socket_) return;
+    if (source == 0 ? openIn_.isEmpty() : !keyboardOpen(source)) return;
+    socket_->sendBinaryMessage(bytes);
   }, Qt::QueuedConnection);
+}
+
+void NativeMidi::onInput(double, std::vector<unsigned char> *message, void *user) {
+  if (!message || message->empty()) return;
+  static_cast<NativeMidi *>(user)->forward(
+      0, QByteArray(reinterpret_cast<const char *>(message->data()), qsizetype(message->size())));
+}
+
+void NativeMidi::onKeyboard(double, std::vector<unsigned char> *message, void *user) {
+  if (!message || message->empty()) return;
+  // The Keyboard lives until its RtMidiIn has joined this thread, so it is
+  // safe to read here; its id is all that crosses to the GUI thread.
+  const auto *k = static_cast<const Keyboard *>(user);
+  k->self->forward(k->id, QByteArray(reinterpret_cast<const char *>(message->data()), qsizetype(message->size())));
 }
 
 }  // namespace microtone

@@ -14,9 +14,17 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 - Tempo is shown as BPM ÷ speed, scaled to speed 6, so BPM 747 at speed 14 reads 320 rather than looking like a fast song.
 - File → Send to Music Hub… puts the open project on music.microtone.cc, where anyone can listen to it and download it. It shows the title, author and message from the file, asks whether the song is your own or a cover, and asks you to agree that it may be downloaded and remixed freely and cannot be changed or taken down later. A person listens to every song before it goes up.
 
+**MIDI keyboards: play and record from any number of them, in any tuning**: a MIDI keyboard plays as the computer keyboard's piano keys do, and a Scala keyboard mapping says which step of the notation each key plays.
+
+- The **MIDI** badge in the top bar (and, in the desktop app, Settings → MIDI) lists the keyboards: tick as many as you like. They are opened again whenever they are plugged in.
+- A key auditions the current instrument, chords and all; in record mode on the Timeline or the Patterns view it enters its note with the current instrument and steps down, as a typed piano key does.
+- The sustain pedal writes `S $7200` when it goes down and `S $7100` when it comes up, and holds the notes you were auditioning until it is let go.
+- **Record velocity**, when switched on, writes how hard each key was struck into the volume column.
+- Without a mapping every key is one step of the note's notation, from key 60 at the top bar's octave; **Load .kbm…** takes a Scala keyboard mapping instead.
+
 **Control surfaces: a Mackie Control device as a second keyboard**: an X-Touch One, or any surface in its Mackie mode, works on the lane the cursor is in — its knob and fader write the lane's position and volume, its buttons play, record and move about, and its lamps and display follow the song.
 
-- The **surface** badge in the top bar picks the surface's ports. The choice is remembered, and the surface is opened again whenever it is plugged in. The desktop app opens it itself; a browser asks once for MIDI.
+- The **MIDI** badge in the top bar picks the surface's ports, in the same place as the keyboards. The choice is remembered, and the surface is opened again whenever it is plugged in. The desktop app opens it itself; a browser asks once for MIDI.
 - Closing the app or the tab lets the surface go: its lamps, displays and meters go dark.
 - In record mode the knob writes `S $80xx`, `S $8xxx` or `X $eeaa` into the cursor's cell, by the song's panning model, and its push switches a spatial song's knob between azimuth and elevation. The fader writes `M $xx00` and the master fader `V $xx00`, one undo step per touch or knob turn, and the motor shows the lane's volume: as it plays, or, stopped, as the song leaves it at the cursor's row, bringing the fader back after a hand lets go. The knob's ring shows the lane's position the same way. Out of record mode the master fader sets the project's global volume, as the master strip's fader does.
 - Every strip's Mute, Solo and Rec mute, solo and show the second effect column of the cursor's lane, and Select opens the lane's menu, which the knob then walks.

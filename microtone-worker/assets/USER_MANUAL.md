@@ -3746,9 +3746,25 @@ those cells wears, so the plot reads as something laid over the notation rather
 than as part of it. The faint grey line down the middle of each cell is the
 centre of the scale.
 
+## MIDI keyboards
+
+A MIDI keyboard plays the notes the computer keyboard's piano keys play. Click the **MIDI** badge in the top bar and, under **Keyboards**, tick each keyboard to use — as many as you like at once. Every change takes effect as you make it, so the dialog has only **Close**. A browser asks once for access to MIDI: Chromium-based browsers ask directly, Firefox installs a site permission first, and Safari has no MIDI at all. The desktop app opens the ports itself and asks nothing, and has the same settings in its Settings tab (**Ctrl+,**), under **MIDI**. The choice is remembered, and a keyboard is opened again whenever it is plugged in.
+
+- **Out of record mode**, and in every view where notes are not entered, a key auditions the current instrument, and a chord sounds as a chord.
+- **In record mode**, on the Timeline or the Patterns view, a key enters its note into the cursor's cell with the current instrument and moves the cursor down by the input step, as a piano key of the computer keyboard does: one note at a time, whichever column the cursor is on.
+- **The sustain pedal** writes `S $7200` into the cursor's cell when it goes down and `S $7100` when it comes up (in record mode, into a free effect column, or over the pedal's own command), and holds the notes you were auditioning until it comes up.
+- **Record velocity**, when ticked, writes how hard each key was struck into the volume column as a volume set: the hardest, 127, is 255. Untick it and no volume is written, as typing writes none.
+- A keyboard's All Notes Off lets go of every key it holds, and so does unplugging it.
+
+### Which note a key plays
+
+Without a mapping, every key is one step of the note's notation, and key 60 (middle C) plays the first step of the octave shown as **Oct** in the top bar: in 12-TET at **Oct 4**, key 60 is C-4 and the keyboard plays as a piano does; in 31-TET each key is the next of the 31 steps. **Alt+↑** and **Alt+↓** move a MIDI keyboard's octave with the computer keyboard's; the transposition (**Shift+Alt+←** / **→**) is the computer keyboard's alone. The steps are counted in the note's own notation — its instrument's, else its lane's, else the song's.
+
+A **key mapping** says which step each key plays: press **Load .kbm…** beside **Key mapping** and choose a Scala keyboard mapping. The mapping is a pattern of keys that repeats up and down the keyboard. Each entry names the step its key plays, or `x` for a key that stays silent, and each repeat of the pattern moves by the mapping's *formal octave*, a number of steps. Its *middle key* plays the pattern's first entry, in the top bar's octave, and only the keys from its first to its last sound. A mapping counts steps, so it works with any notation: a twelve-key pattern of seven entries and five `x`s plays a seven-step notation from the white keys alone. The mapping's reference key and frequency are not used — a song's pitch comes from its own tuning. **Use none** goes back to a key a step.
+
 ## Control surface (Mackie Control)
 
-A Mackie Control surface works as a second keyboard: a Behringer X-Touch One, a Mackie MCU, or anything else that speaks the protocol in its Mackie mode. Click the **surface** badge in the top bar, choose the surface's input (its output is found from the name, or choose it as well) and press **Use**. A browser asks once for access to MIDI: Chromium-based browsers ask directly, Firefox installs a site permission first, and Safari has no MIDI at all. The desktop app opens the ports itself and asks nothing. The choice is remembered, and the surface is opened again whenever it is plugged in; choose **Off** to let it go.
+A Mackie Control surface works as a second keyboard: a Behringer X-Touch One, a Mackie MCU, or anything else that speaks the protocol in its Mackie mode. Click the **MIDI** badge in the top bar and, under **Control surface**, choose the surface's input (its output is found from the name, or choose it as well); in the desktop app it is also in Settings, under **MIDI**. There is one surface at a time, and a port that is a keyboard is not offered for it. A browser asks once for access to MIDI: Chromium-based browsers ask directly, Firefox installs a site permission first, and Safari has no MIDI at all. The desktop app opens the ports itself and asks nothing. The choice is remembered, and the surface is opened again whenever it is plugged in; choose **Off** to let it go.
 
 Mackie Control groups its faders in banks of eight strips. Microtone does not: **every strip acts on the lane the cursor is in**, and every strip's lamps show that lane. The knob and the fader write into the cursor's cell, so, as with the keyboard, they write only in record mode.
 

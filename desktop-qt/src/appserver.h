@@ -56,7 +56,7 @@ class AppServer : public QObject {
    *  ws://microtone.localhost/engine?t=<token> and hand it to `sink`. Until
    *  this is called (no device, or --web-audio) the endpoint refuses. */
   void setEngineSockets(std::function<void(std::unique_ptr<QWebSocket>)> sink);
-  /** …and the control surface's MIDI ports (nativemidi.h) at
+  /** …and the MIDI ports (nativemidi.h: the control surface and the keyboards) at
    *  ws://microtone.localhost/midi?t=<token>. */
   void setMidiSockets(std::function<void(std::unique_ptr<QWebSocket>)> sink);
 

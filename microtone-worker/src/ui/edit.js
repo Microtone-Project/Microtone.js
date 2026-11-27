@@ -718,7 +718,8 @@ export function capKey(code) {
 /**
  * Interpret an edit-mode keydown against a cell column.
  * @param ev   {code, key, repeat} from the KeyboardEvent (repeat = autorepeat,
- *             which the piano keys ignore)
+ *             which the piano keys ignore); or a MIDI key's {code: its id,
+ *             noteFor(preset), volume?} (item 379), read on the note column
  * @param sub  cursor sub-column, nib nibble index within it
  * @param cell current TaudPlayData (read-only here)
  * @param ctx  {octave, transpose, currentInst, preset, wideCells, lyricContinues} — preset =
@@ -735,6 +736,17 @@ export function interpretEditKey(ev, sub, nib, cell, ctx) {
   const wide = ctx.wideCells === true;
 
   if (sub === SUB_NOTE) {
+    // A MIDI keyboard's key (item 379, masterkeyboard.js): always a note, in
+    // the notation the cell's note goes in (`noteFor(preset)`), entered as a
+    // piano key's is; `volume` is its velocity, when that is written.
+    if (ev.noteFor) {
+      const note = ev.noteFor(ctx.preset);
+      if (note === null || note === undefined) return { consumed: true };
+      const fields = { note };
+      if (ctx.currentInst > 0 && !ctx.lyricContinues) fields.instrment = ctx.currentInst;
+      if (ev.volume !== undefined) { fields.volume = ev.volume; fields.volumeEff = 0; } // SET
+      return { fields, jamNote: note, advanceRow: true };
+    }
     // Raw hex note entry — active whenever the note column shows raw hex words
     // (Raw toggle on, or a Raw notation preset). Hex digits shift into the
     // 16-bit note word (left-to-right), OVERRIDING the piano jam, the sentinels

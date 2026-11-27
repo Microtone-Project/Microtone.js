@@ -15,15 +15,18 @@
 //   Performance  the polyphony limit (item 355); the device callback's load,
 //                the engine's, dropouts, and the real-time scheduling the
 //                thread was granted
+//   MIDI         the keyboards and the control surface (item 379): the same
+//                panel as the top bar's MIDI badge opens (midipanel.js)
 //
-// A category is an entry in CATEGORIES with a builder: MIDI, updates and the
-// rest join as they are made.
+// A category is an entry in CATEGORIES with a builder: updates and the rest
+// join as they are made.
 
 import { t } from "../i18n.js";
 import { profileVerdict } from "../profileoverlay.js";
 import { nativeApiName } from "../../../core/audio/native-engine.js";
 import { POLYPHONY_CHOICES } from "../../../core/engine/constants.js";
 import { polyphonySetting, choosePolyphony } from "../polyphony.js";
+import { buildMidiPanel } from "../midipanel.js";
 
 const CATEGORY_KEY = "microtone-settings-category";
 const BUFFERS = [64, 128, 256, 512, 1024, 2048];
@@ -33,6 +36,7 @@ const RATES = [44100, 48000, 88200, 96000, 176400, 192000];
 const CATEGORIES = [
   { key: "audio", label: "settings.cat.audio" },
   { key: "performance", label: "settings.cat.performance" },
+  { key: "midi", label: "settings.cat.midi" },
 ];
 
 // WASAPI's three ways to play (desktop-qt/src/wasapi.h), in the host's words.
@@ -86,6 +90,7 @@ export class SettingsView {
     this._perf = null;       // the Performance category's readouts
     this._dropouts = 0;      // xruns since this page opened (or Count again)
     this._lastReport = null;
+    this._midiPanel = null;  // the MIDI category's panel, while it is shown
 
     this.root = el("div", "split-view settings-view");
     this.list = el("div", "side-list settings-list");
@@ -113,6 +118,12 @@ export class SettingsView {
   hide() {
     this.visible = false;
     this._setProfiling(false);
+    this._dropMidi();
+  }
+
+  _dropMidi() {
+    this._midiPanel?.dispose();
+    this._midiPanel = null;
   }
 
   refresh() {
@@ -157,8 +168,15 @@ export class SettingsView {
     this._link = this.link;
     this._status = this._link?.hello ?? null;
     this._perf = null;
+    this._dropMidi();
     this.detail.replaceChildren();
     this._setProfiling(this.category === "performance" && this._link !== null);
+    // MIDI is the page's (the shell only opens the ports), so it needs no
+    // audio at all.
+    if (this.category === "midi") {
+      this._renderMidi();
+      return;
+    }
     // The polyphony limit is the page's (it governs exports as well), so it
     // is there whether or not the native host is.
     if (this.category === "performance") this._renderPolyphony();
@@ -369,6 +387,25 @@ export class SettingsView {
     this.busy = false;
     this.error = status?.error ?? "";
     this.refresh();
+  }
+
+  // ── MIDI ──
+
+  _renderMidi() {
+    const link = this.store.midiLink;
+    if (!link?.available) {
+      this.detail.append(el("p", "set-note", t("midiSetup.unavailable")));
+      return;
+    }
+    const panel = buildMidiPanel(link);
+    this._midiPanel = panel;
+    this.detail.append(panel.root);
+    // The desktop asks nobody: the ports are opened here if nothing has yet.
+    if (!link.ports) {
+      link.ensure().then(() => panel.refresh(), (err) => {
+        this.detail.append(el("p", "set-note err", t("surface.refused", { err: err?.message ?? String(err) })));
+      });
+    }
   }
 
   // ── Performance ──

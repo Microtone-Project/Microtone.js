@@ -9,7 +9,7 @@
 //   links       where a link goes
 //   nativeaudio the native audio host: the C engine (enginehost.c) on the
 //               device's callback, driven by the page over a WebSocket
-//   nativemidi  the control surface's MIDI ports (RtMidi), handed to the
+//   nativemidi  the MIDI ports (RtMidi: the surface, the keyboards), handed to the
 //               page over a WebSocket of their own
 //
 // Usage: microtone [--root <dir>] [--open <path?query>] [--web-audio]
@@ -316,7 +316,7 @@ int main(int argc, char **argv) {
     }
   }
 
-  // The control surface's MIDI ports (item 379): Web MIDI is refused inside
+  // The MIDI ports (item 379: the surface and the keyboards): Web MIDI is refused inside
   // QtWebEngine, so the shell opens them, on the page's word.
   NativeMidi midi;
   server.setMidiSockets([&midi](std::unique_ptr<QWebSocket> socket) { midi.attach(std::move(socket)); });
@@ -327,7 +327,7 @@ int main(int argc, char **argv) {
               nativeEngine.isEmpty() ? QJsonObject() : native.status(),
               QJsonObject{{QStringLiteral("signature"), QLatin1String(kFileSignature)},
                           {QStringLiteral("files"), files.describe()},
-                          // src/midi/ports.js: the control surface's ports
+                          // src/midi/ports.js: the surface's and the keyboards' ports
                           {QStringLiteral("midi"), midiSocket},
                           {QStringLiteral("online"), online.describe()},
                           {QStringLiteral("updates"), updater.describe()},
