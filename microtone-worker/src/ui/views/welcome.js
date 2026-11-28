@@ -43,7 +43,7 @@ const MRU_KEY = "microtone-recent";
 // from (src/ui/views/ → the deploy root).
 const NEWS_URL = new URL("../../../assets/PATCH_NOTES.md", import.meta.url);
 const BANNERS_URL = new URL("../../../assets/site_banners/", import.meta.url);
-// [button file, site, its name (the alt text)]. Ours goes last.
+// [button file, site, its name (the alt text)]. Ours go last.
 const FRIENDS = [
   ["scene.gif", "https://www.scene.org/", "scene.org"],
   ["tma_c.gif", "https://modarchive.org/", "The Mod Archive"],
@@ -52,6 +52,7 @@ const FRIENDS = [
   ["soundtrackermuseum.gif", "https://soundtracker-museum.com/", "Soundtracker Museum"],
   ["xenwiki.gif", "https://en.xen.wiki/w/Main_Page", "Xenharmonic Wiki"],
   ["scaleworkshop.gif", "https://scaleworkshop.plainsound.org/", "Scale Workshop"],
+  ["musichub.gif", "https://music.microtone.cc/", "Microtone Music Hub"],
   ["microtone.gif", "https://microtone.cc/", "Microtone"],
 ];
 

@@ -14,6 +14,7 @@ Bug reports and suggestions are welcome on [GitHub](https://github.com/Microtone
 - Tempo is shown as BPM ÷ speed, scaled to speed 6, so BPM 747 at speed 14 reads 320 rather than looking like a fast song.
 - File → Send to Music Hub… puts the open project on music.microtone.cc, where anyone can listen to it and download it. It shows the title, author and message from the file, asks whether the song is your own or a cover, and asks you to agree that it may be downloaded and remixed freely and cannot be changed or taken down later. A person listens to every song before it goes up.
 - On the Music Hub the player sits in a bar along the bottom of the page: previous, play/stop and next, the title and author (scrolling past when they are too long for the bar), and a level for every lane. Previous goes back to the song before if this one has only just begun, and to the top of this one otherwise.
+- The Music Hub has a button of its own in the Welcome page's **Sites we like** row, beside Microtone's.
 
 **MIDI keyboards: play and record from any number of them, in any tuning**: a MIDI keyboard plays as the computer keyboard's piano keys do, and a Scala keyboard mapping says which step of the notation each key plays.
 
